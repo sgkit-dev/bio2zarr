@@ -1414,6 +1414,31 @@ def async_flush_2d_array(executor, np_buffer, zarr_array, offset):
     return futures
 
 
+def generate_spec(columnarised, out):
+    pcvcf = PickleChunkedVcf.load(columnarised)
+    spec = ZarrConversionSpec.generate(pcvcf)
+    json.dump(spec.asdict(), out, indent=4)
+
+
+def to_zarr(
+    columnarised, zarr_path, conversion_spec, worker_processes=1, show_progress=False
+):
+    pcvcf = PickleChunkedVcf.load(columnarised)
+    if conversion_spec is None:
+        spec = ZarrConversionSpec.generate(pcvcf)
+    else:
+        with open(conversion_spec, "r") as f:
+            d = json.load(f)
+            spec = ZarrConversionSpec.fromdict(d)
+    SgvcfZarr.convert(
+        pcvcf,
+        zarr_path,
+        conversion_spec=spec,
+        worker_processes=worker_processes,
+        show_progress=True,
+    )
+
+
 def convert_vcf(
     vcfs,
     out_path,
