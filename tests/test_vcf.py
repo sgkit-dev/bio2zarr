@@ -218,3 +218,11 @@ class TestSmallExampleValues:
             [[-1, -1], [-1, -1], [-1, -1]],
         ]
         nt.assert_array_equal(ds["call_HQ"], call_HQ)
+
+class TestByValidating:
+
+    def test_sample(self, tmp_path):
+        path = "tests/data/vcf/sample.vcf.gz"
+        out = tmp_path / "example.vcf.zarr"
+        vcf.convert_vcf([path], out)
+        vcf.validate(path, out)

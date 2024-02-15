@@ -1488,7 +1488,7 @@ def encode_bed_partition_genotypes(bed_path, zarr_path, start_variant, end_varia
         flush_futures(futures)
 
 
-def validate(vcf_path, zarr_path, show_progress):
+def validate(vcf_path, zarr_path, show_progress=False):
     store = zarr.DirectoryStore(zarr_path)
 
     root = zarr.group(store=store)
@@ -1526,7 +1526,10 @@ def validate(vcf_path, zarr_path, show_progress):
     start_index = np.searchsorted(pos, first_pos)
     assert pos[start_index] == first_pos
     vcf = cyvcf2.VCF(vcf_path)
-    iterator = tqdm.tqdm(vcf, total=vcf.num_records)
+    if show_progress:
+        iterator = tqdm.tqdm(vcf, total=vcf.num_records)
+    else:
+        iterator = vcf
     for j, row in enumerate(iterator, start_index):
         assert chrom[j] == row.CHROM
         assert pos[j] == row.POS
