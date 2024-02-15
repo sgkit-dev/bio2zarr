@@ -74,7 +74,7 @@ def assert_prefix_integer_equal_2d(vcf_val, zarr_val):
 # Will need to hand-craft from examples to test
 def assert_prefix_float_equal_1d(vcf_val, zarr_val):
     v = np.array(vcf_val, dtype=np.float32, ndmin=1)
-    vi = v.view(np.int32)
+    # vi = v.view(np.int32)
     z = np.array(zarr_val, dtype=np.float32, ndmin=1)
     zi = z.view(np.int32)
     assert np.sum(zi == FLOAT32_MISSING_AS_INT32) == 0
