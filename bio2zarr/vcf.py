@@ -1564,7 +1564,7 @@ def validate(vcf_path, zarr_path, show_progress):
                 elif vcf_type == "String":
                     assert np.all(zarr_val == ".")
                 elif vcf_type == "Flag":
-                    assert zarr_val == False
+                    assert zarr_val == False  # noqa 712
                 elif vcf_type == "Float":
                     assert_all_missing_float(zarr_val)
                 else:
@@ -1576,7 +1576,7 @@ def validate(vcf_path, zarr_path, show_progress):
                 elif vcf_type == "Float":
                     assert_prefix_float_equal_1d(vcf_val, zarr_val)
                 elif vcf_type == "Flag":
-                    assert zarr_val == True
+                    assert zarr_val == True  # noqa 712
                 elif vcf_type == "String":
                     assert np.all(zarr_val == vcf_val)
                 else:
