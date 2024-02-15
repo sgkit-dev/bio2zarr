@@ -4,23 +4,7 @@ import click
 import yaml
 import tabulate
 
-import sgkit.io.vcf.vcf_converter as cnv
-
-# from sgkit import load_dataset
-
-
-@click.command
-@click.argument("vcfs", nargs=-1, required=True)
-def scan(vcfs):
-    progress = False
-    spec = cnv.scan_vcfs(vcfs, show_progress=progress)
-    spec = spec.vcf_metadata
-    converted = yaml.dump(spec.asdict())
-    # converted = json.dumps(spec.asdict(), indent=4)
-
-    print(converted)
-    # spec2 = cnv.VcfMetadata.fromdict(yaml.load(converted))
-    # print(spec2)
+import bio2zarr.vcf as cnv  # fixme
 
 
 @click.command
@@ -85,7 +69,10 @@ def to_zarr(columnarised, zarr_path, conversion_spec, worker_processes):
 @click.argument("out_path", type=click.Path())
 @click.option("-p", "--worker-processes", type=int, default=1)
 def convert(vcfs, out_path, worker_processes):
-    cnv.convert_vcf(vcfs, out_path, show_progress=True, worker_processes=worker_processes)
+    cnv.convert_vcf(
+        vcfs, out_path, show_progress=True, worker_processes=worker_processes
+    )
+
 
 @click.command
 @click.argument("vcfs", nargs=-1, required=True)

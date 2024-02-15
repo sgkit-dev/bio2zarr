@@ -23,26 +23,17 @@ import zarr
 
 import bed_reader
 
+INT_MISSING = -1
+INT_FILL = -2
+STR_MISSING = "."
+STR_FILL = ""
 
-# from sgkit.io.utils import FLOAT32_MISSING, str_is_int
-from sgkit.io.utils import (
-    # CHAR_FILL,
-    # CHAR_MISSING,
-    FLOAT32_FILL,
-    FLOAT32_MISSING,
-    FLOAT32_FILL_AS_INT32,
-    FLOAT32_MISSING_AS_INT32,
-    INT_FILL,
-    INT_MISSING,
-    # STR_FILL,
-    # STR_MISSING,
-    # str_is_int,
+FLOAT32_MISSING, FLOAT32_FILL = np.array([0x7F800001, 0x7F800002], dtype=np.int32).view(
+    np.float32
 )
-
-# from sgkit.io.vcf import partition_into_regions
-
-# from sgkit.io.utils import INT_FILL, concatenate_and_rechunk, str_is_int
-# from sgkit.utils import smallest_numpy_int_dtype
+FLOAT32_MISSING_AS_INT32, FLOAT32_FILL_AS_INT32 = np.array(
+    [0x7F800001, 0x7F800002], dtype=np.int32
+)
 
 numcodecs.blosc.use_threads = False
 
