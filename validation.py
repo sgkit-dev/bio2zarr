@@ -11,14 +11,19 @@ from bio2zarr import vcf
 
 
 @click.command
+@click.argument("vcfs", nargs=-1)
 @click.option("-p", "--worker-processes", type=int, default=1)
 @click.option("-f", "--force", is_flag=True, default=False)
-def cli(worker_processes, force):
+def cli(vcfs, worker_processes, force):
+
     data_path = pathlib.Path("validation-data")
-    files = list(data_path.glob("*.vcf.gz")) + list(data_path.glob("*.bcf"))
+    if len(vcfs) == 0:
+        vcfs = list(data_path.glob("*.vcf.gz")) + list(data_path.glob("*.bcf"))
+    else:
+        vcfs = [pathlib.Path(f) for f in vcfs]
     tmp_path = pathlib.Path("validation-tmp")
     tmp_path.mkdir(exist_ok=True)
-    for f in files:
+    for f in vcfs:
         print(f)
         exploded = tmp_path / (f.name + ".exploded")
         if force or not exploded.exists():

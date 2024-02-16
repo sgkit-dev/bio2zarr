@@ -1,5 +1,6 @@
 import numpy as np
 import numpy.testing as nt
+import xarray.testing as xt
 import pytest
 import sgkit as sg
 
@@ -219,10 +220,26 @@ class TestSmallExampleValues:
         ]
         nt.assert_array_equal(ds["call_HQ"], call_HQ)
 
-class TestByValidating:
+    def test_no_genotypes(self, ds, tmp_path):
+        path = "tests/data/vcf/sample_no_genotypes.vcf.gz"
+        out = tmp_path / "example.vcf.zarr"
+        vcf.convert_vcf([path], out)
+        ds2 = sg.load_dataset(out)
+        assert len(ds2["sample_id"]) == 0
+        for col in ds:
+            if col != "sample_id" and not col.startswith("call_"):
+                xt.assert_equal(ds[col], ds2[col])
 
+
+class TestByValidating:
     def test_sample(self, tmp_path):
         path = "tests/data/vcf/sample.vcf.gz"
+        out = tmp_path / "example.vcf.zarr"
+        vcf.convert_vcf([path], out)
+        vcf.validate(path, out)
+
+    def test_sample_no_genotypes(self, tmp_path):
+        path = "tests/data/vcf/sample_no_genotypes.vcf.gz"
         out = tmp_path / "example.vcf.zarr"
         vcf.convert_vcf([path], out)
         vcf.validate(path, out)

@@ -1521,7 +1521,9 @@ def validate(vcf_path, zarr_path, show_progress=False):
     allele = root["variant_allele"][:]
     chrom = root["contig_id"][:][root["variant_contig"][:]]
     vid = root["variant_id"][:]
-    call_genotype = iter(root["call_genotype"])
+    call_genotype = None
+    if "call_genotype" in root:
+        call_genotype = iter(root["call_genotype"])
 
     vcf = cyvcf2.VCF(vcf_path)
     format_headers = {}
@@ -1565,16 +1567,19 @@ def validate(vcf_path, zarr_path, show_progress=False):
         assert np.all(allele[j, k + 1 :] == "")
         # TODO FILTERS
 
-        gt = row.genotype.array()
-        gt_zarr = next(call_genotype)
-        gt_vcf = gt[:, :-1]
-        # NOTE weirdly cyvcf2 seems to remap genotypes automatically
-        # into the same missing/pad encoding that sgkit uses.
-        # if np.any(gt_zarr < 0):
-        #     print("MISSING")
-        #     print(gt_zarr)
-        #     print(gt_vcf)
-        nt.assert_array_equal(gt_zarr, gt_vcf)
+        if call_genotype is None:
+            assert row.genotype is None
+        else:
+            gt = row.genotype.array()
+            gt_zarr = next(call_genotype)
+            gt_vcf = gt[:, :-1]
+            # NOTE weirdly cyvcf2 seems to remap genotypes automatically
+            # into the same missing/pad encoding that sgkit uses.
+            # if np.any(gt_zarr < 0):
+            #     print("MISSING")
+            #     print(gt_zarr)
+            #     print(gt_vcf)
+            nt.assert_array_equal(gt_zarr, gt_vcf)
 
         # TODO this is basically right, but the details about float padding
         # need to be worked out in particular. Need to find examples of
