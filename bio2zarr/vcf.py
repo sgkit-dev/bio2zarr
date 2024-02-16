@@ -1009,7 +1009,11 @@ class ZarrConversionSpec:
                 shape.append(n)
                 chunks.append(chunk_width),
                 dimensions.append("samples")
-            if field.summary.max_number > 1:
+            if field.category == "FORMAT" and field.vcf_type == "String":
+                # FIXME not handling format string values very well right now
+                # as the max_number value is just the number of samples
+                pass
+            elif field.summary.max_number > 1:
                 shape.append(field.summary.max_number)
                 dimensions.append(field.name)
             variable_name = prefix + field.name
@@ -1414,6 +1418,31 @@ def async_flush_2d_array(executor, np_buffer, zarr_array, offset):
     return futures
 
 
+def generate_spec(columnarised, out):
+    pcvcf = PickleChunkedVcf.load(columnarised)
+    spec = ZarrConversionSpec.generate(pcvcf)
+    json.dump(spec.asdict(), out, indent=4)
+
+
+def to_zarr(
+    columnarised, zarr_path, conversion_spec, worker_processes=1, show_progress=False
+):
+    pcvcf = PickleChunkedVcf.load(columnarised)
+    if conversion_spec is None:
+        spec = ZarrConversionSpec.generate(pcvcf)
+    else:
+        with open(conversion_spec, "r") as f:
+            d = json.load(f)
+            spec = ZarrConversionSpec.fromdict(d)
+    SgvcfZarr.convert(
+        pcvcf,
+        zarr_path,
+        conversion_spec=spec,
+        worker_processes=worker_processes,
+        show_progress=True,
+    )
+
+
 def convert_vcf(
     vcfs,
     out_path,
@@ -1488,7 +1517,7 @@ def encode_bed_partition_genotypes(bed_path, zarr_path, start_variant, end_varia
         flush_futures(futures)
 
 
-def validate(vcf_path, zarr_path, show_progress):
+def validate(vcf_path, zarr_path, show_progress=False):
     store = zarr.DirectoryStore(zarr_path)
 
     root = zarr.group(store=store)
@@ -1496,7 +1525,9 @@ def validate(vcf_path, zarr_path, show_progress):
     allele = root["variant_allele"][:]
     chrom = root["contig_id"][:][root["variant_contig"][:]]
     vid = root["variant_id"][:]
-    call_genotype = iter(root["call_genotype"])
+    call_genotype = None
+    if "call_genotype" in root:
+        call_genotype = iter(root["call_genotype"])
 
     vcf = cyvcf2.VCF(vcf_path)
     format_headers = {}
@@ -1526,7 +1557,10 @@ def validate(vcf_path, zarr_path, show_progress):
     start_index = np.searchsorted(pos, first_pos)
     assert pos[start_index] == first_pos
     vcf = cyvcf2.VCF(vcf_path)
-    iterator = tqdm.tqdm(vcf, total=vcf.num_records)
+    if show_progress:
+        iterator = tqdm.tqdm(vcf, total=vcf.num_records)
+    else:
+        iterator = vcf
     for j, row in enumerate(iterator, start_index):
         assert chrom[j] == row.CHROM
         assert pos[j] == row.POS
@@ -1537,16 +1571,19 @@ def validate(vcf_path, zarr_path, show_progress):
         assert np.all(allele[j, k + 1 :] == "")
         # TODO FILTERS
 
-        gt = row.genotype.array()
-        gt_zarr = next(call_genotype)
-        gt_vcf = gt[:, :-1]
-        # NOTE weirdly cyvcf2 seems to remap genotypes automatically
-        # into the same missing/pad encoding that sgkit uses.
-        # if np.any(gt_zarr < 0):
-        #     print("MISSING")
-        #     print(gt_zarr)
-        #     print(gt_vcf)
-        nt.assert_array_equal(gt_zarr, gt_vcf)
+        if call_genotype is None:
+            assert row.genotype is None
+        else:
+            gt = row.genotype.array()
+            gt_zarr = next(call_genotype)
+            gt_vcf = gt[:, :-1]
+            # NOTE weirdly cyvcf2 seems to remap genotypes automatically
+            # into the same missing/pad encoding that sgkit uses.
+            # if np.any(gt_zarr < 0):
+            #     print("MISSING")
+            #     print(gt_zarr)
+            #     print(gt_vcf)
+            nt.assert_array_equal(gt_zarr, gt_vcf)
 
         # TODO this is basically right, but the details about float padding
         # need to be worked out in particular. Need to find examples of

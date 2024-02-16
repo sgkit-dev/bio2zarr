@@ -34,11 +34,8 @@ def summarise(columnarised):
 @click.argument("columnarised", type=click.Path())
 # @click.argument("specfile", type=click.Path())
 def genspec(columnarised):
-    pcvcf = cnv.PickleChunkedVcf.load(columnarised)
-    spec = cnv.ZarrConversionSpec.generate(pcvcf)
-    # with open(specfile, "w") as f:
     stream = click.get_text_stream("stdout")
-    json.dump(spec.asdict(), stream, indent=4)
+    cnv.generate_spec(columnarised, stream)
 
 
 @click.command
@@ -47,21 +44,12 @@ def genspec(columnarised):
 @click.option("-s", "--conversion-spec", default=None)
 @click.option("-p", "--worker-processes", type=int, default=1)
 def to_zarr(columnarised, zarr_path, conversion_spec, worker_processes):
-    pcvcf = cnv.PickleChunkedVcf.load(columnarised)
-    if conversion_spec is None:
-        spec = cnv.ZarrConversionSpec.generate(pcvcf)
-    else:
-        with open(conversion_spec, "r") as f:
-            d = json.load(f)
-            spec = cnv.ZarrConversionSpec.fromdict(d)
-
-    cnv.SgvcfZarr.convert(
-        pcvcf,
+    cnv.to_zarr(
+        columnarised,
         zarr_path,
-        conversion_spec=spec,
+        conversion_spec,
         worker_processes=worker_processes,
-        show_progress=True,
-    )
+        show_progress=True)
 
 
 @click.command
