@@ -231,15 +231,16 @@ class TestSmallExampleValues:
                 xt.assert_equal(ds[col], ds2[col])
 
 
-class TestByValidating:
-    def test_sample(self, tmp_path):
-        path = "tests/data/vcf/sample.vcf.gz"
-        out = tmp_path / "example.vcf.zarr"
-        vcf.convert_vcf([path], out)
-        vcf.validate(path, out)
-
-    def test_sample_no_genotypes(self, tmp_path):
-        path = "tests/data/vcf/sample_no_genotypes.vcf.gz"
-        out = tmp_path / "example.vcf.zarr"
-        vcf.convert_vcf([path], out)
-        vcf.validate(path, out)
+@pytest.mark.parametrize(
+    "name",
+    [
+        "sample.vcf.gz",
+        "sample_no_genotypes.vcf.gz",
+        # "info_field_type_combos.vcf.gz",
+    ],
+)
+def test_by_validating(name, tmp_path):
+    path = f"tests/data/vcf/{name}"
+    out = tmp_path / "test.zarr"
+    vcf.convert_vcf([path], out)
+    vcf.validate(path, out)

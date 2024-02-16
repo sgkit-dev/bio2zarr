@@ -1009,7 +1009,11 @@ class ZarrConversionSpec:
                 shape.append(n)
                 chunks.append(chunk_width),
                 dimensions.append("samples")
-            if field.summary.max_number > 1:
+            if field.category == "FORMAT" and field.vcf_type == "String":
+                # FIXME not handling format string values very well right now
+                # as the max_number value is just the number of samples
+                pass
+            elif field.summary.max_number > 1:
                 shape.append(field.summary.max_number)
                 dimensions.append(field.name)
             variable_name = prefix + field.name
