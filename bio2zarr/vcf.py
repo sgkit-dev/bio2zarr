@@ -13,7 +13,7 @@ import math
 import tempfile
 from typing import Any
 
-import humanize
+import humanfriendly
 import cyvcf2
 import numcodecs
 import numpy as np
@@ -649,7 +649,7 @@ class PickleChunkedVcf:
             return ret
 
         def display_size(n):
-            return humanize.naturalsize(n, binary=True)
+            return humanfriendly.format_size(n)
 
         data = []
         for name, col in self.columns.items():
