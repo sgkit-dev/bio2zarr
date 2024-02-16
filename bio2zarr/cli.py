@@ -1,10 +1,8 @@
-import json
-
 import click
-import yaml
 import tabulate
 
-import bio2zarr.vcf as cnv  # fixme
+# import bio2zarr.vcf as cnv  # fixme
+from . import vcf as cnv
 
 
 @click.command
@@ -49,14 +47,15 @@ def to_zarr(columnarised, zarr_path, conversion_spec, worker_processes):
         zarr_path,
         conversion_spec,
         worker_processes=worker_processes,
-        show_progress=True)
+        show_progress=True,
+    )
 
 
-@click.command
+@click.command(name="convert")
 @click.argument("vcfs", nargs=-1, required=True)
 @click.argument("out_path", type=click.Path())
 @click.option("-p", "--worker-processes", type=int, default=1)
-def convert(vcfs, out_path, worker_processes):
+def convert_vcf(vcfs, out_path, worker_processes):
     cnv.convert_vcf(
         vcfs, out_path, show_progress=True, worker_processes=worker_processes
     )
@@ -69,7 +68,20 @@ def validate(vcfs, out_path):
     cnv.validate(vcfs[0], out_path, show_progress=True)
 
 
-@click.command
+@click.group()
+def vcf2zarr():
+    pass
+
+
+vcf2zarr.add_command(explode)
+vcf2zarr.add_command(summarise)
+vcf2zarr.add_command(genspec)
+vcf2zarr.add_command(to_zarr)
+vcf2zarr.add_command(convert_vcf)
+vcf2zarr.add_command(validate)
+
+
+@click.command(name="convert")
 @click.argument("plink", type=click.Path())
 @click.argument("out_path", type=click.Path())
 @click.option("-p", "--worker-processes", type=int, default=1)
@@ -87,17 +99,8 @@ def convert_plink(plink, out_path, worker_processes, chunk_width, chunk_length):
 
 
 @click.group()
-def cli():
+def plink2zarr():
     pass
 
 
-cli.add_command(explode)
-cli.add_command(summarise)
-cli.add_command(genspec)
-cli.add_command(to_zarr)
-cli.add_command(convert)
-cli.add_command(validate)
-cli.add_command(convert_plink)
-
-if __name__ == "__main__":
-    cli()
+plink2zarr.add_command(convert_plink)
