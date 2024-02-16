@@ -6,7 +6,7 @@ all: 1kg_2020_chr20.bcf.csi \
 	1kg_2020_others.vcf.gz.tbi \
 	1kg_p3_all_chr1.bcf.csi \
 	1kg_p3_all_chr1.vcf.gz.tbi\
-	1kg_p1_all_chr6.vcf.bcf.csi\
+	1kg_p1_all_chr6.bcf.csi\
 	1kg_p1_all_chr6.vcf.gz.tbi
 
 .PRECIOUS: %.bcf
