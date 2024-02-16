@@ -2,6 +2,7 @@ import concurrent.futures as cf
 import dataclasses
 import multiprocessing
 import functools
+import logging
 import threading
 import pathlib
 import time
@@ -22,6 +23,8 @@ import tqdm
 import zarr
 
 import bed_reader
+
+logger = logging.getLogger(__name__)
 
 INT_MISSING = -1
 INT_FILL = -2
@@ -640,6 +643,7 @@ class PickleChunkedVcf:
         for col in self.columns.values():
             col.num_partitions = self.num_partitions
             col.num_records = self.num_records
+        logger.info(f"Loaded PickleChunkedVcf from {path}")
 
     def summary_table(self):
         def display_number(x):

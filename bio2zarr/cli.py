@@ -1,17 +1,39 @@
 import click
 import tabulate
+import coloredlogs
 
-# import bio2zarr.vcf as cnv  # fixme
-from . import vcf as cnv
+from . import vcf
+
+# Common arguments/options
+verbose = click.option("-v", "--verbose", count=True, help="Increase verbosity")
+
+worker_processes = click.option(
+    "-p", "--worker-processes", type=int, default=1, help="Number of worker processes"
+)
+
+
+# Note: logging hasn't been implemented in the code at all, this is just
+# a first pass to try out some ways of doing things to see what works.
+def setup_logging(verbosity):
+    level = "WARNING"
+    if verbosity == 1:
+        level = "INFO"
+    elif verbosity >= 2:
+        level = "DEBUG"
+    # NOTE: I'm not that excited about coloredlogs, just trying it out
+    # as it is installed by cyvcf2 anyway. We will have some complicated
+    # stuff doing on with threads and processes, to logs might not work
+    # so well anyway.
+    coloredlogs.install(level=level)
 
 
 @click.command
 @click.argument("vcfs", nargs=-1, required=True)
 @click.argument("out_path", type=click.Path())
-@click.option("-p", "--worker-processes", type=int, default=1)
+@worker_processes
 @click.option("-c", "--column-chunk-size", type=int, default=64)
 def explode(vcfs, out_path, worker_processes, column_chunk_size):
-    cnv.explode(
+    vcf.explode(
         vcfs,
         out_path,
         worker_processes=worker_processes,
@@ -22,10 +44,12 @@ def explode(vcfs, out_path, worker_processes, column_chunk_size):
 
 @click.command
 @click.argument("columnarised", type=click.Path())
-def summarise(columnarised):
-    pcvcf = cnv.PickleChunkedVcf.load(columnarised)
+@verbose
+def summarise(columnarised, verbose):
+    setup_logging(verbose)
+    pcvcf = vcf.PickleChunkedVcf.load(columnarised)
     data = pcvcf.summary_table()
-    print(tabulate.tabulate(data, headers="keys"))
+    click.echo(tabulate.tabulate(data, headers="keys"))
 
 
 @click.command
@@ -33,16 +57,16 @@ def summarise(columnarised):
 # @click.argument("specfile", type=click.Path())
 def genspec(columnarised):
     stream = click.get_text_stream("stdout")
-    cnv.generate_spec(columnarised, stream)
+    vcf.generate_spec(columnarised, stream)
 
 
 @click.command
 @click.argument("columnarised", type=click.Path())
 @click.argument("zarr_path", type=click.Path())
 @click.option("-s", "--conversion-spec", default=None)
-@click.option("-p", "--worker-processes", type=int, default=1)
+@worker_processes
 def to_zarr(columnarised, zarr_path, conversion_spec, worker_processes):
-    cnv.to_zarr(
+    vcf.to_zarr(
         columnarised,
         zarr_path,
         conversion_spec,
@@ -54,9 +78,9 @@ def to_zarr(columnarised, zarr_path, conversion_spec, worker_processes):
 @click.command(name="convert")
 @click.argument("vcfs", nargs=-1, required=True)
 @click.argument("out_path", type=click.Path())
-@click.option("-p", "--worker-processes", type=int, default=1)
+@worker_processes
 def convert_vcf(vcfs, out_path, worker_processes):
-    cnv.convert_vcf(
+    vcf.convert_vcf(
         vcfs, out_path, show_progress=True, worker_processes=worker_processes
     )
 
@@ -65,7 +89,7 @@ def convert_vcf(vcfs, out_path, worker_processes):
 @click.argument("vcfs", nargs=-1, required=True)
 @click.argument("out_path", type=click.Path())
 def validate(vcfs, out_path):
-    cnv.validate(vcfs[0], out_path, show_progress=True)
+    vcf.validate(vcfs[0], out_path, show_progress=True)
 
 
 @click.group()
@@ -84,11 +108,11 @@ vcf2zarr.add_command(validate)
 @click.command(name="convert")
 @click.argument("plink", type=click.Path())
 @click.argument("out_path", type=click.Path())
-@click.option("-p", "--worker-processes", type=int, default=1)
+@worker_processes
 @click.option("--chunk-width", type=int, default=None)
 @click.option("--chunk-length", type=int, default=None)
 def convert_plink(plink, out_path, worker_processes, chunk_width, chunk_length):
-    cnv.convert_plink(
+    vcf.convert_plink(
         plink,
         out_path,
         show_progress=True,
