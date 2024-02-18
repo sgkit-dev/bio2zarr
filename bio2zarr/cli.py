@@ -30,9 +30,11 @@ def setup_logging(verbosity):
 @click.command
 @click.argument("vcfs", nargs=-1, required=True)
 @click.argument("out_path", type=click.Path())
+@verbose
 @worker_processes
 @click.option("-c", "--column-chunk-size", type=int, default=64)
-def explode(vcfs, out_path, worker_processes, column_chunk_size):
+def explode(vcfs, out_path, verbose, worker_processes, column_chunk_size):
+    setup_logging(verbose)
     vcf.explode(
         vcfs,
         out_path,

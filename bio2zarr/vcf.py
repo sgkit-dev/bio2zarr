@@ -274,8 +274,10 @@ def fixed_vcf_field_definitions():
 def scan_vcfs(paths, show_progress):
     partitions = []
     vcf_metadata = None
+    logger.info(f"Scanning {len(paths)} VCFs")
     for path in tqdm.tqdm(paths, desc="Scan ", disable=not show_progress):
         vcf = cyvcf2.VCF(path)
+        logger.debug(f"Scanning {path}")
 
         filters = [
             h["ID"]
@@ -462,8 +464,12 @@ class PickleChunkedVcfField:
         # TODO add class name
         return repr({"path": str(self.path), **self.vcf_field.summary.asdict()})
 
+    def chunk_path(self, partition_index, chunk_index):
+        return self.path / f"p{partition_index}" / f"c{chunk_index}"
+
     def write_chunk(self, partition_index, chunk_index, data):
-        path = self.path / f"p{partition_index}" / f"c{chunk_index}"
+        path = self.chunk_path(partition_index, chunk_index)
+        logger.debug(f"Start write: {path}")
         pkl = pickle.dumps(data)
         # NOTE assuming that reusing the same compressor instance
         # from multiple threads is OK!
@@ -475,9 +481,10 @@ class PickleChunkedVcfField:
         self.vcf_field.summary.num_chunks += 1
         self.vcf_field.summary.compressed_size += len(compressed)
         self.vcf_field.summary.uncompressed_size += len(pkl)
+        logger.debug(f"Finish write: {path}")
 
     def read_chunk(self, partition_index, chunk_index):
-        path = self.path / f"p{partition_index}" / f"c{chunk_index}"
+        path = self.chunk_path(partition_index, chunk_index)
         with open(path, "rb") as f:
             pkl = self.compressor.decode(f.read())
         return pickle.loads(pkl), len(pkl)
@@ -618,6 +625,8 @@ class PickleChunkedWriteBuffer:
 
     def flush(self):
         if len(self.buffer) > 0:
+            path = self.column.chunk_path(self.partition_index, self.chunk_index)
+            logger.debug(f"Schedule write: {path}")
             future = self.executor.submit(
                 self.column.write_chunk,
                 self.partition_index,
@@ -643,7 +652,6 @@ class PickleChunkedVcf:
         for col in self.columns.values():
             col.num_partitions = self.num_partitions
             col.num_records = self.num_records
-        logger.info(f"Loaded PickleChunkedVcf from {path}")
 
     def summary_table(self):
         def display_number(x):
@@ -692,6 +700,10 @@ class PickleChunkedVcf:
     def num_samples(self):
         return len(self.metadata.samples)
 
+    @property
+    def num_columns(self):
+        return len(self.columns)
+
     def mkdirs(self):
         self.path.mkdir()
         for col in self.columns.values():
@@ -720,6 +732,10 @@ class PickleChunkedVcf:
             partition.num_records for partition in vcf_metadata.partitions
         )
 
+        logger.info(
+            f"Exploding {pcvcf.num_columns} columns {total_variants} variants "
+            f"{pcvcf.num_samples} samples"
+        )
         global progress_counter
         progress_counter = multiprocessing.Value("Q", 0)
 
@@ -778,6 +794,7 @@ class PickleChunkedVcf:
         partition = vcf_metadata.partitions[partition_index]
         vcf = cyvcf2.VCF(partition.vcf_path)
         futures = set()
+        logger.info(f"Start partition {partition_index} {partition.vcf_path}")
 
         def service_futures(max_waiting=2 * flush_threads):
             while len(futures) > max_waiting:
@@ -828,12 +845,7 @@ class PickleChunkedVcf:
                     gt.append(variant.genotype.array())
 
                 for name, buff in info_fields:
-                    val = None
-                    try:
-                        val = variant.INFO[name]
-                    except KeyError:
-                        pass
-                    buff.append(val)
+                    buff.append(variant.INFO.get(name, None))
 
                 for name, buff in format_fields:
                     val = None
@@ -845,11 +857,15 @@ class PickleChunkedVcf:
 
                 service_futures()
 
+                # Note: an issue with updating the progress per variant here like this
+                # is that we get a significant pause at the end of the counter while
+                # all the "small" fields get flushed. Possibly not much to be done about it.
                 with progress_counter.get_lock():
                     progress_counter.value += 1
 
             for col in columns.values():
                 col.flush()
+            logger.info(f"VCF read finished; waiting on {len(futures)} chunk writes")
             service_futures(0)
 
             return summaries
