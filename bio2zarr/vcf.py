@@ -3,6 +3,7 @@ import dataclasses
 import multiprocessing
 import functools
 import logging
+import os
 import threading
 import pathlib
 import time
@@ -1246,7 +1247,7 @@ class SgvcfZarr:
             chunks=(chunk_width,),
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
-        logger.debug(f"Samples done")
+        logger.debug("Samples done")
 
     def encode_contig(self, pcvcf, contig_names, contig_lengths):
         array = self.root.array(
@@ -1280,7 +1281,7 @@ class SgvcfZarr:
 
         with progress_counter.get_lock():
             progress_counter.value += col.vcf_field.summary.uncompressed_size
-        logger.debug(f"Contig done")
+        logger.debug("Contig done")
 
     def encode_filters(self, pcvcf, filter_names):
         self.root.attrs["filters"] = filter_names
@@ -1308,7 +1309,7 @@ class SgvcfZarr:
 
         with progress_counter.get_lock():
             progress_counter.value += col.vcf_field.summary.uncompressed_size
-        logger.debug(f"Filters done")
+        logger.debug("Filters done")
 
     def encode_id(self, pcvcf):
         col = pcvcf.columns["ID"]
@@ -1329,16 +1330,21 @@ class SgvcfZarr:
 
         with progress_counter.get_lock():
             progress_counter.value += col.vcf_field.summary.uncompressed_size
-        logger.debug(f"ID done")
+        logger.debug("ID done")
 
     @staticmethod
     def convert(
         pcvcf, path, conversion_spec, *, worker_processes=1, show_progress=False
     ):
-        store = zarr.DirectoryStore(path)
-        # FIXME
-        logger.info(f"Create zarr at {path}")
-        sgvcf = SgvcfZarr(path)
+        path = pathlib.Path(path)
+        # TODO: we should do this as a future to avoid blocking
+        if path.exists():
+            shutil.rmtree(path)
+        write_path = path.with_suffix(path.suffix + f".{os.getpid()}.build")
+        store = zarr.DirectoryStore(write_path)
+        # FIXME, duplicating logic about the store
+        logger.info(f"Create zarr at {write_path}")
+        sgvcf = SgvcfZarr(write_path)
         sgvcf.root = zarr.group(store=store, overwrite=True)
         for variable in conversion_spec.variables[:]:
             sgvcf.create_array(variable)
@@ -1399,11 +1405,14 @@ class SgvcfZarr:
 
             flush_futures(futures)
 
-        zarr.consolidate_metadata(path)
         # FIXME can't join the bar_thread because we never get to the correct
         # number of bytes
         # if bar_thread is not None:
         #     bar_thread.join()
+        zarr.consolidate_metadata(write_path)
+        # Atomic swap, now we've completely finished.
+        logger.info(f"Moving to final path {path}")
+        os.rename(write_path, path)
 
 
 def sync_flush_array(np_buffer, zarr_array, offset):
@@ -1414,7 +1423,7 @@ def async_flush_array(executor, np_buffer, zarr_array, offset):
     """
     Flush the specified chunk aligned buffer to the specified zarr array.
     """
-    logger.debug(f"Schededule flush {zarr_array} @ {offset}")
+    logger.debug(f"Schedule flush {zarr_array} @ {offset}")
     assert zarr_array.shape[1:] == np_buffer.shape[1:]
     # print("sync", zarr_array, np_buffer)
 
