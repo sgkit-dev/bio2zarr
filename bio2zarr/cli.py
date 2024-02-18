@@ -65,9 +65,11 @@ def genspec(columnarised):
 @click.command
 @click.argument("columnarised", type=click.Path())
 @click.argument("zarr_path", type=click.Path())
+@verbose
 @click.option("-s", "--conversion-spec", default=None)
 @worker_processes
-def to_zarr(columnarised, zarr_path, conversion_spec, worker_processes):
+def to_zarr(columnarised, zarr_path, verbose, conversion_spec, worker_processes):
+    setup_logging(verbose)
     vcf.to_zarr(
         columnarised,
         zarr_path,
@@ -80,8 +82,10 @@ def to_zarr(columnarised, zarr_path, conversion_spec, worker_processes):
 @click.command(name="convert")
 @click.argument("vcfs", nargs=-1, required=True)
 @click.argument("out_path", type=click.Path())
+@verbose
 @worker_processes
-def convert_vcf(vcfs, out_path, worker_processes):
+def convert_vcf(vcfs, out_path, verbose, worker_processes):
+    setup_logging(verbose)
     vcf.convert_vcf(
         vcfs, out_path, show_progress=True, worker_processes=worker_processes
     )

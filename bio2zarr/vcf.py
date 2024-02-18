@@ -1233,6 +1233,7 @@ class SgvcfZarr:
         with progress_counter.get_lock():
             for col in [ref_col, alt_col]:
                 progress_counter.value += col.vcf_field.summary.uncompressed_size
+        logger.debug("alleles done")
 
     def encode_samples(self, pcvcf, sample_id, chunk_width):
         if not np.array_equal(sample_id, pcvcf.metadata.samples):
@@ -1245,6 +1246,7 @@ class SgvcfZarr:
             chunks=(chunk_width,),
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
+        logger.debug(f"Samples done")
 
     def encode_contig(self, pcvcf, contig_names, contig_lengths):
         array = self.root.array(
@@ -1278,6 +1280,7 @@ class SgvcfZarr:
 
         with progress_counter.get_lock():
             progress_counter.value += col.vcf_field.summary.uncompressed_size
+        logger.debug(f"Contig done")
 
     def encode_filters(self, pcvcf, filter_names):
         self.root.attrs["filters"] = filter_names
@@ -1305,6 +1308,7 @@ class SgvcfZarr:
 
         with progress_counter.get_lock():
             progress_counter.value += col.vcf_field.summary.uncompressed_size
+        logger.debug(f"Filters done")
 
     def encode_id(self, pcvcf):
         col = pcvcf.columns["ID"]
@@ -1325,6 +1329,7 @@ class SgvcfZarr:
 
         with progress_counter.get_lock():
             progress_counter.value += col.vcf_field.summary.uncompressed_size
+        logger.debug(f"ID done")
 
     @staticmethod
     def convert(
@@ -1332,6 +1337,7 @@ class SgvcfZarr:
     ):
         store = zarr.DirectoryStore(path)
         # FIXME
+        logger.info(f"Create zarr at {path}")
         sgvcf = SgvcfZarr(path)
         sgvcf.root = zarr.group(store=store, overwrite=True)
         for variable in conversion_spec.variables[:]:
@@ -1408,6 +1414,7 @@ def async_flush_array(executor, np_buffer, zarr_array, offset):
     """
     Flush the specified chunk aligned buffer to the specified zarr array.
     """
+    logger.debug(f"Schededule flush {zarr_array} @ {offset}")
     assert zarr_array.shape[1:] == np_buffer.shape[1:]
     # print("sync", zarr_array, np_buffer)
 
