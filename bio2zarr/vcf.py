@@ -2,6 +2,8 @@ import concurrent.futures as cf
 import dataclasses
 import multiprocessing
 import functools
+import logging
+import os
 import threading
 import pathlib
 import time
@@ -13,7 +15,7 @@ import math
 import tempfile
 from typing import Any
 
-import humanize
+import humanfriendly
 import cyvcf2
 import numcodecs
 import numpy as np
@@ -22,6 +24,8 @@ import tqdm
 import zarr
 
 import bed_reader
+
+logger = logging.getLogger(__name__)
 
 INT_MISSING = -1
 INT_FILL = -2
@@ -271,8 +275,10 @@ def fixed_vcf_field_definitions():
 def scan_vcfs(paths, show_progress):
     partitions = []
     vcf_metadata = None
+    logger.info(f"Scanning {len(paths)} VCFs")
     for path in tqdm.tqdm(paths, desc="Scan ", disable=not show_progress):
         vcf = cyvcf2.VCF(path)
+        logger.debug(f"Scanning {path}")
 
         filters = [
             h["ID"]
@@ -459,8 +465,12 @@ class PickleChunkedVcfField:
         # TODO add class name
         return repr({"path": str(self.path), **self.vcf_field.summary.asdict()})
 
+    def chunk_path(self, partition_index, chunk_index):
+        return self.path / f"p{partition_index}" / f"c{chunk_index}"
+
     def write_chunk(self, partition_index, chunk_index, data):
-        path = self.path / f"p{partition_index}" / f"c{chunk_index}"
+        path = self.chunk_path(partition_index, chunk_index)
+        logger.debug(f"Start write: {path}")
         pkl = pickle.dumps(data)
         # NOTE assuming that reusing the same compressor instance
         # from multiple threads is OK!
@@ -472,9 +482,10 @@ class PickleChunkedVcfField:
         self.vcf_field.summary.num_chunks += 1
         self.vcf_field.summary.compressed_size += len(compressed)
         self.vcf_field.summary.uncompressed_size += len(pkl)
+        logger.debug(f"Finish write: {path}")
 
     def read_chunk(self, partition_index, chunk_index):
-        path = self.path / f"p{partition_index}" / f"c{chunk_index}"
+        path = self.chunk_path(partition_index, chunk_index)
         with open(path, "rb") as f:
             pkl = self.compressor.decode(f.read())
         return pickle.loads(pkl), len(pkl)
@@ -615,6 +626,8 @@ class PickleChunkedWriteBuffer:
 
     def flush(self):
         if len(self.buffer) > 0:
+            path = self.column.chunk_path(self.partition_index, self.chunk_index)
+            logger.debug(f"Schedule write: {path}")
             future = self.executor.submit(
                 self.column.write_chunk,
                 self.partition_index,
@@ -649,7 +662,7 @@ class PickleChunkedVcf:
             return ret
 
         def display_size(n):
-            return humanize.naturalsize(n, binary=True)
+            return humanfriendly.format_size(n)
 
         data = []
         for name, col in self.columns.items():
@@ -688,6 +701,10 @@ class PickleChunkedVcf:
     def num_samples(self):
         return len(self.metadata.samples)
 
+    @property
+    def num_columns(self):
+        return len(self.columns)
+
     def mkdirs(self):
         self.path.mkdir()
         for col in self.columns.values():
@@ -716,6 +733,10 @@ class PickleChunkedVcf:
             partition.num_records for partition in vcf_metadata.partitions
         )
 
+        logger.info(
+            f"Exploding {pcvcf.num_columns} columns {total_variants} variants "
+            f"{pcvcf.num_samples} samples"
+        )
         global progress_counter
         progress_counter = multiprocessing.Value("Q", 0)
 
@@ -774,6 +795,7 @@ class PickleChunkedVcf:
         partition = vcf_metadata.partitions[partition_index]
         vcf = cyvcf2.VCF(partition.vcf_path)
         futures = set()
+        logger.info(f"Start partition {partition_index} {partition.vcf_path}")
 
         def service_futures(max_waiting=2 * flush_threads):
             while len(futures) > max_waiting:
@@ -824,12 +846,7 @@ class PickleChunkedVcf:
                     gt.append(variant.genotype.array())
 
                 for name, buff in info_fields:
-                    val = None
-                    try:
-                        val = variant.INFO[name]
-                    except KeyError:
-                        pass
-                    buff.append(val)
+                    buff.append(variant.INFO.get(name, None))
 
                 for name, buff in format_fields:
                     val = None
@@ -841,11 +858,15 @@ class PickleChunkedVcf:
 
                 service_futures()
 
+                # Note: an issue with updating the progress per variant here like this
+                # is that we get a significant pause at the end of the counter while
+                # all the "small" fields get flushed. Possibly not much to be done about it.
                 with progress_counter.get_lock():
                     progress_counter.value += 1
 
             for col in columns.values():
                 col.flush()
+            logger.info(f"VCF read finished; waiting on {len(futures)} chunk writes")
             service_futures(0)
 
             return summaries
@@ -1213,6 +1234,7 @@ class SgvcfZarr:
         with progress_counter.get_lock():
             for col in [ref_col, alt_col]:
                 progress_counter.value += col.vcf_field.summary.uncompressed_size
+        logger.debug("alleles done")
 
     def encode_samples(self, pcvcf, sample_id, chunk_width):
         if not np.array_equal(sample_id, pcvcf.metadata.samples):
@@ -1225,6 +1247,7 @@ class SgvcfZarr:
             chunks=(chunk_width,),
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
+        logger.debug("Samples done")
 
     def encode_contig(self, pcvcf, contig_names, contig_lengths):
         array = self.root.array(
@@ -1258,6 +1281,7 @@ class SgvcfZarr:
 
         with progress_counter.get_lock():
             progress_counter.value += col.vcf_field.summary.uncompressed_size
+        logger.debug("Contig done")
 
     def encode_filters(self, pcvcf, filter_names):
         self.root.attrs["filters"] = filter_names
@@ -1285,6 +1309,7 @@ class SgvcfZarr:
 
         with progress_counter.get_lock():
             progress_counter.value += col.vcf_field.summary.uncompressed_size
+        logger.debug("Filters done")
 
     def encode_id(self, pcvcf):
         col = pcvcf.columns["ID"]
@@ -1305,14 +1330,21 @@ class SgvcfZarr:
 
         with progress_counter.get_lock():
             progress_counter.value += col.vcf_field.summary.uncompressed_size
+        logger.debug("ID done")
 
     @staticmethod
     def convert(
         pcvcf, path, conversion_spec, *, worker_processes=1, show_progress=False
     ):
-        store = zarr.DirectoryStore(path)
-        # FIXME
-        sgvcf = SgvcfZarr(path)
+        path = pathlib.Path(path)
+        # TODO: we should do this as a future to avoid blocking
+        if path.exists():
+            shutil.rmtree(path)
+        write_path = path.with_suffix(path.suffix + f".{os.getpid()}.build")
+        store = zarr.DirectoryStore(write_path)
+        # FIXME, duplicating logic about the store
+        logger.info(f"Create zarr at {write_path}")
+        sgvcf = SgvcfZarr(write_path)
         sgvcf.root = zarr.group(store=store, overwrite=True)
         for variable in conversion_spec.variables[:]:
             sgvcf.create_array(variable)
@@ -1373,11 +1405,14 @@ class SgvcfZarr:
 
             flush_futures(futures)
 
-        zarr.consolidate_metadata(path)
         # FIXME can't join the bar_thread because we never get to the correct
         # number of bytes
         # if bar_thread is not None:
         #     bar_thread.join()
+        zarr.consolidate_metadata(write_path)
+        # Atomic swap, now we've completely finished.
+        logger.info(f"Moving to final path {path}")
+        os.rename(write_path, path)
 
 
 def sync_flush_array(np_buffer, zarr_array, offset):
@@ -1388,6 +1423,7 @@ def async_flush_array(executor, np_buffer, zarr_array, offset):
     """
     Flush the specified chunk aligned buffer to the specified zarr array.
     """
+    logger.debug(f"Schedule flush {zarr_array} @ {offset}")
     assert zarr_array.shape[1:] == np_buffer.shape[1:]
     # print("sync", zarr_array, np_buffer)
 
