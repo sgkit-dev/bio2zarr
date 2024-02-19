@@ -3,11 +3,12 @@ import numpy.testing as nt
 import xarray.testing as xt
 import pytest
 import sgkit as sg
+import zarr
 
 from bio2zarr import vcf
 
 
-class TestSmallExampleValues:
+class TestSmallExample:
     @pytest.fixture(scope="class")
     def ds(self, tmp_path_factory):
         path = "tests/data/vcf/sample.vcf.gz"
@@ -229,6 +230,46 @@ class TestSmallExampleValues:
         for col in ds:
             if col != "sample_id" and not col.startswith("call_"):
                 xt.assert_equal(ds[col], ds2[col])
+
+    @pytest.mark.parametrize(
+        ["chunk_length", "chunk_width", "y_chunks", "x_chunks"],
+        [
+            (1, 1, (1, 1, 1, 1, 1, 1, 1, 1, 1), (1, 1, 1)),
+            (2, 2, (2, 2, 2, 2, 1), (2, 1)),
+            (3, 3, (3, 3, 3), (3,)),
+            (4, 3, (4, 4, 1), (3,)),
+        ],
+    )
+    def test_chunk_size(
+        self, ds, tmp_path, chunk_length, chunk_width, y_chunks, x_chunks
+    ):
+        path = "tests/data/vcf/sample.vcf.gz"
+        out = tmp_path / "example.vcf.zarr"
+        vcf.convert_vcf([path], out, chunk_length=chunk_length, chunk_width=chunk_width)
+        ds2 = sg.load_dataset(out)
+        xt.assert_equal(ds, ds2)
+        assert ds2.call_DP.chunks == (y_chunks, x_chunks)
+        assert ds2.call_GQ.chunks == (y_chunks, x_chunks)
+        assert ds2.call_HQ.chunks == (y_chunks, x_chunks, (2,))
+        assert ds2.call_genotype.chunks == (y_chunks, x_chunks, (2,))
+        assert ds2.call_genotype_mask.chunks == (y_chunks, x_chunks, (2,))
+        assert ds2.call_genotype_phased.chunks == (y_chunks, x_chunks)
+        assert ds2.variant_AA.chunks == (y_chunks,)
+        assert ds2.variant_AC.chunks == (y_chunks, (2,))
+        assert ds2.variant_AF.chunks == (y_chunks, (2,))
+        assert ds2.variant_DB.chunks == (y_chunks,)
+        assert ds2.variant_DP.chunks == (y_chunks,)
+        assert ds2.variant_NS.chunks == (y_chunks,)
+        assert ds2.variant_allele.chunks == (y_chunks, (4,))
+        assert ds2.variant_contig.chunks == (y_chunks,)
+        assert ds2.variant_filter.chunks == (y_chunks, (3,))
+        assert ds2.variant_id.chunks == (y_chunks,)
+        assert ds2.variant_id_mask.chunks == (y_chunks,)
+        assert ds2.variant_position.chunks == (y_chunks,)
+        assert ds2.variant_quality.chunks == (y_chunks,)
+        assert ds2.contig_id.chunks == ((3,),)
+        assert ds2.filter_id.chunks == ((3,),)
+        assert ds2.sample_id.chunks == (x_chunks,)
 
 
 @pytest.mark.parametrize(
