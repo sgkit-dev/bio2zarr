@@ -24,7 +24,7 @@ The recommended approach is to use a multi-stage conversion
 First, convert the VCF into an intermediate columnar format:
 
 ```
-python3 -m bio2zarr vcf2zarr convert tests/data/vcf/sample.vcf.gz tmp/sample.exploded
+python3 -m bio2zarr vcf2zarr explode tests/data/vcf/sample.vcf.gz tmp/sample.exploded
 ```
 
 Then, (optionally) inspect this representation to get a feel for your dataset
