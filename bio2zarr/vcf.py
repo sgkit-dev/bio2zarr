@@ -545,8 +545,9 @@ def update_bounds_float(summary, value, number_dim):
     value = np.array(value, dtype=np.float32, copy=False)
     # Map back to python types to avoid JSON issues later. Could
     # be done more efficiently at the end.
-    summary.max_value = float(max(summary.max_value, np.max(value)))
-    summary.min_value = float(min(summary.min_value, np.min(value)))
+    if value.size > 0:
+        summary.min_value = float(min(summary.min_value, np.min(value)))
+        summary.max_value = float(max(summary.max_value, np.max(value)))
     number = 0
     assert len(value.shape) <= number_dim + 1
     if len(value.shape) == number_dim + 1:
@@ -564,8 +565,9 @@ def update_bounds_integer(summary, value, number_dim):
     value = np.array(value, dtype=np.int32, copy=False)
     # Mask out missing and fill values
     a = value[value >= MIN_INT_VALUE]
-    summary.max_value = int(max(summary.max_value, np.max(a)))
-    summary.min_value = int(min(summary.min_value, np.min(a)))
+    if a.size > 0:
+        summary.max_value = int(max(summary.max_value, np.max(a)))
+        summary.min_value = int(min(summary.min_value, np.min(a)))
     number = 0
     assert len(value.shape) <= number_dim + 1
     if len(value.shape) == number_dim + 1:
