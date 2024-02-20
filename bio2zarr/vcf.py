@@ -25,6 +25,8 @@ import zarr
 
 import bed_reader
 
+from . import core
+
 logger = logging.getLogger(__name__)
 
 INT_MISSING = -1
@@ -1109,21 +1111,6 @@ class ZarrConversionSpec:
         )
 
 
-@dataclasses.dataclass
-class BufferedArray:
-    array: Any
-    buff: Any
-
-    def __init__(self, array):
-        self.array = array
-        dims = list(array.shape)
-        dims[0] = min(array.chunks[0], array.shape[0])
-        self.buff = np.zeros(dims, dtype=array.dtype)
-
-    def swap_buffers(self):
-        self.buff = np.zeros_like(self.buff)
-
-
 class SgvcfZarr:
     def __init__(self, path):
         self.path = pathlib.Path(path)
@@ -1143,7 +1130,7 @@ class SgvcfZarr:
     def encode_column(self, pcvcf, column):
         source_col = pcvcf.columns[column.vcf_field]
         array = self.root[column.name]
-        ba = BufferedArray(array)
+        ba = core.BufferedArray(array)
         sanitiser = source_col.sanitiser_factory(ba.buff.shape)
         chunk_length = array.chunks[0]
 
@@ -1157,9 +1144,7 @@ class SgvcfZarr:
                 j += 1
                 if j == chunk_length:
                     flush_futures(futures)
-                    futures.extend(
-                        async_flush_array(executor, ba.buff, ba.array, chunk_start)
-                    )
+                    futures.extend(ba.async_flush(executor, chunk_start))
                     ba.swap_buffers()
                     j = 0
                     chunk_start += chunk_length
@@ -1170,16 +1155,14 @@ class SgvcfZarr:
 
             if j != 0:
                 flush_futures(futures)
-                futures.extend(
-                    async_flush_array(executor, ba.buff[:j], ba.array, chunk_start)
-                )
+                futures.extend(ba.async_flush(executor, chunk_start, j))
             flush_futures(futures)
 
     def encode_genotypes(self, pcvcf):
         source_col = pcvcf.columns["FORMAT/GT"]
-        gt = BufferedArray(self.root["call_genotype"])
-        gt_mask = BufferedArray(self.root["call_genotype_mask"])
-        gt_phased = BufferedArray(self.root["call_genotype_phased"])
+        gt = core.BufferedArray(self.root["call_genotype"])
+        gt_mask = core.BufferedArray(self.root["call_genotype_mask"])
+        gt_phased = core.BufferedArray(self.root["call_genotype_phased"])
         chunk_length = gt.array.chunks[0]
 
         buffered_arrays = [gt, gt_phased, gt_mask]
@@ -1200,9 +1183,7 @@ class SgvcfZarr:
                 if j == chunk_length:
                     flush_futures(futures)
                     for ba in buffered_arrays:
-                        futures.extend(
-                            async_flush_array(executor, ba.buff, ba.array, chunk_start)
-                        )
+                        futures.extend(ba.async_flush(executor, chunk_start))
                         ba.swap_buffers()
                     j = 0
                     chunk_start += chunk_length
@@ -1214,9 +1195,7 @@ class SgvcfZarr:
             if j != 0:
                 flush_futures(futures)
                 for ba in buffered_arrays:
-                    futures.extend(
-                        async_flush_array(executor, ba.buff[:j], ba.array, chunk_start)
-                    )
+                    futures.extend(ba.async_flush(executor, chunk_start, j))
             flush_futures(futures)
 
     def encode_alleles(self, pcvcf):
@@ -1417,45 +1396,6 @@ class SgvcfZarr:
         os.rename(write_path, path)
 
 
-def sync_flush_array(np_buffer, zarr_array, offset):
-    zarr_array[offset : offset + np_buffer.shape[0]] = np_buffer
-
-
-def async_flush_array(executor, np_buffer, zarr_array, offset):
-    """
-    Flush the specified chunk aligned buffer to the specified zarr array.
-    """
-    logger.debug(f"Schedule flush {zarr_array} @ {offset}")
-    assert zarr_array.shape[1:] == np_buffer.shape[1:]
-    # print("sync", zarr_array, np_buffer)
-
-    if len(np_buffer.shape) == 1:
-        futures = [executor.submit(sync_flush_array, np_buffer, zarr_array, offset)]
-    else:
-        futures = async_flush_2d_array(executor, np_buffer, zarr_array, offset)
-    return futures
-
-
-def async_flush_2d_array(executor, np_buffer, zarr_array, offset):
-    # Flush each of the chunks in the second dimension separately
-    s = slice(offset, offset + np_buffer.shape[0])
-
-    def flush_chunk(start, stop):
-        zarr_array[s, start:stop] = np_buffer[:, start:stop]
-
-    chunk_width = zarr_array.chunks[1]
-    zarr_array_width = zarr_array.shape[1]
-    start = 0
-    futures = []
-    while start < zarr_array_width:
-        stop = min(start + chunk_width, zarr_array_width)
-        future = executor.submit(flush_chunk, start, stop)
-        futures.append(future)
-        start = stop
-
-    return futures
-
-
 def generate_spec(columnarised, out):
     pcvcf = PickleChunkedVcf.load(columnarised)
     spec = ZarrConversionSpec.generate(pcvcf)
@@ -1516,9 +1456,9 @@ def encode_bed_partition_genotypes(bed_path, zarr_path, start_variant, end_varia
 
     store = zarr.DirectoryStore(zarr_path)
     root = zarr.group(store=store)
-    gt = BufferedArray(root["call_genotype"])
-    gt_mask = BufferedArray(root["call_genotype_mask"])
-    gt_phased = BufferedArray(root["call_genotype_phased"])
+    gt = core.BufferedArray(root["call_genotype"])
+    gt_mask = core.BufferedArray(root["call_genotype_mask"])
+    gt_phased = core.BufferedArray(root["call_genotype_phased"])
     chunk_length = gt.array.chunks[0]
     assert start_variant % chunk_length == 0
 
@@ -1547,9 +1487,7 @@ def encode_bed_partition_genotypes(bed_path, zarr_path, start_variant, end_varia
             assert j <= chunk_length
             flush_futures(futures)
             for ba in buffered_arrays:
-                futures.extend(
-                    async_flush_array(executor, ba.buff[:j], ba.array, start)
-                )
+                ba.async_flush(extend, start, j)
                 ba.swap_buffers()
             start = stop
         flush_futures(futures)
