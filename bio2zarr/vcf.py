@@ -1127,76 +1127,43 @@ class SgvcfZarr:
         )
         a.attrs["_ARRAY_DIMENSIONS"] = variable.dimensions
 
-    def encode_column(self, pcvcf, column):
+    def encode_column(self, pcvcf, column, encoder_threads=4):
         source_col = pcvcf.columns[column.vcf_field]
         array = self.root[column.name]
         ba = core.BufferedArray(array)
         sanitiser = source_col.sanitiser_factory(ba.buff.shape)
-        chunk_length = array.chunks[0]
 
-        with cf.ThreadPoolExecutor(max_workers=4) as executor:
-            futures = []
-            chunk_start = 0
-            j = 0
+        with core.ThreadedZarrEncoder([ba], encoder_threads) as te:
             last_bytes_read = 0
             for value, bytes_read in source_col.iter_values_bytes():
+                j = te.next_buffer_row()
                 sanitiser(ba.buff, j, value)
-                j += 1
-                if j == chunk_length:
-                    flush_futures(futures)
-                    futures.extend(ba.async_flush(executor, chunk_start))
-                    ba.swap_buffers()
-                    j = 0
-                    chunk_start += chunk_length
                 if last_bytes_read != bytes_read:
                     with progress_counter.get_lock():
                         progress_counter.value += bytes_read - last_bytes_read
                     last_bytes_read = bytes_read
 
-            if j != 0:
-                flush_futures(futures)
-                futures.extend(ba.async_flush(executor, chunk_start, j))
-            flush_futures(futures)
-
-    def encode_genotypes(self, pcvcf):
+    def encode_genotypes(self, pcvcf, encoder_threads=4):
         source_col = pcvcf.columns["FORMAT/GT"]
         gt = core.BufferedArray(self.root["call_genotype"])
         gt_mask = core.BufferedArray(self.root["call_genotype_mask"])
         gt_phased = core.BufferedArray(self.root["call_genotype_phased"])
-        chunk_length = gt.array.chunks[0]
-
         buffered_arrays = [gt, gt_phased, gt_mask]
 
-        with cf.ThreadPoolExecutor(max_workers=4) as executor:
-            futures = []
-            chunk_start = 0
-            j = 0
+        with core.ThreadedZarrEncoder(buffered_arrays, encoder_threads) as te:
             last_bytes_read = 0
             for value, bytes_read in source_col.iter_values_bytes():
+                j = te.next_buffer_row()
                 sanitise_value_int_2d(gt.buff, j, value[:, :-1])
                 sanitise_value_int_1d(gt_phased.buff, j, value[:, -1])
                 # TODO check is this the correct semantics when we are padding
                 # with mixed ploidies?
                 gt_mask.buff[j] = gt.buff[j] < 0
 
-                j += 1
-                if j == chunk_length:
-                    flush_futures(futures)
-                    for ba in buffered_arrays:
-                        futures.extend(ba.async_flush(executor, chunk_start))
-                        ba.swap_buffers()
-                    j = 0
-                    chunk_start += chunk_length
                 if last_bytes_read != bytes_read:
                     with progress_counter.get_lock():
                         progress_counter.value += bytes_read - last_bytes_read
                     last_bytes_read = bytes_read
-
-            if j != 0:
-                flush_futures(futures)
-                for ba in buffered_arrays:
-                    futures.extend(ba.async_flush(executor, chunk_start, j))
-            flush_futures(futures)
 
     def encode_alleles(self, pcvcf):
         ref_col = pcvcf.columns["REF"]
@@ -1451,7 +1418,7 @@ def convert_vcf(
         )
 
 
-def encode_bed_partition_genotypes(bed_path, zarr_path, start_variant, end_variant):
+def encode_bed_partition_genotypes(bed_path, zarr_path, start_variant, end_variant, encoder_threads=8):
     bed = bed_reader.open_bed(bed_path, num_threads=1)
 
     store = zarr.DirectoryStore(zarr_path)
@@ -1464,8 +1431,7 @@ def encode_bed_partition_genotypes(bed_path, zarr_path, start_variant, end_varia
 
     buffered_arrays = [gt, gt_phased, gt_mask]
 
-    with cf.ThreadPoolExecutor(max_workers=8) as executor:
-        futures = []
+    with core.ThreadedZarrEncoder(buffered_arrays, encoder_threads) as te:
 
         start = start_variant
         while start < end_variant:
@@ -1474,7 +1440,8 @@ def encode_bed_partition_genotypes(bed_path, zarr_path, start_variant, end_varia
             # Note could do this without iterating over rows, but it's a bit
             # simpler and the bottleneck is in the encoding step anyway. It's
             # also nice to have updates on the progress monitor.
-            for j, values in enumerate(bed_chunk):
+            for values in bed_chunk:
+                j = te.next_buffer_row()
                 dest = gt.buff[j]
                 dest[values == -127] = -1
                 dest[values == 2] = 1
@@ -1483,14 +1450,7 @@ def encode_bed_partition_genotypes(bed_path, zarr_path, start_variant, end_varia
                 gt_mask.buff[j] = dest == -1
                 with progress_counter.get_lock():
                     progress_counter.value += 1
-
-            assert j <= chunk_length
-            flush_futures(futures)
-            for ba in buffered_arrays:
-                ba.async_flush(extend, start, j)
-                ba.swap_buffers()
             start = stop
-        flush_futures(futures)
 
 
 def validate(vcf_path, zarr_path, show_progress=False):
