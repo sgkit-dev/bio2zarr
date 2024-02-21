@@ -1,9 +1,8 @@
 import pytest
 
-from sgkit.io.vcf import partition_into_regions
-from sgkit.io.vcf.vcf_reader import count_variants
+from bio2zarr.vcf_partition import partition_into_regions
 
-from .utils import path_for_test
+from .utils import count_variants, path_for_test
 
 
 @pytest.mark.parametrize(
