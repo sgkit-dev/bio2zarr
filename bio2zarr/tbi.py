@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional, Sequence
 
 import numpy as np
 
-from sgkit.io.vcf.utils import (
+from bio2zarr.utils import (
     get_file_offset,
     open_gzip,
     read_bytes_as_tuple,

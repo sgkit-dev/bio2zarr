@@ -1,11 +1,10 @@
 import pytest
 from cyvcf2 import VCF
 
-from sgkit.io.vcf.csi import read_csi
-from sgkit.io.vcf.vcf_partition import get_csi_path
-from sgkit.io.vcf.vcf_reader import count_variants
+from bio2zarr.csi import read_csi
+from bio2zarr.vcf_partition import get_csi_path
 
-from .utils import path_for_test
+from .utils import count_variants, path_for_test
 
 
 @pytest.mark.parametrize(

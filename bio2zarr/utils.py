@@ -8,7 +8,6 @@ from urllib.parse import urlparse
 
 import fsspec
 from numcodecs import Delta, PackBits
-from yarl import URL
 
 from sgkit.typing import PathType
 

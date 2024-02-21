@@ -5,9 +5,9 @@ import fsspec
 import numpy as np
 from cyvcf2 import VCF
 
-from sgkit.io.vcf.csi import CSI_EXTENSION, read_csi
-from sgkit.io.vcf.tbi import TABIX_EXTENSION, read_tabix
-from sgkit.io.vcf.utils import ceildiv, get_file_length
+from bio2zarr.csi import CSI_EXTENSION, read_csi
+from bio2zarr.tbi import TABIX_EXTENSION, read_tabix
+from bio2zarr.utils import ceildiv, get_file_length
 from sgkit.typing import PathType
 
 
