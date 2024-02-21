@@ -6,7 +6,7 @@ from typing import Iterator, Optional
 
 from cyvcf2 import VCF, Variant
 
-from sgkit.typing import PathType
+from bio2zarr.typing import PathType
 
 
 def path_for_test(shared_datadir: Path, file: str, is_path: bool = True) -> PathType:

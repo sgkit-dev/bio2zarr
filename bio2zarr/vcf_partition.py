@@ -7,8 +7,8 @@ from cyvcf2 import VCF
 
 from bio2zarr.csi import CSI_EXTENSION, read_csi
 from bio2zarr.tbi import TABIX_EXTENSION, read_tabix
+from bio2zarr.typing import PathType
 from bio2zarr.utils import ceildiv, get_file_length
-from sgkit.typing import PathType
 
 
 def region_string(contig: str, start: int, end: Optional[int] = None) -> str:

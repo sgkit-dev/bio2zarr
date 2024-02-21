@@ -8,13 +8,13 @@ from typing import Any, Dict, Optional, Sequence
 
 import numpy as np
 
+from bio2zarr.typing import PathType
 from bio2zarr.utils import (
     get_file_offset,
     open_gzip,
     read_bytes_as_tuple,
     read_bytes_as_value,
 )
-from sgkit.typing import PathType
 
 TABIX_EXTENSION = ".tbi"
 TABIX_LINEAR_INDEX_INTERVAL_SIZE = 1 << 14  # 16kb interval size
