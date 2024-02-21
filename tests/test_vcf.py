@@ -247,6 +247,8 @@ class TestSmallExample:
         out = tmp_path / "example.vcf.zarr"
         vcf.convert_vcf([path], out, chunk_length=chunk_length, chunk_width=chunk_width)
         ds2 = sg.load_dataset(out)
+        # print(ds2.call_genotype.values)
+        # print(ds.call_genotype.values)
         xt.assert_equal(ds, ds2)
         assert ds2.call_DP.chunks == (y_chunks, x_chunks)
         assert ds2.call_GQ.chunks == (y_chunks, x_chunks)
