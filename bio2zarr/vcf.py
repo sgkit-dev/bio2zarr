@@ -118,9 +118,6 @@ class VcfFieldSummary:
         self.min_value = min(self.min_value, other.min_value)
         self.max_value = max(self.max_value, other.max_value)
 
-    def asdict(self):
-        return dataclasses.asdict(self)
-
 
 @dataclasses.dataclass
 class VcfField:
@@ -205,18 +202,6 @@ class VcfMetadata:
     fields: list
     contig_lengths: list = None
     partitions: list = None
-
-    @property
-    def fixed_fields(self):
-        return [field for field in self.fields if field.category == "fixed"]
-
-    @property
-    def info_fields(self):
-        return [field for field in self.fields if field.category == "INFO"]
-
-    @property
-    def format_fields(self):
-        return [field for field in self.fields if field.category == "FORMAT"]
 
     @staticmethod
     def fromdict(d):
@@ -444,10 +429,6 @@ class PickleChunkedVcfField:
             n = len(list(partition_path.iterdir()))
             self.partition_num_chunks[partition_index] = n
         return self.partition_num_chunks[partition_index]
-
-    def __repr__(self):
-        # TODO add class name
-        return repr({"path": str(self.path), **self.vcf_field.summary.asdict()})
 
     def chunk_path(self, partition_index, chunk_index):
         return self.path / f"p{partition_index}" / f"c{chunk_index}"
@@ -1299,7 +1280,7 @@ def to_zarr(
         zarr_path,
         conversion_spec=spec,
         worker_processes=worker_processes,
-        show_progress=True,
+        show_progress=show_progress,
     )
 
 

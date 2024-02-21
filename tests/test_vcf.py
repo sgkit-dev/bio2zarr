@@ -284,6 +284,20 @@ class TestSmallExample:
         ds2 = sg.load_dataset(out)
         xt.assert_equal(ds, ds2)
 
+    @pytest.mark.parametrize("worker_processes", [0, 1, 2])
+    def test_full_pipeline(self, ds, tmp_path, worker_processes):
+        exploded = tmp_path / "example.exploded"
+        vcf.explode(
+            [self.data_path], exploded, worker_processes=worker_processes,
+        )
+        schema = tmp_path / "schema.json"
+        with open(schema, "w") as f:
+            vcf.generate_spec(exploded, f)
+        out = tmp_path / "example.zarr"
+        vcf.to_zarr(exploded, out, schema, worker_processes=worker_processes)
+        ds2 = sg.load_dataset(out)
+        xt.assert_equal(ds, ds2)
+
 
 @pytest.mark.parametrize(
     "name",
