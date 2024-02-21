@@ -9,11 +9,12 @@ from bio2zarr import vcf
 
 
 class TestSmallExample:
+    data_path = "tests/data/vcf/sample.vcf.gz"
+
     @pytest.fixture(scope="class")
     def ds(self, tmp_path_factory):
-        path = "tests/data/vcf/sample.vcf.gz"
         out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
-        vcf.convert_vcf([path], out)
+        vcf.convert_vcf([self.data_path], out)
         return sg.load_dataset(out)
 
     def test_filters(self, ds):
@@ -243,9 +244,10 @@ class TestSmallExample:
     def test_chunk_size(
         self, ds, tmp_path, chunk_length, chunk_width, y_chunks, x_chunks
     ):
-        path = "tests/data/vcf/sample.vcf.gz"
         out = tmp_path / "example.vcf.zarr"
-        vcf.convert_vcf([path], out, chunk_length=chunk_length, chunk_width=chunk_width)
+        vcf.convert_vcf(
+            [self.data_path], out, chunk_length=chunk_length, chunk_width=chunk_width
+        )
         ds2 = sg.load_dataset(out)
         # print(ds2.call_genotype.values)
         # print(ds.call_genotype.values)
@@ -272,6 +274,15 @@ class TestSmallExample:
         assert ds2.contig_id.chunks == ((3,),)
         assert ds2.filter_id.chunks == ((3,),)
         assert ds2.sample_id.chunks == (x_chunks,)
+
+    @pytest.mark.parametrize("worker_processes", [0, 1, 2])
+    def test_worker_processes(self, ds, tmp_path, worker_processes):
+        out = tmp_path / "example.vcf.zarr"
+        vcf.convert_vcf(
+            [self.data_path], out, chunk_length=3, worker_processes=worker_processes
+        )
+        ds2 = sg.load_dataset(out)
+        xt.assert_equal(ds, ds2)
 
 
 @pytest.mark.parametrize(
