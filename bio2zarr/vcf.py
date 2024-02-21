@@ -745,9 +745,9 @@ class PickleChunkedVcf:
         progress_config = None
         if show_progress:
             progress_config = core.ProgressConfig(
-                total=total_variants, units="vars", title="Explode")
+                total=total_variants, units="vars", title="Explode"
+            )
         with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
-
             futures = []
             for j, partition in enumerate(vcf_metadata.partitions):
                 futures.append(
@@ -762,44 +762,6 @@ class PickleChunkedVcf:
             partition_summaries = [
                 future.result() for future in cf.as_completed(futures)
             ]
-
-#         global progress_counter
-#         progress_counter = multiprocessing.Value("Q", 0)
-
-#         # start update progress bar process
-#         bar_thread = None
-#         if show_progress:
-#             bar_thread = threading.Thread(
-#                 target=update_bar,
-#                 args=(progress_counter, total_variants, "Explode", "vars"),
-#                 name="progress",
-#                 daemon=True,
-#             )
-#             bar_thread.start()
-
-#         with cf.ProcessPoolExecutor(
-#             max_workers=worker_processes,
-#             initializer=init_workers,
-#             initargs=(progress_counter,),
-#         ) as executor:
-#             futures = []
-#             for j, partition in enumerate(vcf_metadata.partitions):
-#                 futures.append(
-#                     executor.submit(
-#                         PickleChunkedVcf.convert_partition,
-#                         vcf_metadata,
-#                         j,
-#                         out_path,
-#                         column_chunk_size=column_chunk_size,
-#                     )
-#                 )
-#             partition_summaries = [
-#                 future.result() for future in cf.as_completed(futures)
-#             ]
-
-#         assert progress_counter.value == total_variants
-#         if bar_thread is not None:
-#             bar_thread.join()
 
         for field in vcf_metadata.fields:
             for summary in partition_summaries:
@@ -884,7 +846,6 @@ class PickleChunkedVcf:
 
                 service_futures()
 
-
                 # Note: an issue with updating the progress per variant here like this
                 # is that we get a significant pause at the end of the counter while
                 # all the "small" fields get flushed. Possibly not much to be done about it.
@@ -896,23 +857,6 @@ class PickleChunkedVcf:
             service_futures(0)
 
             return summaries
-
-
-# def update_bar(progress_counter, total, title, units):
-#     pbar = tqdm.tqdm(
-#         total=total, desc=title, unit_scale=True, unit=units, smoothing=0.1
-#     )
-
-#     while (current := progress_counter.value) < total:
-#         inc = current - pbar.n
-#         pbar.update(inc)
-#         time.sleep(0.1)
-#     pbar.close()
-
-
-# def init_workers(counter):
-#     global progress_counter
-#     progress_counter = counter
 
 
 def explode(
@@ -1160,9 +1104,9 @@ class SgvcfZarr:
             for value, bytes_read in source_col.iter_values_bytes():
                 j = te.next_buffer_row()
                 sanitiser(ba.buff, j, value)
+                # print(bytes_read, last_bytes_read, value)
                 if last_bytes_read != bytes_read:
-                    with progress_counter.get_lock():
-                        progress_counter.value += bytes_read - last_bytes_read
+                    core.update_progress(bytes_read - last_bytes_read)
                     last_bytes_read = bytes_read
 
     def encode_genotypes(self, pcvcf, encoder_threads=4):
@@ -1181,10 +1125,8 @@ class SgvcfZarr:
                 # TODO check is this the correct semantics when we are padding
                 # with mixed ploidies?
                 gt_mask.buff[j] = gt.buff[j] < 0
-
                 if last_bytes_read != bytes_read:
-                    with progress_counter.get_lock():
-                        progress_counter.value += bytes_read - last_bytes_read
+                    core.update_progress(bytes_read - last_bytes_read)
                     last_bytes_read = bytes_read
 
     def encode_alleles(self, pcvcf):
@@ -1200,10 +1142,10 @@ class SgvcfZarr:
             alleles[j, 0] = ref
             alleles[j, 1 : 1 + len(alt)] = alt
         allele_array[:] = alleles
-
-        with progress_counter.get_lock():
-            for col in [ref_col, alt_col]:
-                progress_counter.value += col.vcf_field.summary.uncompressed_size
+        size = sum(
+            col.vcf_field.summary.uncompressed_size for col in [ref_col, alt_col]
+        )
+        core.update_progress(size)
         logger.debug("alleles done")
 
     def encode_samples(self, pcvcf, sample_id, chunk_width):
@@ -1249,8 +1191,7 @@ class SgvcfZarr:
 
         array[:] = buff
 
-        with progress_counter.get_lock():
-            progress_counter.value += col.vcf_field.summary.uncompressed_size
+        core.update_progress(col.vcf_field.summary.uncompressed_size)
         logger.debug("Contig done")
 
     def encode_filters(self, pcvcf, filter_names):
@@ -1277,8 +1218,7 @@ class SgvcfZarr:
 
         array[:] = buff
 
-        with progress_counter.get_lock():
-            progress_counter.value += col.vcf_field.summary.uncompressed_size
+        core.update_progress(col.vcf_field.summary.uncompressed_size)
         logger.debug("Filters done")
 
     def encode_id(self, pcvcf):
@@ -1298,8 +1238,7 @@ class SgvcfZarr:
         id_array[:] = id_buff
         id_mask_array[:] = id_mask_buff
 
-        with progress_counter.get_lock():
-            progress_counter.value += col.vcf_field.summary.uncompressed_size
+        core.update_progress(col.vcf_field.summary.uncompressed_size)
         logger.debug("ID done")
 
     @staticmethod
@@ -1319,41 +1258,30 @@ class SgvcfZarr:
         for variable in conversion_spec.variables[:]:
             sgvcf.create_array(variable)
 
-        global progress_counter
-        progress_counter = multiprocessing.Value("Q", 0)
-
-        # start update progress bar process
-        bar_thread = None
+        progress_config = None
         if show_progress:
-            bar_thread = threading.Thread(
-                target=update_bar,
-                args=(progress_counter, pcvcf.total_uncompressed_bytes, "Encode", "b"),
-                name="progress",
-                daemon=True,
+            progress_config = core.ProgressConfig(
+                total=pcvcf.total_uncompressed_bytes, title="Encode", units="b"
             )
-            bar_thread.start()
-
-        with cf.ProcessPoolExecutor(
-            max_workers=worker_processes,
-            initializer=init_workers,
-            initargs=(progress_counter,),
-        ) as executor:
+        with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
             futures = [
-                executor.submit(
+                pwm.executor.submit(
                     sgvcf.encode_samples,
                     pcvcf,
                     conversion_spec.sample_id,
                     conversion_spec.chunk_width,
                 ),
-                executor.submit(sgvcf.encode_alleles, pcvcf),
-                executor.submit(sgvcf.encode_id, pcvcf),
-                executor.submit(
+                pwm.executor.submit(sgvcf.encode_alleles, pcvcf),
+                pwm.executor.submit(sgvcf.encode_id, pcvcf),
+                pwm.executor.submit(
                     sgvcf.encode_contig,
                     pcvcf,
                     conversion_spec.contig_id,
                     conversion_spec.contig_length,
                 ),
-                executor.submit(sgvcf.encode_filters, pcvcf, conversion_spec.filter_id),
+                pwm.executor.submit(
+                    sgvcf.encode_filters, pcvcf, conversion_spec.filter_id
+                ),
             ]
             has_gt = False
             for variable in conversion_spec.variables[:]:
@@ -1364,14 +1292,14 @@ class SgvcfZarr:
                     # long wait for the largest GT columns to finish.
                     # Straightforward to do because we can chunk-align the work
                     # packages.
-                    future = executor.submit(sgvcf.encode_column, pcvcf, variable)
+                    future = pwm.executor.submit(sgvcf.encode_column, pcvcf, variable)
                     futures.append(future)
                 else:
                     if variable.name == "call_genotype":
                         has_gt = True
             if has_gt:
                 # TODO add mixed ploidy
-                futures.append(executor.submit(sgvcf.encode_genotypes, pcvcf))
+                futures.append(pwm.executor.submit(sgvcf.encode_genotypes, pcvcf))
 
             flush_futures(futures)
 
@@ -1471,8 +1399,7 @@ def encode_bed_partition_genotypes(
                 dest[values == 1, 0] = 1
                 gt_phased.buff[j] = False
                 gt_mask.buff[j] = dest == -1
-                with progress_counter.get_lock():
-                    progress_counter.value += 1
+                core.update_progress(1)
             start = stop
 
 
@@ -1669,21 +1596,7 @@ def convert_plink(
     )
     a.attrs["_ARRAY_DIMENSIONS"] = list(dimensions)
 
-    global progress_counter
-    progress_counter = multiprocessing.Value("Q", 0)
-
-    # start update progress bar process
-    bar_thread = None
-    if show_progress:
-        bar_thread = threading.Thread(
-            target=update_bar,
-            args=(progress_counter, m, "Write", "vars"),
-            name="progress",
-            daemon=True,
-        )
-        bar_thread.start()
-
-    num_chunks = m // chunk_length
+    num_chunks = max(1, m // chunk_length)
     worker_processes = min(worker_processes, num_chunks)
     if num_chunks == 1 or worker_processes == 1:
         partitions = [(0, m)]
@@ -1704,19 +1617,14 @@ def convert_plink(
             partitions.append((last_stop, m))
     # print(partitions)
 
-    with cf.ProcessPoolExecutor(
-        max_workers=worker_processes,
-        initializer=init_workers,
-        initargs=(progress_counter,),
-    ) as executor:
+    progress_config = None
+    if show_progress:
+        progress_config = core.ProgressConfig(total=m, title="Convert", units="vars")
+    with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
         futures = [
-            executor.submit(
+            pwm.executor.submit(
                 encode_bed_partition_genotypes, bed_path, zarr_path, start, end
             )
             for start, end in partitions
         ]
         flush_futures(futures)
-    # print("progress counter = ", m, progress_counter.value)
-    assert progress_counter.value == m
-
-    # print(root["call_genotype"][:])

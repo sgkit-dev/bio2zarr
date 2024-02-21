@@ -35,7 +35,9 @@ class BufferedArray:
     def async_flush(self, executor, offset, buff_stop=None):
         return async_flush_array(executor, self.buff[:buff_stop], self.array, offset)
 
+
 # TODO: factor these functions into the BufferedArray class
+
 
 def sync_flush_array(np_buffer, zarr_array, offset):
     zarr_array[offset : offset + np_buffer.shape[0]] = np_buffer
@@ -124,34 +126,6 @@ class ThreadedZarrEncoder(contextlib.AbstractContextManager):
         return False
 
 
-
-progress_counter = multiprocessing.Value("Q", 0)
-
-import os
-
-def update_progress(inc):
-    print("update progress", os.getpid(), inc)
-    with progress_counter.get_lock():
-        progress_counter.value += 1
-
-def progress_thread_worker(config):
-    pbar = tqdm.tqdm(
-        total=config.total, desc=config.title, unit_scale=True, unit=config.units,
-        smoothing=0.1
-    )
-
-    while (current := progress_counter.value) < config.total:
-        inc = current - pbar.n
-        pbar.update(inc)
-        time.sleep(0.1)
-    pbar.close()
-
-
-def init_workers(counter):
-    global progress_counter
-    progress_counter = counter
-
-
 @dataclasses.dataclass
 class ProgressConfig:
     total: int
@@ -159,36 +133,52 @@ class ProgressConfig:
     title: str
 
 
-class ParallelWorkManager(contextlib.AbstractContextManager):
+_progress_counter = multiprocessing.Value("Q", 0)
 
+
+def update_progress(inc):
+    with _progress_counter.get_lock():
+        _progress_counter.value += inc
+
+
+def progress_thread_worker(config):
+    pbar = tqdm.tqdm(
+        total=config.total,
+        desc=config.title,
+        unit_scale=True,
+        unit=config.units,
+        smoothing=0.1,
+    )
+
+    while (current := _progress_counter.value) < config.total:
+        inc = current - pbar.n
+        pbar.update(inc)
+        time.sleep(0.1)
+    pbar.close()
+
+
+class ParallelWorkManager(contextlib.AbstractContextManager):
     def __init__(self, worker_processes=1, progress_config=None):
         self.executor = cf.ProcessPoolExecutor(
             max_workers=worker_processes,
-            initializer=init_workers,
-            initargs=(progress_counter,),
         )
 
         self.bar_thread = None
         if progress_config is not None:
-            bar_thread = threading.Thread(
+            self.bar_thread = threading.Thread(
                 target=progress_thread_worker,
                 args=(progress_config,),
                 name="progress",
                 daemon=True,
             )
-            bar_thread.start()
+            self.bar_thread.start()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         # if exc_type is None:
-        #     # Normal exit condition
-        #     self.next_row += 1
-        #     self.swap_buffers()
-        #     self.wait_on_futures()
+        #     print("normal exit")
         # else:
-        #     for future in self.futures:
-        #         future.cancel()
-        self.executor.shutdown()
+        #     print("Error occured")
         if self.bar_thread is not None:
-            self.bar_thread.join()
+            self.bar_thread.join(timeout=0)
+        self.executor.shutdown()
         return False
-
