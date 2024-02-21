@@ -10,9 +10,18 @@ import time
 import zarr
 import numpy as np
 import tqdm
+import numcodecs
 
 
 logger = logging.getLogger(__name__)
+
+numcodecs.blosc.use_threads = False
+
+# TODO this should probably go in another module where we abstract
+# out the zarr defaults
+default_compressor = numcodecs.Blosc(
+    cname="zstd", clevel=7, shuffle=numcodecs.Blosc.AUTOSHUFFLE
+)
 
 
 class SynchronousExecutor(cf.Executor):
