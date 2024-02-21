@@ -20,8 +20,6 @@ import numpy.testing as nt
 import tqdm
 import zarr
 
-import bed_reader
-
 from . import core
 
 logger = logging.getLogger(__name__)
@@ -36,12 +34,6 @@ FLOAT32_MISSING, FLOAT32_FILL = np.array([0x7F800001, 0x7F800002], dtype=np.int3
 )
 FLOAT32_MISSING_AS_INT32, FLOAT32_FILL_AS_INT32 = np.array(
     [0x7F800001, 0x7F800002], dtype=np.int32
-)
-
-numcodecs.blosc.use_threads = False
-
-default_compressor = numcodecs.Blosc(
-    cname="zstd", clevel=7, shuffle=numcodecs.Blosc.AUTOSHUFFLE
 )
 
 
@@ -437,6 +429,8 @@ class PickleChunkedVcfField:
         else:
             self.path = base_path / vcf_field.category / vcf_field.name
 
+        # TODO Check if other compressors would give reasonable compression
+        # with significantly faster times
         self.compressor = numcodecs.Blosc(cname="zstd", clevel=7)
         # TODO have a clearer way of defining this state between
         # read and write mode.
@@ -905,7 +899,7 @@ class ZarrConversionSpec:
         if chunk_length is None:
             chunk_length = 10_000
 
-        compressor = default_compressor.get_config()
+        compressor = core.default_compressor.get_config()
 
         def fixed_field_spec(
             name, dtype, vcf_field=None, shape=(m,), dimensions=("variants",)
@@ -1136,7 +1130,7 @@ class SgvcfZarr:
             "sample_id",
             sample_id,
             dtype="str",
-            compressor=default_compressor,
+            compressor=core.default_compressor,
             chunks=(chunk_width,),
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
@@ -1147,7 +1141,7 @@ class SgvcfZarr:
             "contig_id",
             contig_names,
             dtype="str",
-            compressor=default_compressor,
+            compressor=core.default_compressor,
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
 
@@ -1181,7 +1175,7 @@ class SgvcfZarr:
             "filter_id",
             filter_names,
             dtype="str",
-            compressor=default_compressor,
+            compressor=core.default_compressor,
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["filters"]
 
@@ -1339,41 +1333,6 @@ def convert_vcf(
         )
 
 
-def encode_bed_partition_genotypes(
-    bed_path, zarr_path, start_variant, end_variant, encoder_threads=8
-):
-    bed = bed_reader.open_bed(bed_path, num_threads=1)
-
-    store = zarr.DirectoryStore(zarr_path)
-    root = zarr.group(store=store)
-    gt = core.BufferedArray(root["call_genotype"])
-    gt_mask = core.BufferedArray(root["call_genotype_mask"])
-    gt_phased = core.BufferedArray(root["call_genotype_phased"])
-    chunk_length = gt.array.chunks[0]
-    assert start_variant % chunk_length == 0
-
-    buffered_arrays = [gt, gt_phased, gt_mask]
-
-    with core.ThreadedZarrEncoder(buffered_arrays, encoder_threads) as te:
-        start = start_variant
-        while start < end_variant:
-            stop = min(start + chunk_length, end_variant)
-            bed_chunk = bed.read(index=slice(start, stop), dtype="int8").T
-            # Note could do this without iterating over rows, but it's a bit
-            # simpler and the bottleneck is in the encoding step anyway. It's
-            # also nice to have updates on the progress monitor.
-            for values in bed_chunk:
-                j = te.next_buffer_row()
-                dest = gt.buff[j]
-                dest[values == -127] = -1
-                dest[values == 2] = 1
-                dest[values == 1, 0] = 1
-                gt_phased.buff[j] = False
-                gt_mask.buff[j] = dest == -1
-                core.update_progress(1)
-            start = stop
-
-
 def validate(vcf_path, zarr_path, show_progress=False):
     store = zarr.DirectoryStore(zarr_path)
 
@@ -1508,89 +1467,3 @@ def validate(vcf_path, zarr_path, show_progress=False):
                     print(vcf_val)
                     print(zarr_val)
                     assert False
-
-
-def convert_plink(
-    bed_path,
-    zarr_path,
-    *,
-    show_progress,
-    worker_processes=1,
-    chunk_length=None,
-    chunk_width=None,
-):
-    bed = bed_reader.open_bed(bed_path, num_threads=1)
-    n = bed.iid_count
-    m = bed.sid_count
-    del bed
-
-    # FIXME
-    if chunk_width is None:
-        chunk_width = 1000
-    if chunk_length is None:
-        chunk_length = 10_000
-
-    store = zarr.DirectoryStore(zarr_path)
-    root = zarr.group(store=store, overwrite=True)
-
-    ploidy = 2
-    shape = [m, n]
-    chunks = [chunk_length, chunk_width]
-    dimensions = ["variants", "samples"]
-
-    a = root.empty(
-        "call_genotype_phased",
-        dtype="bool",
-        shape=list(shape),
-        chunks=list(chunks),
-        compressor=default_compressor,
-    )
-    a.attrs["_ARRAY_DIMENSIONS"] = list(dimensions)
-
-    shape += [ploidy]
-    dimensions += ["ploidy"]
-    a = root.empty(
-        "call_genotype",
-        dtype="i8",
-        shape=list(shape),
-        chunks=list(chunks),
-        compressor=default_compressor,
-    )
-    a.attrs["_ARRAY_DIMENSIONS"] = list(dimensions)
-
-    a = root.empty(
-        "call_genotype_mask",
-        dtype="bool",
-        shape=list(shape),
-        chunks=list(chunks),
-        compressor=default_compressor,
-    )
-    a.attrs["_ARRAY_DIMENSIONS"] = list(dimensions)
-
-    num_chunks = max(1, m // chunk_length)
-    worker_processes = min(worker_processes, num_chunks)
-    if num_chunks == 1 or worker_processes == 1:
-        partitions = [(0, m)]
-    else:
-        # Generate num_workers partitions
-        # TODO finer grained might be better.
-        partitions = []
-        chunk_boundaries = [
-            p[0] for p in np.array_split(np.arange(num_chunks), worker_processes)
-        ]
-        for j in range(len(chunk_boundaries) - 1):
-            start = chunk_boundaries[j] * chunk_length
-            end = chunk_boundaries[j + 1] * chunk_length
-            end = min(end, m)
-            partitions.append((start, end))
-        last_stop = partitions[-1][-1]
-        if last_stop != m:
-            partitions.append((last_stop, m))
-    # print(partitions)
-
-    progress_config = core.ProgressConfig(
-        total=m, title="Convert", units="vars", show=show_progress
-    )
-    with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
-        for start, end in partitions:
-            pwm.submit(encode_bed_partition_genotypes, bed_path, zarr_path, start, end)

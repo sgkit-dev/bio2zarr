@@ -3,6 +3,7 @@ import tabulate
 import coloredlogs
 
 from . import vcf
+from . import plink
 
 # Common arguments/options
 verbose = click.option("-v", "--verbose", count=True, help="Increase verbosity")
@@ -112,14 +113,14 @@ vcf2zarr.add_command(validate)
 
 
 @click.command(name="convert")
-@click.argument("plink", type=click.Path())
+@click.argument("in_path", type=click.Path())
 @click.argument("out_path", type=click.Path())
 @worker_processes
 @click.option("--chunk-width", type=int, default=None)
 @click.option("--chunk-length", type=int, default=None)
-def convert_plink(plink, out_path, worker_processes, chunk_width, chunk_length):
-    vcf.convert_plink(
-        plink,
+def convert_plink(in_path, out_path, worker_processes, chunk_width, chunk_length):
+    plink.convert(
+        in_path,
         out_path,
         show_progress=True,
         worker_processes=worker_processes,
