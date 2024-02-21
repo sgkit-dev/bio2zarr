@@ -4,6 +4,7 @@ import concurrent.futures as cf
 import multiprocessing
 import threading
 import logging
+import functools
 import time
 
 import zarr
@@ -12,6 +13,25 @@ import tqdm
 
 
 logger = logging.getLogger(__name__)
+
+
+class SynchronousExecutor(cf.Executor):
+    def submit(self, fn, /, *args, **kwargs):
+        future = cf.Future()
+        future.set_result(fn(*args, **kwargs))
+        return future
+
+
+def wait_on_futures(futures):
+    for future in cf.as_completed(futures):
+        exception = future.exception()
+        if exception is not None:
+            raise exception
+
+
+def cancel_futures(futures):
+    for future in futures:
+        future.cancel()
 
 
 @dataclasses.dataclass
@@ -98,14 +118,8 @@ class ThreadedZarrEncoder(contextlib.AbstractContextManager):
             self.next_row = 0
         return self.next_row
 
-    def wait_on_futures(self):
-        for future in cf.as_completed(self.futures):
-            exception = future.exception()
-            if exception is not None:
-                raise exception
-
     def swap_buffers(self):
-        self.wait_on_futures()
+        wait_on_futures(self.futures)
         self.futures = []
         for ba in self.buffered_arrays:
             self.futures.extend(
@@ -118,19 +132,20 @@ class ThreadedZarrEncoder(contextlib.AbstractContextManager):
             # Normal exit condition
             self.next_row += 1
             self.swap_buffers()
-            self.wait_on_futures()
+            wait_on_futures(self.futures)
         else:
-            for future in self.futures:
-                future.cancel()
+            cancel_futures(self.futures)
         self.executor.shutdown()
         return False
 
 
 @dataclasses.dataclass
 class ProgressConfig:
-    total: int
-    units: str
-    title: str
+    total: int = 0
+    units: str = ""
+    title: str = ""
+    show: bool = False
+    poll_interval: float = 0.001
 
 
 _progress_counter = multiprocessing.Value("Q", 0)
@@ -141,6 +156,17 @@ def update_progress(inc):
         _progress_counter.value += inc
 
 
+def get_progress():
+    with _progress_counter.get_lock():
+        val = _progress_counter.value
+    return val
+
+
+def set_progress(value):
+    with _progress_counter.get_lock():
+        _progress_counter.value = value
+
+
 def progress_thread_worker(config):
     pbar = tqdm.tqdm(
         total=config.total,
@@ -148,37 +174,53 @@ def progress_thread_worker(config):
         unit_scale=True,
         unit=config.units,
         smoothing=0.1,
+        disable=not config.show,
     )
 
-    while (current := _progress_counter.value) < config.total:
+    while (current := get_progress()) < config.total:
         inc = current - pbar.n
         pbar.update(inc)
-        time.sleep(0.1)
+        time.sleep(config.poll_interval)
     pbar.close()
 
 
 class ParallelWorkManager(contextlib.AbstractContextManager):
     def __init__(self, worker_processes=1, progress_config=None):
-        self.executor = cf.ProcessPoolExecutor(
-            max_workers=worker_processes,
-        )
-
-        self.bar_thread = None
-        if progress_config is not None:
-            self.bar_thread = threading.Thread(
-                target=progress_thread_worker,
-                args=(progress_config,),
-                name="progress",
-                daemon=True,
+        if worker_processes <= 0:
+            # NOTE: this is only for testing, not for production use!
+            self.executor = SynchronousExecutor()
+        else:
+            self.executor = cf.ProcessPoolExecutor(
+                max_workers=worker_processes,
             )
-            self.bar_thread.start()
+        set_progress(0)
+        if progress_config is None:
+            progress_config = ProgressConfig()
+        self.bar_thread = threading.Thread(
+            target=progress_thread_worker,
+            args=(progress_config,),
+            name="progress",
+            daemon=True,
+        )
+        self.bar_thread.start()
+        self.progress_config = progress_config
+        self.futures = []
+
+    def submit(self, *args, **kwargs):
+        self.futures.append(self.executor.submit(*args, **kwargs))
+
+    def results_as_completed(self):
+        for future in cf.as_completed(self.futures):
+            yield future.result()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        # if exc_type is None:
-        #     print("normal exit")
-        # else:
-        #     print("Error occured")
-        if self.bar_thread is not None:
-            self.bar_thread.join(timeout=0)
+        if exc_type is None:
+            wait_on_futures(self.futures)
+            set_progress(self.progress_config.total)
+            timeout = None
+        else:
+            cancel_futures(self.futures)
+            timeout = 0
+        self.bar_thread.join(timeout)
         self.executor.shutdown()
         return False

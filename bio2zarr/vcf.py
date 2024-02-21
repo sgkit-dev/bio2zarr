@@ -1,12 +1,9 @@
 import concurrent.futures as cf
 import dataclasses
-import multiprocessing
 import functools
 import logging
 import os
-import threading
 import pathlib
-import time
 import pickle
 import sys
 import shutil
@@ -109,15 +106,6 @@ def assert_prefix_float_equal_2d(vcf_val, zarr_val):
     # assert np.where(zi[:k] == FLOAT32_FILL_AS_INT32)
     nt.assert_array_almost_equal(v, z[:k])
     # nt.assert_array_equal(v, z[:k])
-
-
-# TODO rename to wait_and_check_futures
-def flush_futures(futures):
-    # Make sure previous futures have completed
-    for future in cf.as_completed(futures):
-        exception = future.exception()
-        if exception is not None:
-            raise exception
 
 
 @dataclasses.dataclass
@@ -742,26 +730,19 @@ class PickleChunkedVcf:
             f"Exploding {pcvcf.num_columns} columns {total_variants} variants "
             f"{pcvcf.num_samples} samples"
         )
-        progress_config = None
-        if show_progress:
-            progress_config = core.ProgressConfig(
-                total=total_variants, units="vars", title="Explode"
-            )
+        progress_config = core.ProgressConfig(
+            total=total_variants, units="vars", title="Explode", show=show_progress
+        )
         with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
-            futures = []
             for j, partition in enumerate(vcf_metadata.partitions):
-                futures.append(
-                    pwm.executor.submit(
-                        PickleChunkedVcf.convert_partition,
-                        vcf_metadata,
-                        j,
-                        out_path,
-                        column_chunk_size=column_chunk_size,
-                    )
+                pwm.submit(
+                    PickleChunkedVcf.convert_partition,
+                    vcf_metadata,
+                    j,
+                    out_path,
+                    column_chunk_size=column_chunk_size,
                 )
-            partition_summaries = [
-                future.result() for future in cf.as_completed(futures)
-            ]
+            partition_summaries = list(pwm.results_as_completed())
 
         for field in vcf_metadata.fields:
             for summary in partition_summaries:
@@ -1258,31 +1239,28 @@ class SgvcfZarr:
         for variable in conversion_spec.variables[:]:
             sgvcf.create_array(variable)
 
-        progress_config = None
-        if show_progress:
-            progress_config = core.ProgressConfig(
-                total=pcvcf.total_uncompressed_bytes, title="Encode", units="b"
-            )
+        progress_config = core.ProgressConfig(
+            total=pcvcf.total_uncompressed_bytes,
+            title="Encode",
+            units="b",
+            show=show_progress,
+        )
         with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
-            futures = [
-                pwm.executor.submit(
-                    sgvcf.encode_samples,
-                    pcvcf,
-                    conversion_spec.sample_id,
-                    conversion_spec.chunk_width,
-                ),
-                pwm.executor.submit(sgvcf.encode_alleles, pcvcf),
-                pwm.executor.submit(sgvcf.encode_id, pcvcf),
-                pwm.executor.submit(
-                    sgvcf.encode_contig,
-                    pcvcf,
-                    conversion_spec.contig_id,
-                    conversion_spec.contig_length,
-                ),
-                pwm.executor.submit(
-                    sgvcf.encode_filters, pcvcf, conversion_spec.filter_id
-                ),
-            ]
+            pwm.submit(
+                sgvcf.encode_samples,
+                pcvcf,
+                conversion_spec.sample_id,
+                conversion_spec.chunk_width,
+            )
+            pwm.submit(sgvcf.encode_alleles, pcvcf)
+            pwm.submit(sgvcf.encode_id, pcvcf)
+            pwm.submit(
+                sgvcf.encode_contig,
+                pcvcf,
+                conversion_spec.contig_id,
+                conversion_spec.contig_length,
+            )
+            pwm.submit(sgvcf.encode_filters, pcvcf, conversion_spec.filter_id)
             has_gt = False
             for variable in conversion_spec.variables[:]:
                 if variable.vcf_field is not None:
@@ -1292,21 +1270,14 @@ class SgvcfZarr:
                     # long wait for the largest GT columns to finish.
                     # Straightforward to do because we can chunk-align the work
                     # packages.
-                    future = pwm.executor.submit(sgvcf.encode_column, pcvcf, variable)
-                    futures.append(future)
+                    pwm.submit(sgvcf.encode_column, pcvcf, variable)
                 else:
                     if variable.name == "call_genotype":
                         has_gt = True
             if has_gt:
                 # TODO add mixed ploidy
-                futures.append(pwm.executor.submit(sgvcf.encode_genotypes, pcvcf))
+                pwm.executor.submit(sgvcf.encode_genotypes, pcvcf)
 
-            flush_futures(futures)
-
-        # FIXME can't join the bar_thread because we never get to the correct
-        # number of bytes
-        # if bar_thread is not None:
-        #     bar_thread.join()
         zarr.consolidate_metadata(write_path)
         # Atomic swap, now we've completely finished.
         logger.info(f"Moving to final path {path}")
@@ -1617,14 +1588,9 @@ def convert_plink(
             partitions.append((last_stop, m))
     # print(partitions)
 
-    progress_config = None
-    if show_progress:
-        progress_config = core.ProgressConfig(total=m, title="Convert", units="vars")
+    progress_config = core.ProgressConfig(
+        total=m, title="Convert", units="vars", show=show_progress
+    )
     with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
-        futures = [
-            pwm.executor.submit(
-                encode_bed_partition_genotypes, bed_path, zarr_path, start, end
-            )
-            for start, end in partitions
-        ]
-        flush_futures(futures)
+        for start, end in partitions:
+            pwm.submit(encode_bed_partition_genotypes, bed_path, zarr_path, start, end)

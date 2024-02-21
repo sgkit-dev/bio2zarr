@@ -93,3 +93,52 @@ class TestZarrEncoder:
                 # an error in the futures. In reality these will happen
                 # when we run out of disk space, but this is hard to simulate
                 ba.buff = np.array(["not an integer"])
+
+
+class TestParallelWorkManager:
+    @pytest.mark.parametrize("total", [1, 10, 2**63])
+    @pytest.mark.parametrize("workers", [0, 1])
+    def test_one_future_progress(self, total, workers):
+        progress_config = core.ProgressConfig(total=total)
+        with core.ParallelWorkManager(workers, progress_config) as pwm:
+            pwm.submit(core.update_progress, total)
+        assert core.get_progress() == total
+
+    @pytest.mark.parametrize("total", [1, 10, 1000])
+    @pytest.mark.parametrize("workers", [0, 1, 2, 3])
+    def test_n_futures_progress(self, total, workers):
+        progress_config = core.ProgressConfig(total=total)
+        with core.ParallelWorkManager(workers, progress_config) as pwm:
+            for _ in range(total):
+                pwm.submit(core.update_progress, 1)
+        assert core.get_progress() == total
+
+    @pytest.mark.parametrize("total", [1, 10, 20])
+    @pytest.mark.parametrize("workers", [0, 1, 2, 3])
+    def test_results_as_completed(self, total, workers):
+        with core.ParallelWorkManager(workers) as pwm:
+            for j in range(total):
+                pwm.submit(frozenset, range(j))
+            results = set(pwm.results_as_completed())
+            assert results == set(frozenset(range(j)) for j in range(total))
+
+    @pytest.mark.parametrize("total", [1, 10, 20])
+    @pytest.mark.parametrize("workers", [1, 2, 3])
+    def test_error_in_workers_as_completed(self, total, workers):
+        with pytest.raises(TypeError):
+            with core.ParallelWorkManager(workers) as pwm:
+                for j in range(total):
+                    pwm.submit(frozenset, range(j))
+                # Raises a TypeError:
+                pwm.submit(frozenset, j)
+                set(pwm.results_as_completed())
+
+    @pytest.mark.parametrize("total", [1, 10, 20])
+    @pytest.mark.parametrize("workers", [1, 2, 3])
+    def test_error_in_workers_on_exit(self, total, workers):
+        with pytest.raises(TypeError):
+            with core.ParallelWorkManager(workers) as pwm:
+                for j in range(total):
+                    pwm.submit(frozenset, range(j))
+                # Raises a TypeError:
+                pwm.submit(frozenset, j)
