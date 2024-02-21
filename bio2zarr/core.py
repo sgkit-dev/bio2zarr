@@ -31,6 +31,7 @@ class BufferedArray:
     def async_flush(self, executor, offset, buff_stop=None):
         return async_flush_array(executor, self.buff[:buff_stop], self.array, offset)
 
+# TODO: factor these functions into the BufferedArray class
 
 def sync_flush_array(np_buffer, zarr_array, offset):
     zarr_array[offset : offset + np_buffer.shape[0]] = np_buffer
@@ -72,7 +73,9 @@ def async_flush_2d_array(executor, np_buffer, zarr_array, offset):
 
 
 class ThreadedZarrEncoder(contextlib.AbstractContextManager):
-    def __init__(self, buffered_arrays, encoder_threads):
+    # TODO (maybe) add option with encoder_threads=None to run synchronously for
+    # debugging using a mock Executor
+    def __init__(self, buffered_arrays, encoder_threads=1):
         self.buffered_arrays = buffered_arrays
         self.executor = cf.ThreadPoolExecutor(max_workers=encoder_threads)
         self.chunk_length = buffered_arrays[0].chunk_length
@@ -99,8 +102,6 @@ class ThreadedZarrEncoder(contextlib.AbstractContextManager):
         self.wait_on_futures()
         self.futures = []
         for ba in self.buffered_arrays:
-            # TODO add debug log
-            # print("Scheduling", ba.array, offset, buff_stop)
             self.futures.extend(
                 ba.async_flush(self.executor, self.array_offset, self.next_row)
             )
@@ -112,9 +113,8 @@ class ThreadedZarrEncoder(contextlib.AbstractContextManager):
             self.next_row += 1
             self.swap_buffers()
             self.wait_on_futures()
-        # TODO add arguments to wait and cancel_futures appropriate
-        # for the an error condition occuring here. Generally need
-        # to think about the error exit condition here (like running
-        # out of disk space) to see what the right behaviour is.
+        else:
+            for future in self.futures:
+                future.cancel()
         self.executor.shutdown()
         return False
