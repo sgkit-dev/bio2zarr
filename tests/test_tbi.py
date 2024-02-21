@@ -1,10 +1,9 @@
 import pytest
 
-from sgkit.io.vcf.tbi import read_tabix
-from sgkit.io.vcf.vcf_partition import get_tabix_path
-from sgkit.io.vcf.vcf_reader import count_variants
+from bio2zarr.tbi import read_tabix
+from bio2zarr.vcf_partition import get_tabix_path
 
-from .utils import path_for_test
+from .utils import count_variants, path_for_test
 
 
 @pytest.mark.parametrize(
