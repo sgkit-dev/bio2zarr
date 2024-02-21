@@ -1,10 +1,14 @@
 import dataclasses
 import contextlib
 import concurrent.futures as cf
+import multiprocessing
+import threading
 import logging
+import time
 
 import zarr
 import numpy as np
+import tqdm
 
 
 logger = logging.getLogger(__name__)
@@ -118,3 +122,73 @@ class ThreadedZarrEncoder(contextlib.AbstractContextManager):
                 future.cancel()
         self.executor.shutdown()
         return False
+
+
+
+progress_counter = multiprocessing.Value("Q", 0)
+
+import os
+
+def update_progress(inc):
+    print("update progress", os.getpid(), inc)
+    with progress_counter.get_lock():
+        progress_counter.value += 1
+
+def progress_thread_worker(config):
+    pbar = tqdm.tqdm(
+        total=config.total, desc=config.title, unit_scale=True, unit=config.units,
+        smoothing=0.1
+    )
+
+    while (current := progress_counter.value) < config.total:
+        inc = current - pbar.n
+        pbar.update(inc)
+        time.sleep(0.1)
+    pbar.close()
+
+
+def init_workers(counter):
+    global progress_counter
+    progress_counter = counter
+
+
+@dataclasses.dataclass
+class ProgressConfig:
+    total: int
+    units: str
+    title: str
+
+
+class ParallelWorkManager(contextlib.AbstractContextManager):
+
+    def __init__(self, worker_processes=1, progress_config=None):
+        self.executor = cf.ProcessPoolExecutor(
+            max_workers=worker_processes,
+            initializer=init_workers,
+            initargs=(progress_counter,),
+        )
+
+        self.bar_thread = None
+        if progress_config is not None:
+            bar_thread = threading.Thread(
+                target=progress_thread_worker,
+                args=(progress_config,),
+                name="progress",
+                daemon=True,
+            )
+            bar_thread.start()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # if exc_type is None:
+        #     # Normal exit condition
+        #     self.next_row += 1
+        #     self.swap_buffers()
+        #     self.wait_on_futures()
+        # else:
+        #     for future in self.futures:
+        #         future.cancel()
+        self.executor.shutdown()
+        if self.bar_thread is not None:
+            self.bar_thread.join()
+        return False
+

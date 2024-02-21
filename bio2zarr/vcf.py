@@ -729,6 +729,7 @@ class PickleChunkedVcf:
         vcfs, out_path, *, column_chunk_size=16, worker_processes=1, show_progress=False
     ):
         out_path = pathlib.Path(out_path)
+        # TODO make scan work in parallel using general progress code too
         vcf_metadata = scan_vcfs(vcfs, show_progress=show_progress)
         pcvcf = PickleChunkedVcf(out_path, vcf_metadata)
         pcvcf.mkdirs()
@@ -741,29 +742,16 @@ class PickleChunkedVcf:
             f"Exploding {pcvcf.num_columns} columns {total_variants} variants "
             f"{pcvcf.num_samples} samples"
         )
-        global progress_counter
-        progress_counter = multiprocessing.Value("Q", 0)
-
-        # start update progress bar process
-        bar_thread = None
+        progress_config = None
         if show_progress:
-            bar_thread = threading.Thread(
-                target=update_bar,
-                args=(progress_counter, total_variants, "Explode", "vars"),
-                name="progress",
-                daemon=True,
-            )
-            bar_thread.start()
+            progress_config = core.ProgressConfig(
+                total=total_variants, units="vars", title="Explode")
+        with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
 
-        with cf.ProcessPoolExecutor(
-            max_workers=worker_processes,
-            initializer=init_workers,
-            initargs=(progress_counter,),
-        ) as executor:
             futures = []
             for j, partition in enumerate(vcf_metadata.partitions):
                 futures.append(
-                    executor.submit(
+                    pwm.executor.submit(
                         PickleChunkedVcf.convert_partition,
                         vcf_metadata,
                         j,
@@ -775,9 +763,43 @@ class PickleChunkedVcf:
                 future.result() for future in cf.as_completed(futures)
             ]
 
-        assert progress_counter.value == total_variants
-        if bar_thread is not None:
-            bar_thread.join()
+#         global progress_counter
+#         progress_counter = multiprocessing.Value("Q", 0)
+
+#         # start update progress bar process
+#         bar_thread = None
+#         if show_progress:
+#             bar_thread = threading.Thread(
+#                 target=update_bar,
+#                 args=(progress_counter, total_variants, "Explode", "vars"),
+#                 name="progress",
+#                 daemon=True,
+#             )
+#             bar_thread.start()
+
+#         with cf.ProcessPoolExecutor(
+#             max_workers=worker_processes,
+#             initializer=init_workers,
+#             initargs=(progress_counter,),
+#         ) as executor:
+#             futures = []
+#             for j, partition in enumerate(vcf_metadata.partitions):
+#                 futures.append(
+#                     executor.submit(
+#                         PickleChunkedVcf.convert_partition,
+#                         vcf_metadata,
+#                         j,
+#                         out_path,
+#                         column_chunk_size=column_chunk_size,
+#                     )
+#                 )
+#             partition_summaries = [
+#                 future.result() for future in cf.as_completed(futures)
+#             ]
+
+#         assert progress_counter.value == total_variants
+#         if bar_thread is not None:
+#             bar_thread.join()
 
         for field in vcf_metadata.fields:
             for summary in partition_summaries:
@@ -862,11 +884,11 @@ class PickleChunkedVcf:
 
                 service_futures()
 
+
                 # Note: an issue with updating the progress per variant here like this
                 # is that we get a significant pause at the end of the counter while
                 # all the "small" fields get flushed. Possibly not much to be done about it.
-                with progress_counter.get_lock():
-                    progress_counter.value += 1
+                core.update_progress(1)
 
             for col in columns.values():
                 col.flush()
@@ -876,21 +898,21 @@ class PickleChunkedVcf:
             return summaries
 
 
-def update_bar(progress_counter, total, title, units):
-    pbar = tqdm.tqdm(
-        total=total, desc=title, unit_scale=True, unit=units, smoothing=0.1
-    )
+# def update_bar(progress_counter, total, title, units):
+#     pbar = tqdm.tqdm(
+#         total=total, desc=title, unit_scale=True, unit=units, smoothing=0.1
+#     )
 
-    while (current := progress_counter.value) < total:
-        inc = current - pbar.n
-        pbar.update(inc)
-        time.sleep(0.1)
-    pbar.close()
+#     while (current := progress_counter.value) < total:
+#         inc = current - pbar.n
+#         pbar.update(inc)
+#         time.sleep(0.1)
+#     pbar.close()
 
 
-def init_workers(counter):
-    global progress_counter
-    progress_counter = counter
+# def init_workers(counter):
+#     global progress_counter
+#     progress_counter = counter
 
 
 def explode(
@@ -1418,7 +1440,9 @@ def convert_vcf(
         )
 
 
-def encode_bed_partition_genotypes(bed_path, zarr_path, start_variant, end_variant, encoder_threads=8):
+def encode_bed_partition_genotypes(
+    bed_path, zarr_path, start_variant, end_variant, encoder_threads=8
+):
     bed = bed_reader.open_bed(bed_path, num_threads=1)
 
     store = zarr.DirectoryStore(zarr_path)
@@ -1432,7 +1456,6 @@ def encode_bed_partition_genotypes(bed_path, zarr_path, start_variant, end_varia
     buffered_arrays = [gt, gt_phased, gt_mask]
 
     with core.ThreadedZarrEncoder(buffered_arrays, encoder_threads) as te:
-
         start = start_variant
         while start < end_variant:
             stop = min(start + chunk_length, end_variant)
