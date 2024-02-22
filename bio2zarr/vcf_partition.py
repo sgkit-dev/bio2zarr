@@ -1,9 +1,9 @@
 from typing import Any, Dict, Optional, Sequence, Union
 
-import dask
 import fsspec
 import numpy as np
 from cyvcf2 import VCF
+import humanfriendly
 
 from bio2zarr.csi import CSI_EXTENSION, read_csi
 from bio2zarr.tbi import TABIX_EXTENSION, read_tabix
@@ -128,7 +128,10 @@ def partition_into_regions(
         raise ValueError("num_parts must be positive")
 
     if target_part_size is not None:
-        target_part_size_bytes: int = dask.utils.parse_bytes(target_part_size)
+        if isinstance(target_part_size, int):
+            target_part_size_bytes = target_part_size
+        else:
+            target_part_size_bytes = humanfriendly.parse_size(target_part_size)
         if target_part_size_bytes < 1:
             raise ValueError("target_part_size must be positive")
 
