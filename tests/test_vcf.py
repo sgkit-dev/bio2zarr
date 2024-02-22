@@ -304,11 +304,11 @@ class TestSmallExample:
     [
         "sample.vcf.gz",
         "sample_no_genotypes.vcf.gz",
-        # "info_field_type_combos.vcf.gz",
+        "info_field_type_combos.vcf.gz",
     ],
 )
 def test_by_validating(name, tmp_path):
     path = f"tests/data/vcf/{name}"
     out = tmp_path / "test.zarr"
-    vcf.convert_vcf([path], out)
+    vcf.convert_vcf([path], out, worker_processes=0)
     vcf.validate(path, out)

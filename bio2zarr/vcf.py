@@ -37,69 +37,6 @@ FLOAT32_MISSING_AS_INT32, FLOAT32_FILL_AS_INT32 = np.array(
 )
 
 
-def assert_all_missing_float(a):
-    v = np.array(a, dtype=np.float32).view(np.int32)
-    assert np.all(v == FLOAT32_MISSING_AS_INT32)
-
-
-def assert_prefix_integer_equal_1d(vcf_val, zarr_val):
-    v = np.array(vcf_val, dtype=np.int32, ndmin=1)
-    z = np.array(zarr_val, dtype=np.int32, ndmin=1)
-    v[v == VCF_INT_MISSING] = -1
-    v[v == VCF_INT_FILL] = -2
-    k = v.shape[0]
-    assert np.all(z[k:] == -2)
-    nt.assert_array_equal(v, z[:k])
-
-
-def assert_prefix_integer_equal_2d(vcf_val, zarr_val):
-    assert len(vcf_val.shape) == 2
-    vcf_val[vcf_val == VCF_INT_MISSING] = -1
-    vcf_val[vcf_val == VCF_INT_FILL] = -2
-    if vcf_val.shape[1] == 1:
-        nt.assert_array_equal(vcf_val[:, 0], zarr_val)
-    else:
-        k = vcf_val.shape[1]
-        nt.assert_array_equal(vcf_val, zarr_val[:, :k])
-        assert np.all(zarr_val[:, k:] == -2)
-
-
-# FIXME these are sort-of working. It's not clear that we're
-# handling the different dimensions and padded etc correctly.
-# Will need to hand-craft from examples to test
-def assert_prefix_float_equal_1d(vcf_val, zarr_val):
-    v = np.array(vcf_val, dtype=np.float32, ndmin=1)
-    # vi = v.view(np.int32)
-    z = np.array(zarr_val, dtype=np.float32, ndmin=1)
-    zi = z.view(np.int32)
-    assert np.sum(zi == FLOAT32_MISSING_AS_INT32) == 0
-    k = v.shape[0]
-    assert np.all(zi[k:] == FLOAT32_FILL_AS_INT32)
-    # assert np.where(zi[:k] == FLOAT32_FILL_AS_INT32)
-    nt.assert_array_almost_equal(v, z[:k])
-    # nt.assert_array_equal(v, z[:k])
-
-
-def assert_prefix_float_equal_2d(vcf_val, zarr_val):
-    assert len(vcf_val.shape) == 2
-    if vcf_val.shape[1] == 1:
-        vcf_val = vcf_val[:, 0]
-    v = np.array(vcf_val, dtype=np.float32, ndmin=2)
-    vi = v.view(np.int32)
-    z = np.array(zarr_val, dtype=np.float32, ndmin=2)
-    zi = z.view(np.int32)
-    assert np.all((zi == FLOAT32_MISSING_AS_INT32) == (vi == FLOAT32_MISSING_AS_INT32))
-    assert np.all((zi == FLOAT32_FILL_AS_INT32) == (vi == FLOAT32_FILL_AS_INT32))
-    # print(vcf_val, zarr_val)
-    # assert np.sum(zi == FLOAT32_MISSING_AS_INT32) == 0
-    k = v.shape[0]
-    # print("k", k)
-    assert np.all(zi[k:] == FLOAT32_FILL_AS_INT32)
-    # assert np.where(zi[:k] == FLOAT32_FILL_AS_INT32)
-    nt.assert_array_almost_equal(v, z[:k])
-    # nt.assert_array_equal(v, z[:k])
-
-
 @dataclasses.dataclass
 class VcfFieldSummary:
     num_chunks: int = 0
@@ -177,13 +114,8 @@ class VcfField:
         elif self.vcf_type == "Flag":
             ret = "bool"
         else:
-            assert self.vcf_type == "String"
+            assert self.vcf_type in ("String", "Character")
             ret = "str"
-            # if s.max_number == 0:
-            #     ret = "str"
-            # else:
-            #     ret = "O"
-        # print("smallest dtype", self.name, self.vcf_type,":", ret)
         return ret
 
 
@@ -363,9 +295,11 @@ def sanitise_value_float_1d(buff, j, value):
         buff[j] = FLOAT32_MISSING
     else:
         value = np.array(value, ndmin=1, dtype=buff.dtype, copy=False)
+        # numpy will map None values to Nan, but we need a
+        # specific NaN
+        value[np.isnan(value)] = FLOAT32_MISSING
         value = drop_empty_second_dim(value)
         buff[j] = FLOAT32_FILL
-        # TODO check for missing?
         buff[j, : value.shape[0]] = value
 
 
@@ -373,13 +307,15 @@ def sanitise_value_float_2d(buff, j, value):
     if value is None:
         buff[j] = FLOAT32_MISSING
     else:
-        value = np.array(value, dtype=buff.dtype, copy=False)
+        # print("value = ", value)
+        value = np.array(value, ndmin=2, dtype=buff.dtype, copy=False)
         buff[j] = FLOAT32_FILL
-        # TODO check for missing?
-        buff[j, :, : value.shape[0]] = value
+        buff[j, :, : value.shape[1]] = value
 
 
 def sanitise_int_array(value, ndmin, dtype):
+    if isinstance(value, tuple):
+        value = [VCF_INT_MISSING if x is None else x for x in value]
     value = np.array(value, ndmin=ndmin, copy=False)
     value[value == VCF_INT_MISSING] = -1
     value[value == VCF_INT_FILL] = -2
@@ -497,7 +433,7 @@ class PickleChunkedVcfField:
             else:
                 return sanitise_value_int_2d
         else:
-            assert self.vcf_field.vcf_type == "String"
+            assert self.vcf_field.vcf_type in ("String", "Character")
             if len(shape) == 1:
                 return sanitise_value_string_scalar
             elif len(shape) == 2:
@@ -527,6 +463,8 @@ VCF_INT_FILL = np.iinfo(np.int32).min + 1
 
 def update_bounds_integer(summary, value, number_dim):
     # print("update bounds int", summary, value)
+    if isinstance(value, tuple):
+        value = [VCF_INT_MISSING if x is None else x for x in value]
     value = np.array(value, dtype=np.int32, copy=False)
     # Mask out missing and fill values
     a = value[value >= MIN_INT_VALUE]
@@ -579,7 +517,6 @@ class PickleChunkedWriteBuffer:
     def _update_bounds(self, value):
         if value is not None:
             summary = self.column.vcf_field.summary
-            # print("update", self.column.vcf_field.full_name, value)
             if self._summary_bounds_update is not None:
                 self._summary_bounds_update(summary, value)
 
@@ -1314,6 +1251,123 @@ def convert_vcf(
         )
 
 
+def assert_all_missing_float(a):
+    v = np.array(a, dtype=np.float32).view(np.int32)
+    nt.assert_equal(v, FLOAT32_MISSING_AS_INT32)
+
+
+def assert_all_fill_float(a):
+    v = np.array(a, dtype=np.float32).view(np.int32)
+    nt.assert_equal(v, FLOAT32_FILL_AS_INT32)
+
+
+def assert_all_missing_int(a):
+    v = np.array(a, dtype=int)
+    nt.assert_equal(v, -1)
+
+
+def assert_all_fill_int(a):
+    v = np.array(a, dtype=int)
+    nt.assert_equal(v, -2)
+
+
+def assert_all_missing_string(a):
+    nt.assert_equal(a, ".")
+
+
+def assert_all_fill_string(a):
+    nt.assert_equal(a, "")
+
+
+def assert_all_fill(zarr_val, vcf_type):
+    if vcf_type == "Integer":
+        assert_all_fill_int(zarr_val)
+    elif vcf_type in ("String", "Character"):
+        assert_all_fill_string(zarr_val)
+    elif vcf_type == "Float":
+        assert_all_fill_float(zarr_val)
+    else:
+        assert False
+
+
+def assert_all_missing(zarr_val, vcf_type):
+    if vcf_type == "Integer":
+        assert_all_missing_int(zarr_val)
+    elif vcf_type in ("String", "Character"):
+        assert_all_missing_string(zarr_val)
+    elif vcf_type == "Flag":
+        assert zarr_val == False  # noqa 712
+    elif vcf_type == "Float":
+        assert_all_missing_float(zarr_val)
+    else:
+        assert False
+
+
+def assert_info_val_missing(zarr_val, vcf_type):
+    assert_all_missing(zarr_val, vcf_type)
+
+
+def assert_format_val_missing(zarr_val, vcf_type):
+    assert_info_val_missing(zarr_val, vcf_type)
+
+
+# Note: checking exact equality may prove problematic here
+# but we should be deterministically storing what cyvcf2
+# provides, which should compare equal.
+
+
+def assert_info_val_equal(vcf_val, zarr_val, vcf_type):
+    assert vcf_val is not None
+    if not isinstance(vcf_val, tuple):
+        # Scalar
+        zarr_val = np.array(zarr_val, ndmin=1)
+        assert len(zarr_val.shape) == 1
+        assert vcf_val == zarr_val[0]
+        if len(zarr_val) > 1:
+            assert_all_fill(zarr_val[1:], vcf_type)
+    else:
+        vcf_missing_value_map = {
+            "Integer": -1,
+            "Float": FLOAT32_MISSING,
+            "String": ".",
+            "Character": ".",
+        }
+        v = [vcf_missing_value_map[vcf_type] if x is None else x for x in vcf_val]
+        missing = np.array([j for j, x in enumerate(vcf_val) if x is None], dtype=int)
+        a = np.array(v)
+        k = len(a)
+        # We are checking for int missing twice here, but it's necessary to have
+        # a separate check for floats because different NaNs compare equal
+        nt.assert_equal(a, zarr_val[:k])
+        assert_all_missing(zarr_val[missing], vcf_type)
+        if k < len(zarr_val):
+            assert_all_fill(zarr_val[k:], vcf_type)
+
+
+def assert_format_val_equal(vcf_val, zarr_val, vcf_type):
+    assert vcf_val is not None
+    assert isinstance(vcf_val, np.ndarray)
+
+    assert vcf_val.shape[0] == zarr_val.shape[0]
+    if len(vcf_val.shape) == len(zarr_val.shape) + 1:
+        assert vcf_val.shape[-1] == 1
+        vcf_val = vcf_val[..., 0]
+    assert len(vcf_val.shape) <= 2
+    assert len(vcf_val.shape) == len(zarr_val.shape)
+    if len(vcf_val.shape) == 2:
+        k = vcf_val.shape[1]
+        if zarr_val.shape[1] != k:
+            assert_all_fill(zarr_val[:, k:], vcf_type)
+            zarr_val = zarr_val[:, :k]
+    assert vcf_val.shape == zarr_val.shape
+    if vcf_type == "Integer":
+        vcf_val[vcf_val == VCF_INT_MISSING] = INT_MISSING
+    elif vcf_type == "Float":
+        nt.assert_equal(vcf_val.view(np.int32), zarr_val.view(np.int32))
+
+    nt.assert_equal(vcf_val, zarr_val)
+
+
 def validate(vcf_path, zarr_path, show_progress=False):
     store = zarr.DirectoryStore(zarr_path)
 
@@ -1369,7 +1423,12 @@ def validate(vcf_path, zarr_path, show_progress=False):
         # TODO FILTERS
 
         if call_genotype is None:
-            assert row.genotype is None
+            val = None
+            try:
+                val = row.format("GT")
+            except KeyError:
+                pass
+            assert val is None
         else:
             gt = row.genotype.array()
             gt_zarr = next(call_genotype)
@@ -1382,39 +1441,13 @@ def validate(vcf_path, zarr_path, show_progress=False):
             #     print(gt_vcf)
             nt.assert_array_equal(gt_zarr, gt_vcf)
 
-        # TODO this is basically right, but the details about float padding
-        # need to be worked out in particular. Need to find examples of
-        # VCFs with Number=. Float fields.
         for name, (vcf_type, zarr_iter) in info_fields.items():
-            vcf_val = None
-            try:
-                vcf_val = row.INFO[name]
-            except KeyError:
-                pass
+            vcf_val = row.INFO.get(name, None)
             zarr_val = next(zarr_iter)
             if vcf_val is None:
-                if vcf_type == "Integer":
-                    assert np.all(zarr_val == -1)
-                elif vcf_type == "String":
-                    assert np.all(zarr_val == ".")
-                elif vcf_type == "Flag":
-                    assert zarr_val == False  # noqa 712
-                elif vcf_type == "Float":
-                    assert_all_missing_float(zarr_val)
-                else:
-                    assert False
+                assert_info_val_missing(zarr_val, vcf_type)
             else:
-                # print(name, vcf_type, vcf_val, zarr_val, sep="\t")
-                if vcf_type == "Integer":
-                    assert_prefix_integer_equal_1d(vcf_val, zarr_val)
-                elif vcf_type == "Float":
-                    assert_prefix_float_equal_1d(vcf_val, zarr_val)
-                elif vcf_type == "Flag":
-                    assert zarr_val == True  # noqa 712
-                elif vcf_type == "String":
-                    assert np.all(zarr_val == vcf_val)
-                else:
-                    assert False
+                assert_info_val_equal(vcf_val, zarr_val, vcf_type)
 
         for name, (vcf_type, zarr_iter) in format_fields.items():
             vcf_val = None
@@ -1424,27 +1457,6 @@ def validate(vcf_path, zarr_path, show_progress=False):
                 pass
             zarr_val = next(zarr_iter)
             if vcf_val is None:
-                if vcf_type == "Integer":
-                    assert np.all(zarr_val == -1)
-                elif vcf_type == "Float":
-                    assert_all_missing_float(zarr_val)
-                elif vcf_type == "String":
-                    assert np.all(zarr_val == ".")
-                else:
-                    print("vcf_val", vcf_type, name, vcf_val)
-                    assert False
+                assert_format_val_missing(zarr_val, vcf_type)
             else:
-                assert vcf_val.shape[0] == zarr_val.shape[0]
-                if vcf_type == "Integer":
-                    assert_prefix_integer_equal_2d(vcf_val, zarr_val)
-                elif vcf_type == "Float":
-                    assert_prefix_float_equal_2d(vcf_val, zarr_val)
-                elif vcf_type == "String":
-                    nt.assert_array_equal(vcf_val, zarr_val)
-
-                    # assert_prefix_string_equal_2d(vcf_val, zarr_val)
-                else:
-                    print(name)
-                    print(vcf_val)
-                    print(zarr_val)
-                    assert False
+                assert_format_val_equal(vcf_val, zarr_val, vcf_type)
