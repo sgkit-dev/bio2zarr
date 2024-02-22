@@ -1362,6 +1362,7 @@ def assert_format_val_equal(vcf_val, zarr_val, vcf_type):
     assert vcf_val.shape == zarr_val.shape
     if vcf_type == "Integer":
         vcf_val[vcf_val == VCF_INT_MISSING] = INT_MISSING
+        vcf_val[vcf_val == VCF_INT_FILL] = INT_FILL
     elif vcf_type == "Float":
         nt.assert_equal(vcf_val.view(np.int32), zarr_val.view(np.int32))
 
