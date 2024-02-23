@@ -288,7 +288,9 @@ class TestSmallExample:
     def test_full_pipeline(self, ds, tmp_path, worker_processes):
         exploded = tmp_path / "example.exploded"
         vcf.explode(
-            [self.data_path], exploded, worker_processes=worker_processes,
+            [self.data_path],
+            exploded,
+            worker_processes=worker_processes,
         )
         schema = tmp_path / "schema.json"
         with open(schema, "w") as f:
@@ -299,12 +301,124 @@ class TestSmallExample:
         xt.assert_equal(ds, ds2)
 
 
+class Test1000G2020Example:
+    data_path = "tests/data/vcf/1kg_2020_chrM.vcf.gz"
+
+    @pytest.fixture(scope="class")
+    def ds(self, tmp_path_factory):
+        out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
+        vcf.convert_vcf([self.data_path], out, worker_processes=0)
+        return sg.load_dataset(out)
+
+    def test_position(self, ds):
+        # fmt: off
+        pos = [
+            26, 35, 40, 41, 42, 46, 47, 51, 52, 53, 54, 55, 56,
+            57, 58, 59, 60, 61, 62, 63, 64, 65, 66,
+        ]
+        # fmt: on
+        nt.assert_array_equal(ds.variant_position.values, pos)
+
+    def test_alleles(self, ds):
+        alleles = [
+            ["C", "T", "", "", ""],
+            ["G", "A", "", "", ""],
+            ["T", "C", "", "", ""],
+            ["C", "T", "CT", "", ""],
+            ["T", "TC", "C", "TG", ""],
+            ["T", "C", "", "", ""],
+            ["G", "A", "", "", ""],
+            ["T", "C", "", "", ""],
+            ["T", "C", "", "", ""],
+            ["G", "A", "", "", ""],
+            ["G", "A", "", "", ""],
+            ["TA", "TAA", "T", "CA", "AA"],
+            ["ATT", "*", "ATTT", "ACTT", "A"],
+            ["T", "C", "G", "*", "TC"],
+            ["T", "A", "C", "*", ""],
+            ["T", "A", "", "", ""],
+            ["T", "A", "", "", ""],
+            ["C", "A", "T", "", ""],
+            ["G", "A", "", "", ""],
+            ["T", "C", "A", "", ""],
+            ["C", "T", "CT", "A", ""],
+            ["TG", "T", "CG", "TGG", "TCGG"],
+            ["G", "T", "*", "A", ""],
+        ]
+        nt.assert_array_equal(ds.variant_allele.values, alleles)
+
+    def test_variant_MLEAC(self, ds):
+        MLEAC = np.array(
+            [
+                [2, -2, -2, -2],
+                [2, -2, -2, -2],
+                [2, -2, -2, -2],
+                [16, 2, -2, -2],
+                [10, 4, 2, -2],
+                [2, -2, -2, -2],
+                [4, -2, -2, -2],
+                [4, -2, -2, -2],
+                [2, -2, -2, -2],
+                [2, -2, -2, -2],
+                [2, -2, -2, -2],
+                [2, 26, 12, 4],
+                [26, 2, 8, 4],
+                [11, 6, 4, 2],
+                [26, 1, 4, -2],
+                [2, -2, -2, -2],
+                [2, -2, -2, -2],
+                [2, 12, -2, -2],
+                [14, -2, -2, -2],
+                [4, 2, -2, -2],
+                [320, 20, 2, -2],
+                [12, 2, 6, 4],
+                [18, 12, 4, -2],
+            ],
+            dtype=np.int16,
+        )
+        nt.assert_array_equal(ds.variant_MLEAC.values, MLEAC)
+
+    def test_call_AD(self, ds):
+        call_AD = [
+            [[446, 0, -2, -2, -2], [393, 0, -2, -2, -2], [486, 0, -2, -2, -2]],
+            [[446, 0, -2, -2, -2], [393, 0, -2, -2, -2], [486, 0, -2, -2, -2]],
+            [[446, 0, -2, -2, -2], [393, 0, -2, -2, -2], [486, 0, -2, -2, -2]],
+            [[446, 0, 0, -2, -2], [393, 0, 0, -2, -2], [486, 0, 0, -2, -2]],
+            [[446, 0, 0, 0, -2], [393, 0, 0, 0, -2], [486, 0, 0, 0, -2]],
+            [[446, 0, -2, -2, -2], [393, 0, -2, -2, -2], [486, 0, -2, -2, -2]],
+            [[446, 0, -2, -2, -2], [393, 0, -2, -2, -2], [486, 0, -2, -2, -2]],
+            [[446, 0, -2, -2, -2], [393, 0, -2, -2, -2], [486, 0, -2, -2, -2]],
+            [[446, 0, -2, -2, -2], [393, 0, -2, -2, -2], [486, 0, -2, -2, -2]],
+            [[446, 0, -2, -2, -2], [393, 0, -2, -2, -2], [486, 0, -2, -2, -2]],
+            [[446, 0, -2, -2, -2], [393, 0, -2, -2, -2], [486, 0, -2, -2, -2]],
+            [[446, 0, 0, 0, 0], [393, 0, 0, 0, 0], [486, 0, 0, 0, 0]],
+            [[446, 0, 0, 0, 0], [393, 0, 0, 0, 0], [486, 0, 0, 0, 0]],
+            [[446, 0, 0, 0, 0], [393, 0, 0, 0, 0], [486, 0, 0, 0, 0]],
+            [[446, 0, 0, 0, -2], [393, 0, 0, 0, -2], [486, 0, 0, 0, -2]],
+            [[446, 0, -2, -2, -2], [393, 0, -2, -2, -2], [486, 0, -2, -2, -2]],
+            [[446, 0, -2, -2, -2], [393, 0, -2, -2, -2], [486, 0, -2, -2, -2]],
+            [[446, 0, 0, -2, -2], [393, 0, 0, -2, -2], [486, 0, 0, -2, -2]],
+            [[446, 0, -2, -2, -2], [393, 0, -2, -2, -2], [486, 0, -2, -2, -2]],
+            [[446, 0, 0, -2, -2], [393, 0, 0, -2, -2], [486, 0, 0, -2, -2]],
+            [[446, 0, 0, 0, -2], [393, 0, 0, 0, -2], [486, 0, 0, 0, -2]],
+            [[446, 0, 0, 0, 0], [393, 0, 0, 0, 0], [486, 0, 0, 0, 0]],
+            [[446, 0, 0, 0, -2], [393, 0, 0, 0, -2], [486, 0, 0, 0, -2]],
+        ]
+        nt.assert_array_equal(ds.call_AD.values, call_AD)
+
+    def test_call_PID(self, ds):
+        call_PGT = ds["call_PGT"].values
+        assert np.all(call_PGT == ".")
+        assert call_PGT.shape == (23, 3)
+
+
 @pytest.mark.parametrize(
     "name",
     [
         "sample.vcf.gz",
         "sample_no_genotypes.vcf.gz",
         "info_field_type_combos.vcf.gz",
+        "1kg_2020_chrM.vcf.gz",
     ],
 )
 def test_by_validating(name, tmp_path):
