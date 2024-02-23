@@ -618,7 +618,6 @@ class Test1000G2020AnnotationsExample:
         assert sorted(list(ds)) == sorted(info_vars + standard_vars)
 
     def test_variant_ANN(self, ds):
-        print(repr(ds.variant_ANN.values))
         variant_ANN = [
             "A|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60070G>A||||||",
             "C|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60083T>C||||||",
@@ -654,11 +653,11 @@ class TestGeneratedFieldsExample:
         vcf.convert_vcf([self.data_path], out)
         return sg.load_dataset(out)
 
-    def test_info_string1(self, ds):
-        print(repr(ds["variant_IS1"].values))
+    # def test_info_string1(self, ds):
+    #     print(repr(ds["variant_IS1"].values))
 
-    def test_info_string2(self, ds):
-        print(repr(ds["variant_IS2"].values))
+    # def test_info_string2(self, ds):
+    #     print(repr(ds["variant_IS2"].values))
 
 
 @pytest.mark.parametrize(
