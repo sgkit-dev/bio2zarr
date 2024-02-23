@@ -3,7 +3,6 @@ import numpy.testing as nt
 import xarray.testing as xt
 import pytest
 import sgkit as sg
-import zarr
 
 from bio2zarr import vcf
 
@@ -412,13 +411,257 @@ class Test1000G2020Example:
         assert call_PGT.shape == (23, 3)
 
 
+class Test1000G2020AnnotationsExample:
+    data_path = "tests/data/vcf/1kg_2020_chr20_annotations.bcf"
+
+    @pytest.fixture(scope="class")
+    def ds(self, tmp_path_factory):
+        out = tmp_path_factory.mktemp("data") / "example.zarr"
+        # TODO capture warnings from htslib here
+        vcf.convert_vcf([self.data_path], out, worker_processes=0)
+        return sg.load_dataset(out)
+
+    def test_position(self, ds):
+        # fmt: off
+        pos = [
+            60070, 60083, 60114, 60116, 60137, 60138, 60149, 60181, 60183,
+            60254, 60280, 60280, 60286, 60286, 60291, 60291, 60291, 60291,
+            60291, 60329, 60331
+        ]
+        # fmt: on
+        nt.assert_array_equal(ds.variant_position.values, pos)
+
+    def test_alleles(self, ds):
+        alleles = [
+            ["G", "A"],
+            ["T", "C"],
+            ["T", "C"],
+            ["A", "G"],
+            ["T", "C"],
+            ["T", "A"],
+            ["C", "T"],
+            ["A", "G"],
+            ["A", "G"],
+            ["C", "A"],
+            ["TTTCCA", "T"],
+            ["T", "TTTCCA"],
+            ["T", "G"],
+            ["TTCCAG", "T"],
+            ["G", "T"],
+            ["G", "GTCCAT"],
+            ["GTCCATTCCAT", "G"],
+            ["GTCCAT", "G"],
+            ["G", "GTCCATTCCAT"],
+            ["C", "G"],
+            ["T", "C"],
+        ]
+        nt.assert_array_equal(ds.variant_allele.values, alleles)
+
+    def test_info_fields(self, ds):
+        info_vars = [
+            "variant_1000Gp3_AA_GF",
+            "variant_1000Gp3_AF",
+            "variant_1000Gp3_HomC",
+            "variant_1000Gp3_RA_GF",
+            "variant_1000Gp3_RR_GF",
+            "variant_AC",
+            "variant_ACMG_GENE",
+            "variant_ACMG_INHRT",
+            "variant_ACMG_MIM_GENE",
+            "variant_ACMG_PATH",
+            "variant_AC_AFR",
+            "variant_AC_AFR_unrel",
+            "variant_AC_AMR",
+            "variant_AC_AMR_unrel",
+            "variant_AC_EAS",
+            "variant_AC_EAS_unrel",
+            "variant_AC_EUR",
+            "variant_AC_EUR_unrel",
+            "variant_AC_Het",
+            "variant_AC_Het_AFR",
+            "variant_AC_Het_AFR_unrel",
+            "variant_AC_Het_AMR",
+            "variant_AC_Het_AMR_unrel",
+            "variant_AC_Het_EAS",
+            "variant_AC_Het_EAS_unrel",
+            "variant_AC_Het_EUR",
+            "variant_AC_Het_EUR_unrel",
+            "variant_AC_Het_SAS",
+            "variant_AC_Het_SAS_unrel",
+            "variant_AC_Hom",
+            "variant_AC_Hom_AFR",
+            "variant_AC_Hom_AFR_unrel",
+            "variant_AC_Hom_AMR",
+            "variant_AC_Hom_AMR_unrel",
+            "variant_AC_Hom_EAS",
+            "variant_AC_Hom_EAS_unrel",
+            "variant_AC_Hom_EUR",
+            "variant_AC_Hom_EUR_unrel",
+            "variant_AC_Hom_SAS",
+            "variant_AC_Hom_SAS_unrel",
+            "variant_AC_SAS",
+            "variant_AC_SAS_unrel",
+            "variant_AF",
+            "variant_AF_AFR",
+            "variant_AF_AFR_unrel",
+            "variant_AF_AMR",
+            "variant_AF_AMR_unrel",
+            "variant_AF_EAS",
+            "variant_AF_EAS_unrel",
+            "variant_AF_EUR",
+            "variant_AF_EUR_unrel",
+            "variant_AF_SAS",
+            "variant_AF_SAS_unrel",
+            "variant_AN",
+            "variant_ANN",
+            "variant_AN_AFR",
+            "variant_AN_AFR_unrel",
+            "variant_AN_AMR",
+            "variant_AN_AMR_unrel",
+            "variant_AN_EAS",
+            "variant_AN_EAS_unrel",
+            "variant_AN_EUR",
+            "variant_AN_EUR_unrel",
+            "variant_AN_SAS",
+            "variant_AN_SAS_unrel",
+            "variant_AR_GENE",
+            "variant_BaseQRankSum",
+            "variant_CADD_phred",
+            "variant_CLNDBN",
+            "variant_CLNDSDB",
+            "variant_CLNDSDBID",
+            "variant_CLNSIG",
+            "variant_COSMIC_CNT",
+            "variant_ClippingRankSum",
+            "variant_DP",
+            "variant_DS",
+            "variant_END",
+            "variant_Entrez_gene_id",
+            "variant_Essential_gene",
+            "variant_ExAC_AF",
+            "variant_ExcHet",
+            "variant_ExcHet_AFR",
+            "variant_ExcHet_AMR",
+            "variant_ExcHet_EAS",
+            "variant_ExcHet_EUR",
+            "variant_ExcHet_SAS",
+            "variant_FS",
+            "variant_GDI",
+            "variant_GDI-Phred",
+            "variant_GERP++_NR",
+            "variant_GERP++_RS",
+            "variant_HWE",
+            "variant_HWE_AFR",
+            "variant_HWE_AFR_unrel",
+            "variant_HWE_AMR",
+            "variant_HWE_AMR_unrel",
+            "variant_HWE_EAS",
+            "variant_HWE_EAS_unrel",
+            "variant_HWE_EUR",
+            "variant_HWE_EUR_unrel",
+            "variant_HWE_SAS",
+            "variant_HWE_SAS_unrel",
+            "variant_HaplotypeScore",
+            "variant_InbreedingCoeff",
+            "variant_LOF",
+            "variant_LoFtool_score",
+            "variant_ME",
+            "variant_MGI_mouse_gene",
+            "variant_MLEAC",
+            "variant_MLEAF",
+            "variant_MQ",
+            "variant_MQ0",
+            "variant_MQRankSum",
+            "variant_MutationAssessor_pred",
+            "variant_MutationTaster_pred",
+            "variant_NEGATIVE_TRAIN_SITE",
+            "variant_NMD",
+            "variant_POSITIVE_TRAIN_SITE",
+            "variant_Pathway(BioCarta)_short",
+            "variant_Polyphen2_HDIV_pred",
+            "variant_Polyphen2_HVAR_pred",
+            "variant_QD",
+            "variant_RAW_MQ",
+            "variant_RVIS",
+            "variant_RVIS_percentile",
+            "variant_ReadPosRankSum",
+            "variant_Regulome_dbSNP141",
+            "variant_SIFT_pred",
+            "variant_SOR",
+            "variant_Uniprot_aapos_Polyphen2",
+            "variant_Uniprot_id_Polyphen2",
+            "variant_VQSLOD",
+            "variant_VariantType",
+            "variant_ZFIN_zebrafish_gene",
+            "variant_ZFIN_zebrafish_phenotype_tag",
+            "variant_culprit",
+            "variant_dbSNPBuildID",
+            "variant_phastCons20way_mammalian",
+            "variant_phyloP20way_mammalian",
+            "variant_repeats",
+        ]
+        # Verified with bcftools view -H | grep INFO
+        assert len(info_vars) == 140
+        standard_vars = [
+            "variant_filter",
+            "variant_contig",
+            "variant_position",
+            "variant_allele",
+            "variant_id",
+            "variant_id_mask",
+            "variant_quality",
+            "contig_id",
+            "contig_length",
+            "filter_id",
+            "sample_id",
+        ]
+        assert sorted(list(ds)) == sorted(info_vars + standard_vars)
+
+    def test_variant_ANN(self, ds):
+        print(repr(ds.variant_ANN.values))
+        variant_ANN = [
+            "A|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60070G>A||||||",
+            "C|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60083T>C||||||",
+            "C|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60114T>C||||||",
+            "G|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60116A>G||||||",
+            "C|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60137T>C||||||",
+            "A|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60138T>A||||||",
+            "T|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60149C>T||||||",
+            "G|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60181A>G||||||",
+            "G|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60183A>G||||||",
+            "A|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60254C>A||||||",
+            "T|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60281_60285delTTCCA||||||",
+            "TTTCCA|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60280_60281insTTCCA||||||",
+            "G|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60286T>G||||||",
+            "T|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60287_60291delTCCAG||||||",
+            "T|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60291G>T||||||",
+            "GTCCAT|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60291_60292insTCCAT||||||",
+            "G|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60292_60301delTCCATTCCAT||||||",
+            "G|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60292_60296delTCCAT||||||",
+            "GTCCATTCCAT|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60291_60292insTCCATTCCAT||||||",
+            "G|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60329C>G||||||",
+            "C|intergenic_region|MODIFIER|DEFB125|ENSG00000178591|intergenic_region|ENSG00000178591|||n.60331T>C||||||",
+        ]
+        nt.assert_array_equal(ds.variant_ANN.values, variant_ANN)
+
+
+class TestGeneratedFieldsExample:
+    data_path = "tests/data/vcf/field_type_combos.vcf.gz"
+
+    @pytest.fixture(scope="class")
+    def ds(self, tmp_path_factory):
+        out = tmp_path_factory.mktemp("data") / "vcf.zarr"
+        vcf.convert_vcf([self.data_path], out)
+        return sg.load_dataset(out)
+
+
 @pytest.mark.parametrize(
     "name",
     [
         "sample.vcf.gz",
         "sample_no_genotypes.vcf.gz",
-        "info_field_type_combos.vcf.gz",
         "1kg_2020_chrM.vcf.gz",
+        "field_type_combos.vcf.gz",
     ],
 )
 def test_by_validating(name, tmp_path):
