@@ -653,11 +653,14 @@ class TestGeneratedFieldsExample:
         vcf.convert_vcf([self.data_path], out)
         return sg.load_dataset(out)
 
-    # def test_info_string1(self, ds):
-    #     print(repr(ds["variant_IS1"].values))
+    def test_info_string1(self, ds):
+        print(repr(ds["variant_IS1"].values))
 
-    # def test_info_string2(self, ds):
-    #     print(repr(ds["variant_IS2"].values))
+    def test_info_string2(self, ds):
+        print(repr(ds["variant_IS2"].values))
+
+    def test_format_string2(self, ds):
+        print(repr(ds["call_FS2"].values))
 
 
 @pytest.mark.parametrize(

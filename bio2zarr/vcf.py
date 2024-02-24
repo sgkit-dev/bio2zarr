@@ -115,9 +115,11 @@ class VcfField:
             ret = dtype
         elif self.vcf_type == "Flag":
             ret = "bool"
+        elif self.vcf_type == "Character":
+            ret = "S1"
         else:
-            assert self.vcf_type in ("String", "Character")
-            ret = "str"
+            assert self.vcf_type == "String"
+            ret = "O"
         return ret
 
 
@@ -266,10 +268,13 @@ def sanitise_value_string_1d(buff, j, value):
     if value is None:
         buff[j] = "."
     else:
-        value = np.array(value, ndmin=1, dtype=buff.dtype, copy=False)
+        # value = np.array(value, ndmin=1, dtype=buff.dtype, copy=False)
+        # FIXME failure isn't coming from here, it seems to be from an
+        # incorrectly detected dimension in the zarr array
+        # The dimesions look all wrong, and the dtype should be Object
+        # not str
         value = drop_empty_second_dim(value)
         buff[j] = ""
-        # TODO check for missing?
         buff[j, : value.shape[0]] = value
 
 
@@ -277,11 +282,15 @@ def sanitise_value_string_2d(buff, j, value):
     if value is None:
         buff[j] = "."
     else:
-        value = np.array(value, ndmin=1, dtype=buff.dtype, copy=False)
-        value = drop_empty_second_dim(value)
+        # print(buff.shape, value.dtype, value)
+        # assert value.ndim == 2
         buff[j] = ""
-        # TODO check for missing?
-        buff[j, : value.shape[0]] = value
+        if value.ndim == 2:
+            buff[j, :, : value.shape[1]] = value
+        else:
+            # TODO check if this is still necessary
+            for k, val in enumerate(value):
+                buff[j, k, : len(val)] = val
 
 
 def drop_empty_second_dim(value):
@@ -343,71 +352,9 @@ def sanitise_value_int_2d(buff, j, value):
         buff[j, :, : value.shape[1]] = value
 
 
-def update_bounds_float(summary, value, number_dim):
-    value = np.array(value, dtype=np.float32, copy=False)
-    # Map back to python types to avoid JSON issues later. Could
-    # be done more efficiently at the end.
-    if value.size > 0:
-        summary.min_value = float(min(summary.min_value, np.min(value)))
-        summary.max_value = float(max(summary.max_value, np.max(value)))
-    number = 0
-    assert len(value.shape) <= number_dim + 1
-    if len(value.shape) == number_dim + 1:
-        number = value.shape[number_dim]
-    summary.max_number = max(summary.max_number, number)
-    return value
-
-
 MIN_INT_VALUE = np.iinfo(np.int32).min + 2
 VCF_INT_MISSING = np.iinfo(np.int32).min
 VCF_INT_FILL = np.iinfo(np.int32).min + 1
-
-
-def update_bounds_integer(summary, value, number_dim):
-    # NOTE we don't convert to local MISSING and FILL values here
-    # to allow users to detect and deal with it later, in case they
-    # need -1 and -2 values in their data.
-    if value is None:
-        return VCF_INT_MISSING
-    # print("update bounds int", summary, value)
-    if isinstance(value, tuple):
-        value = [VCF_INT_MISSING if x is None else x for x in value]
-    value = np.array(value, dtype=np.int32, copy=False)
-
-    # Mask out missing and fill values
-    a = value[value >= MIN_INT_VALUE]
-    if a.size > 0:
-        summary.max_value = int(max(summary.max_value, np.max(a)))
-        summary.min_value = int(min(summary.min_value, np.min(a)))
-    number = 0
-    assert len(value.shape) <= number_dim + 1
-    if len(value.shape) == number_dim + 1:
-        number = value.shape[number_dim]
-    summary.max_number = max(summary.max_number, number)
-    return value
-
-
-def update_bounds_string(summary, value, number_dim):
-    # if isinstance(value, str):
-    #     number = 0
-    # else:
-    #     number = len(value)
-    # summary.max_number = max(summary.max_number, number)
-    return value
-
-
-def update_bounds_flag(summary, value, number_dim):
-    return value
-
-
-def update_bounds_char(summary, value, number_dim):
-    # if isinstance(value, str):
-    #     number = 0
-    # else:
-    #     number = len(value)
-    # summary.max_number = max(summary.max_number, number)
-    return value
-
 
 missing_value_map = {
     "Integer": -1,
@@ -428,12 +375,9 @@ class VcfValueTransformer:
         self.field = field
         self.num_samples = num_samples
         self.dimension = 1
-        self.missing = missing_value_map[field.vcf_type]
         if field.category == "FORMAT":
             self.dimension = 2
-            self.missing_value = np.full((self.num_samples, 1), self.missing)
-        else:
-            self.missing_value = np.array([self.missing])
+        self.missing = missing_value_map[field.vcf_type]
 
     @staticmethod
     def factory(field, num_samples):
@@ -446,8 +390,6 @@ class VcfValueTransformer:
         return StringValueTransformer(field, num_samples)
 
     def transform(self, vcf_value):
-        if vcf_value is None:
-            return self.missing_value
         if isinstance(vcf_value, tuple):
             vcf_value = [self.missing if v is None else v for v in vcf_value]
         value = np.array(vcf_value, ndmin=self.dimension, copy=False)
@@ -498,11 +440,15 @@ class StringValueTransformer(VcfValueTransformer):
         summary.max_number = max(summary.max_number, number)
 
     def transform(self, vcf_value):
+        # print("transform", vcf_value)
         if self.dimension == 1:
             value = np.array(list(vcf_value.split(",")))
         else:
             # TODO can we make this faster??
-            value = np.array([list(v.split(",")) for v in vcf_value], dtype="O")
+            value = np.array([v.split(",") for v in vcf_value], dtype="O")
+            # print("HERE", vcf_value, value)
+            # for v in vcf_value:
+            #     print("\t", type(v), len(v), v.split(","))
         # print("S: ", self.dimension, ":", value.shape, value)
         return value
 
@@ -678,6 +624,7 @@ class ThreadedColumnWriter(contextlib.AbstractContextManager):
 
     def append(self, name, value):
         buff = self.buffers[name]
+        # print("Append", name, value)
         value = buff.transformer.transform_and_update_bounds(value)
         assert value is None or isinstance(value, np.ndarray)
         buff.append(value)
@@ -1052,11 +999,8 @@ class ZarrConversionSpec:
                 shape.append(n)
                 chunks.append(chunk_width),
                 dimensions.append("samples")
-            if field.category == "FORMAT" and field.vcf_type == "String":
-                # FIXME not handling format string values very well right now
-                # as the max_number value is just the number of samples
-                pass
-            elif field.summary.max_number > 1:
+            # TODO make an option to add in the empty extra dimension
+            if field.summary.max_number > 1:
                 shape.append(field.summary.max_number)
                 dimensions.append(field.name)
             variable_name = prefix + field.name
@@ -1136,12 +1080,16 @@ class SgvcfZarr:
 
     def create_array(self, variable):
         # print("CREATE", variable)
+        object_codec = None
+        if variable.dtype == "O":
+            object_codec = numcodecs.VLenUTF8()
         a = self.root.empty(
             variable.name,
             shape=variable.shape,
             chunks=variable.chunks,
             dtype=variable.dtype,
             compressor=numcodecs.get_codec(variable.compressor),
+            object_codec=object_codec,
         )
         a.attrs["_ARRAY_DIMENSIONS"] = variable.dimensions
 
