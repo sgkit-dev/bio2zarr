@@ -879,9 +879,9 @@ def explode(
     )
 
 
-def inspect(columnarised):
+def inspect(if_path):
     # TODO add support for the Zarr format also
-    pcvcf = PickleChunkedVcf.load(columnarised)
+    pcvcf = PickleChunkedVcf.load(if_path)
     return pcvcf.summary_table()
 
 
@@ -1309,16 +1309,16 @@ class SgvcfZarr:
         os.rename(write_path, path)
 
 
-def generate_spec(columnarised, out):
-    pcvcf = PickleChunkedVcf.load(columnarised)
+def generate_spec(if_path, out):
+    pcvcf = PickleChunkedVcf.load(if_path)
     spec = ZarrConversionSpec.generate(pcvcf)
     json.dump(spec.asdict(), out, indent=4)
 
 
 def to_zarr(
-    columnarised, zarr_path, conversion_spec, worker_processes=1, show_progress=False
+    if_path, zarr_path, conversion_spec, worker_processes=1, show_progress=False
 ):
-    pcvcf = PickleChunkedVcf.load(columnarised)
+    pcvcf = PickleChunkedVcf.load(if_path)
     if conversion_spec is None:
         spec = ZarrConversionSpec.generate(pcvcf)
     else:

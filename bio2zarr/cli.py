@@ -46,32 +46,32 @@ def explode(vcfs, out_path, verbose, worker_processes, column_chunk_size):
 
 
 @click.command
-@click.argument("columnarised", type=click.Path())
+@click.argument("if_path", type=click.Path())
 @verbose
-def inspect(columnarised, verbose):
+def inspect(if_path, verbose):
     setup_logging(verbose)
-    data = vcf.inspect(columnarised)
+    data = vcf.inspect(if_path)
     click.echo(tabulate.tabulate(data, headers="keys"))
 
 
 @click.command
-@click.argument("columnarised", type=click.Path())
+@click.argument("if_path", type=click.Path())
 # @click.argument("specfile", type=click.Path())
-def genspec(columnarised):
+def genspec(if_path):
     stream = click.get_text_stream("stdout")
-    vcf.generate_spec(columnarised, stream)
+    vcf.generate_spec(if_path, stream)
 
 
 @click.command
-@click.argument("columnarised", type=click.Path())
+@click.argument("if_path", type=click.Path())
 @click.argument("zarr_path", type=click.Path())
 @verbose
 @click.option("-s", "--conversion-spec", default=None)
 @worker_processes
-def to_zarr(columnarised, zarr_path, verbose, conversion_spec, worker_processes):
+def to_zarr(if_path, zarr_path, verbose, conversion_spec, worker_processes):
     setup_logging(verbose)
     vcf.to_zarr(
-        columnarised,
+        if_path,
         zarr_path,
         conversion_spec,
         worker_processes=worker_processes,
