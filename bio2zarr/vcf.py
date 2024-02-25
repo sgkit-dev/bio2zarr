@@ -1,4 +1,5 @@
 import concurrent.futures as cf
+import collections
 import dataclasses
 import functools
 import logging
@@ -10,6 +11,7 @@ import shutil
 import json
 import math
 import tempfile
+import contextlib
 from typing import Any
 
 import humanfriendly
@@ -113,9 +115,11 @@ class VcfField:
             ret = dtype
         elif self.vcf_type == "Flag":
             ret = "bool"
+        elif self.vcf_type == "Character":
+            ret = "U1"
         else:
-            assert self.vcf_type in ("String", "Character")
-            ret = "str"
+            assert self.vcf_type == "String"
+            ret = "O"
         return ret
 
 
@@ -254,21 +258,23 @@ def sanitise_value_int_scalar(buff, j, value):
 
 
 def sanitise_value_string_scalar(buff, j, value):
-    x = value
     if value is None:
-        x = "."
-    # TODO check for missing values as well
-    buff[j] = x
+        buff[j] = "."
+    else:
+        buff[j] = value[0]
 
 
 def sanitise_value_string_1d(buff, j, value):
     if value is None:
         buff[j] = "."
     else:
-        value = np.array(value, ndmin=1, dtype=buff.dtype, copy=False)
+        # value = np.array(value, ndmin=1, dtype=buff.dtype, copy=False)
+        # FIXME failure isn't coming from here, it seems to be from an
+        # incorrectly detected dimension in the zarr array
+        # The dimesions look all wrong, and the dtype should be Object
+        # not str
         value = drop_empty_second_dim(value)
         buff[j] = ""
-        # TODO check for missing?
         buff[j, : value.shape[0]] = value
 
 
@@ -276,11 +282,15 @@ def sanitise_value_string_2d(buff, j, value):
     if value is None:
         buff[j] = "."
     else:
-        value = np.array(value, ndmin=1, dtype=buff.dtype, copy=False)
-        value = drop_empty_second_dim(value)
+        # print(buff.shape, value.dtype, value)
+        # assert value.ndim == 2
         buff[j] = ""
-        # TODO check for missing?
-        buff[j, : value.shape[0]] = value
+        if value.ndim == 2:
+            buff[j, :, : value.shape[1]] = value
+        else:
+            # TODO check if this is still necessary
+            for k, val in enumerate(value):
+                buff[j, k, : len(val)] = val
 
 
 def drop_empty_second_dim(value):
@@ -342,6 +352,115 @@ def sanitise_value_int_2d(buff, j, value):
         buff[j, :, : value.shape[1]] = value
 
 
+MIN_INT_VALUE = np.iinfo(np.int32).min + 2
+VCF_INT_MISSING = np.iinfo(np.int32).min
+VCF_INT_FILL = np.iinfo(np.int32).min + 1
+
+missing_value_map = {
+    "Integer": -1,
+    "Float": FLOAT32_MISSING,
+    "String": ".",
+    "Character": ".",
+    "Flag": False,
+}
+
+
+class VcfValueTransformer:
+    """
+    Transform VCF values into the stored intermediate format used
+    in the PickleChunkedVcf, and update field summaries.
+    """
+
+    def __init__(self, field, num_samples):
+        self.field = field
+        self.num_samples = num_samples
+        self.dimension = 1
+        if field.category == "FORMAT":
+            self.dimension = 2
+        self.missing = missing_value_map[field.vcf_type]
+
+    @staticmethod
+    def factory(field, num_samples):
+        if field.vcf_type in ("Integer", "Flag"):
+            return IntegerValueTransformer(field, num_samples)
+        if field.vcf_type == "Float":
+            return FloatValueTransformer(field, num_samples)
+        if field.name in ["REF", "FILTERS", "ALT", "ID", "CHROM"]:
+            return SplitStringValueTransformer(field, num_samples)
+        return StringValueTransformer(field, num_samples)
+
+    def transform(self, vcf_value):
+        if isinstance(vcf_value, tuple):
+            vcf_value = [self.missing if v is None else v for v in vcf_value]
+        value = np.array(vcf_value, ndmin=self.dimension, copy=False)
+        return value
+
+    def transform_and_update_bounds(self, vcf_value):
+        if vcf_value is None:
+            return None
+        value = self.transform(vcf_value)
+        self.update_bounds(value)
+        # print(self.field.full_name, "T", vcf_value, "->", value)
+        return value
+
+
+MIN_INT_VALUE = np.iinfo(np.int32).min + 2
+VCF_INT_MISSING = np.iinfo(np.int32).min
+VCF_INT_FILL = np.iinfo(np.int32).min + 1
+
+
+class IntegerValueTransformer(VcfValueTransformer):
+    def update_bounds(self, value):
+        summary = self.field.summary
+        # Mask out missing and fill values
+        # print(value)
+        a = value[value >= MIN_INT_VALUE]
+        if a.size > 0:
+            summary.max_value = int(max(summary.max_value, np.max(a)))
+            summary.min_value = int(min(summary.min_value, np.min(a)))
+        number = value.shape[-1]
+        summary.max_number = max(summary.max_number, number)
+
+
+class FloatValueTransformer(VcfValueTransformer):
+    def update_bounds(self, value):
+        summary = self.field.summary
+        summary.max_value = float(max(summary.max_value, np.max(value)))
+        summary.min_value = float(min(summary.min_value, np.min(value)))
+        number = value.shape[-1]
+        summary.max_number = max(summary.max_number, number)
+
+
+class StringValueTransformer(VcfValueTransformer):
+    def update_bounds(self, value):
+        summary = self.field.summary
+        number = value.shape[-1]
+        # TODO would be nice to report string lengths, but not
+        # really necessary.
+        summary.max_number = max(summary.max_number, number)
+
+    def transform(self, vcf_value):
+        # print("transform", vcf_value)
+        if self.dimension == 1:
+            value = np.array(list(vcf_value.split(",")))
+        else:
+            # TODO can we make this faster??
+            value = np.array([v.split(",") for v in vcf_value], dtype="O")
+            # print("HERE", vcf_value, value)
+            # for v in vcf_value:
+            #     print("\t", type(v), len(v), v.split(","))
+        # print("S: ", self.dimension, ":", value.shape, value)
+        return value
+
+
+class SplitStringValueTransformer(StringValueTransformer):
+    def transform(self, vcf_value):
+        if vcf_value is None:
+            return self.missing_value
+        assert self.dimension == 1
+        return np.array(vcf_value, ndmin=1, dtype="str")
+
+
 class PickleChunkedVcfField:
     def __init__(self, vcf_field, base_path):
         self.vcf_field = vcf_field
@@ -358,6 +477,9 @@ class PickleChunkedVcfField:
         self.num_partitions = None
         self.num_records = None
         self.partition_num_chunks = {}
+
+    def __repr__(self):
+        return f"PickleChunkedVcfField(path={self.path})"
 
     def num_chunks(self, partition_index):
         if partition_index not in self.partition_num_chunks:
@@ -406,6 +528,9 @@ class PickleChunkedVcfField:
                 f"Corruption detected: incorrect number of records in {str(self.path)}."
             )
 
+    # Note: this involves some computation so should arguably be a method,
+    # but making a property for consistency with xarray etc
+    @property
     def values(self):
         return [record for record, _ in self.iter_values_bytes()]
 
@@ -442,110 +567,107 @@ class PickleChunkedVcfField:
                 return sanitise_value_string_2d
 
 
-def update_bounds_float(summary, value, number_dim):
-    value = np.array(value, dtype=np.float32, copy=False)
-    # Map back to python types to avoid JSON issues later. Could
-    # be done more efficiently at the end.
-    if value.size > 0:
-        summary.min_value = float(min(summary.min_value, np.min(value)))
-        summary.max_value = float(max(summary.max_value, np.max(value)))
-    number = 0
-    assert len(value.shape) <= number_dim + 1
-    if len(value.shape) == number_dim + 1:
-        number = value.shape[number_dim]
-    summary.max_number = max(summary.max_number, number)
+@dataclasses.dataclass
+class FieldBuffer:
+    field: PickleChunkedVcfField
+    transformer: VcfValueTransformer
+    buff: list = dataclasses.field(default_factory=list)
+    buffered_bytes: int = 0
+    chunk_index: int = 0
 
+    def append(self, val):
+        self.buff.append(val)
+        val_bytes = sys.getsizeof(val)
+        self.buffered_bytes += val_bytes
 
-MIN_INT_VALUE = np.iinfo(np.int32).min + 2
-VCF_INT_MISSING = np.iinfo(np.int32).min
-VCF_INT_FILL = np.iinfo(np.int32).min + 1
-
-
-def update_bounds_integer(summary, value, number_dim):
-    # print("update bounds int", summary, value)
-    if isinstance(value, tuple):
-        value = [VCF_INT_MISSING if x is None else x for x in value]
-    value = np.array(value, dtype=np.int32, copy=False)
-    # Mask out missing and fill values
-    a = value[value >= MIN_INT_VALUE]
-    if a.size > 0:
-        summary.max_value = int(max(summary.max_value, np.max(a)))
-        summary.min_value = int(min(summary.min_value, np.min(a)))
-    number = 0
-    assert len(value.shape) <= number_dim + 1
-    if len(value.shape) == number_dim + 1:
-        number = value.shape[number_dim]
-    summary.max_number = max(summary.max_number, number)
-
-
-def update_bounds_string(summary, value):
-    if isinstance(value, str):
-        number = 0
-    else:
-        number = len(value)
-    summary.max_number = max(summary.max_number, number)
-
-
-class PickleChunkedWriteBuffer:
-    def __init__(self, column, partition_index, executor, futures, chunk_size=1):
-        self.column = column
-        self.buffer = []
+    def reset(self):
+        self.buff = []
         self.buffered_bytes = 0
+        self.chunk_index += 1
+
+
+class ThreadedColumnWriter(contextlib.AbstractContextManager):
+    def __init__(
+        self,
+        vcf_metadata,
+        out_path,
+        partition_index,
+        *,
+        encoder_threads=0,
+        chunk_size=1,
+    ):
+        self.encoder_threads = encoder_threads
+        self.partition_index = partition_index
         # chunk_size is in megabytes
         self.max_buffered_bytes = chunk_size * 2**20
         assert self.max_buffered_bytes > 0
-        self.partition_index = partition_index
-        self.chunk_index = 0
-        self.executor = executor
-        self.futures = futures
-        self._summary_bounds_update = None
-        vcf_type = column.vcf_field.vcf_type
-        number_dim = 0
-        if column.vcf_field.category == "FORMAT":
-            number_dim = 1
-        if vcf_type == "Float":
-            self._summary_bounds_update = functools.partial(
-                update_bounds_float, number_dim=number_dim
-            )
-        elif vcf_type == "Integer":
-            self._summary_bounds_update = functools.partial(
-                update_bounds_integer, number_dim=number_dim
-            )
-        elif vcf_type == "String":
-            self._summary_bounds_update = update_bounds_string
 
-    def _update_bounds(self, value):
-        if value is not None:
-            summary = self.column.vcf_field.summary
-            if self._summary_bounds_update is not None:
-                self._summary_bounds_update(summary, value)
+        if encoder_threads <= 0:
+            # NOTE: this is only for testing, not for production use!
+            self.executor = core.SynchronousExecutor()
+        else:
+            self.executor = cf.ProcessPoolExecutor(max_workers=encoder_threads)
 
-    def append(self, val):
-        self.buffer.append(val)
-        self._update_bounds(val)
-        val_bytes = sys.getsizeof(val)
-        self.buffered_bytes += val_bytes
-        if self.buffered_bytes >= self.max_buffered_bytes:
-            self.flush()
+        self.buffers = {}
+        num_samples = len(vcf_metadata.samples)
+        for vcf_field in vcf_metadata.fields:
+            field = PickleChunkedVcfField(vcf_field, out_path)
+            transformer = VcfValueTransformer.factory(vcf_field, num_samples)
+            self.buffers[vcf_field.full_name] = FieldBuffer(field, transformer)
+        self.futures = set()
 
-    def flush(self):
-        if len(self.buffer) > 0:
-            path = self.column.chunk_path(self.partition_index, self.chunk_index)
-            logger.debug(f"Schedule write: {path}")
-            future = self.executor.submit(
-                self.column.write_chunk,
-                self.partition_index,
-                self.chunk_index,
-                self.buffer,
-            )
-            self.futures.add(future)
+    @property
+    def field_summaries(self):
+        return {
+            name: buff.field.vcf_field.summary for name, buff in self.buffers.items()
+        }
 
-            self.chunk_index += 1
-            self.buffer = []
-            self.buffered_bytes = 0
+    def append(self, name, value):
+        buff = self.buffers[name]
+        # print("Append", name, value)
+        value = buff.transformer.transform_and_update_bounds(value)
+        assert value is None or isinstance(value, np.ndarray)
+        buff.append(value)
+        val_bytes = sys.getsizeof(value)
+        buff.buffered_bytes += val_bytes
+        if buff.buffered_bytes >= self.max_buffered_bytes:
+            self._flush_buffer(name, buff)
+
+    def _service_futures(self):
+        max_waiting = 2 * self.encoder_threads
+        while len(self.futures) > max_waiting:
+            futures_done, _ = cf.wait(self.futures, return_when=cf.FIRST_COMPLETED)
+            for future in futures_done:
+                exception = future.exception()
+                if exception is not None:
+                    raise exception
+                self.futures.remove(future)
+
+    def _flush_buffer(self, name, buff):
+        self._service_futures()
+        logger.debug(f"Schedule write {name}:{self.partition_index}.{buff.chunk_index}")
+        future = self.executor.submit(
+            buff.field.write_chunk,
+            self.partition_index,
+            buff.chunk_index,
+            buff.buff,
+        )
+        self.futures.add(future)
+        buff.reset()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is None:
+            # Normal exit condition
+            for name, buff in self.buffers.items():
+                self._flush_buffer(name, buff)
+            core.wait_on_futures(self.futures)
+        else:
+            core.cancel_futures(self.futures)
+        self.executor.shutdown()
+        return False
 
 
-class PickleChunkedVcf:
+class PickleChunkedVcf(collections.abc.Mapping):
     def __init__(self, path, metadata):
         self.path = path
         self.metadata = metadata
@@ -557,6 +679,15 @@ class PickleChunkedVcf:
         for col in self.columns.values():
             col.num_partitions = self.num_partitions
             col.num_records = self.num_records
+
+    def __getitem__(self, key):
+        return self.columns[key]
+
+    def __iter__(self):
+        return iter(self.columns)
+
+    def __len__(self):
+        return len(self.columns)
 
     def summary_table(self):
         def display_number(x):
@@ -625,6 +756,65 @@ class PickleChunkedVcf:
         return PickleChunkedVcf(path, metadata)
 
     @staticmethod
+    def convert_partition(
+        vcf_metadata,
+        partition_index,
+        out_path,
+        *,
+        encoder_threads=4,
+        column_chunk_size=16,
+    ):
+        partition = vcf_metadata.partitions[partition_index]
+        vcf = cyvcf2.VCF(partition.vcf_path)
+        logger.info(f"Start partition {partition_index} {partition.vcf_path}")
+
+        info_fields = []
+        format_fields = []
+        has_gt = False
+        for field in vcf_metadata.fields:
+            if field.category == "INFO":
+                info_fields.append(field)
+            elif field.category == "FORMAT":
+                if field.name == "GT":
+                    has_gt = True
+                else:
+                    format_fields.append(field)
+
+        with ThreadedColumnWriter(
+            vcf_metadata,
+            out_path,
+            partition_index,
+            encoder_threads=0,
+            chunk_size=column_chunk_size,
+        ) as tcw:
+            for variant in vcf:
+                tcw.append("CHROM", variant.CHROM)
+                tcw.append("POS", variant.POS)
+                tcw.append("QUAL", variant.QUAL)
+                tcw.append("ID", variant.ID)
+                tcw.append("FILTERS", variant.FILTERS)
+                tcw.append("REF", variant.REF)
+                tcw.append("ALT", variant.ALT)
+                for field in info_fields:
+                    tcw.append(field.full_name, variant.INFO.get(field.name, None))
+                if has_gt:
+                    tcw.append("FORMAT/GT", variant.genotype.array())
+                for field in format_fields:
+                    val = None
+                    try:
+                        val = variant.format(field.name)
+                    except KeyError:
+                        pass
+                    tcw.append(field.full_name, val)
+
+                # Note: an issue with updating the progress per variant here like this
+                # is that we get a significant pause at the end of the counter while
+                # all the "small" fields get flushed. Possibly not much to be done about it.
+                core.update_progress(1)
+
+        return tcw.field_summaries
+
+    @staticmethod
     def convert(
         vcfs, out_path, *, column_chunk_size=16, worker_processes=1, show_progress=False
     ):
@@ -657,99 +847,15 @@ class PickleChunkedVcf:
             partition_summaries = list(pwm.results_as_completed())
 
         for field in vcf_metadata.fields:
+            # Clear the summary to avoid problems when running in debug
+            # syncronous mode
+            field.summary = VcfFieldSummary()
             for summary in partition_summaries:
                 field.summary.update(summary[field.full_name])
 
         with open(out_path / "metadata.json", "w") as f:
             json.dump(vcf_metadata.asdict(), f, indent=4)
         return pcvcf
-
-    @staticmethod
-    def convert_partition(
-        vcf_metadata,
-        partition_index,
-        out_path,
-        *,
-        flush_threads=4,
-        column_chunk_size=16,
-    ):
-        partition = vcf_metadata.partitions[partition_index]
-        vcf = cyvcf2.VCF(partition.vcf_path)
-        futures = set()
-        logger.info(f"Start partition {partition_index} {partition.vcf_path}")
-
-        def service_futures(max_waiting=2 * flush_threads):
-            while len(futures) > max_waiting:
-                futures_done, _ = cf.wait(futures, return_when=cf.FIRST_COMPLETED)
-                for future in futures_done:
-                    exception = future.exception()
-                    if exception is not None:
-                        raise exception
-                    futures.remove(future)
-
-        with cf.ThreadPoolExecutor(max_workers=flush_threads) as executor:
-            columns = {}
-            summaries = {}
-            info_fields = []
-            format_fields = []
-            for field in vcf_metadata.fields:
-                column = PickleChunkedVcfField(field, out_path)
-                write_buffer = PickleChunkedWriteBuffer(
-                    column, partition_index, executor, futures, column_chunk_size
-                )
-                columns[field.full_name] = write_buffer
-                summaries[field.full_name] = field.summary
-
-                if field.category == "INFO":
-                    info_fields.append((field.name, write_buffer))
-                elif field.category == "FORMAT":
-                    if field.name != "GT":
-                        format_fields.append((field.name, write_buffer))
-
-            contig = columns["CHROM"]
-            pos = columns["POS"]
-            qual = columns["QUAL"]
-            vid = columns["ID"]
-            filters = columns["FILTERS"]
-            ref = columns["REF"]
-            alt = columns["ALT"]
-            gt = columns.get("FORMAT/GT", None)
-
-            for variant in vcf:
-                contig.append(variant.CHROM)
-                pos.append(variant.POS)
-                qual.append(variant.QUAL)
-                vid.append(variant.ID)
-                filters.append(variant.FILTERS)
-                ref.append(variant.REF)
-                alt.append(variant.ALT)
-                if gt is not None:
-                    gt.append(variant.genotype.array())
-
-                for name, buff in info_fields:
-                    buff.append(variant.INFO.get(name, None))
-
-                for name, buff in format_fields:
-                    val = None
-                    try:
-                        val = variant.format(name)
-                    except KeyError:
-                        pass
-                    buff.append(val)
-
-                service_futures()
-
-                # Note: an issue with updating the progress per variant here like this
-                # is that we get a significant pause at the end of the counter while
-                # all the "small" fields get flushed. Possibly not much to be done about it.
-                core.update_progress(1)
-
-            for col in columns.values():
-                col.flush()
-            logger.info(f"VCF read finished; waiting on {len(futures)} chunk writes")
-            service_futures(0)
-
-            return summaries
 
 
 def explode(
@@ -893,11 +999,8 @@ class ZarrConversionSpec:
                 shape.append(n)
                 chunks.append(chunk_width),
                 dimensions.append("samples")
-            if field.category == "FORMAT" and field.vcf_type == "String":
-                # FIXME not handling format string values very well right now
-                # as the max_number value is just the number of samples
-                pass
-            elif field.summary.max_number > 1:
+            # TODO make an option to add in the empty extra dimension
+            if field.summary.max_number > 1:
                 shape.append(field.summary.max_number)
                 dimensions.append(field.name)
             variable_name = prefix + field.name
@@ -977,12 +1080,16 @@ class SgvcfZarr:
 
     def create_array(self, variable):
         # print("CREATE", variable)
+        object_codec = None
+        if variable.dtype == "O":
+            object_codec = numcodecs.VLenUTF8()
         a = self.root.empty(
             variable.name,
             shape=variable.shape,
             chunks=variable.chunks,
             dtype=variable.dtype,
             compressor=numcodecs.get_codec(variable.compressor),
+            object_codec=object_codec,
         )
         a.attrs["_ARRAY_DIMENSIONS"] = variable.dimensions
 
@@ -1025,14 +1132,14 @@ class SgvcfZarr:
     def encode_alleles(self, pcvcf):
         ref_col = pcvcf.columns["REF"]
         alt_col = pcvcf.columns["ALT"]
-        ref_values = ref_col.values()
-        alt_values = alt_col.values()
+        ref_values = ref_col.values
+        alt_values = alt_col.values
         allele_array = self.root["variant_allele"]
 
         # We could do this chunk-by-chunk, but it doesn't seem worth the bother.
         alleles = np.full(allele_array.shape, "", dtype="O")
         for j, (ref, alt) in enumerate(zip(ref_values, alt_values)):
-            alleles[j, 0] = ref
+            alleles[j, 0] = ref[0]
             alleles[j, 1 : 1 + len(alt)] = alt
         allele_array[:] = alleles
         size = sum(
@@ -1075,9 +1182,9 @@ class SgvcfZarr:
         array = self.root["variant_contig"]
         buff = np.zeros_like(array)
         lookup = {v: j for j, v in enumerate(contig_names)}
-        for j, contig in enumerate(col.values()):
+        for j, contig in enumerate(col.values):
             try:
-                buff[j] = lookup[contig]
+                buff[j] = lookup[contig[0]]
             except KeyError:
                 # TODO add advice about adding it to the spec
                 raise ValueError(f"Contig '{contig}' was not defined in the header.")
@@ -1102,7 +1209,7 @@ class SgvcfZarr:
         buff = np.zeros_like(array)
 
         lookup = {v: j for j, v in enumerate(filter_names)}
-        for j, filters in enumerate(col.values()):
+        for j, filters in enumerate(col.values):
             try:
                 for f in filters:
                     buff[j, lookup[f]] = True
@@ -1121,9 +1228,9 @@ class SgvcfZarr:
         id_buff = np.full_like(id_array, "")
         id_mask_buff = np.zeros_like(id_mask_array)
 
-        for j, value in enumerate(col.values()):
+        for j, value in enumerate(col.values):
             if value is not None:
-                id_buff[j] = value
+                id_buff[j] = value[0]
             else:
                 id_buff[j] = "."  # TODO is this correct??
                 id_mask_buff[j] = True
@@ -1286,7 +1393,7 @@ def assert_all_fill(zarr_val, vcf_type):
         assert_all_fill_string(zarr_val)
     elif vcf_type == "Float":
         assert_all_fill_float(zarr_val)
-    else:
+    else:  # pragma: no cover
         assert False
 
 
@@ -1299,7 +1406,7 @@ def assert_all_missing(zarr_val, vcf_type):
         assert zarr_val == False  # noqa 712
     elif vcf_type == "Float":
         assert_all_missing_float(zarr_val)
-    else:
+    else:  # pragma: no cover
         assert False
 
 
@@ -1318,19 +1425,20 @@ def assert_format_val_missing(zarr_val, vcf_type):
 
 def assert_info_val_equal(vcf_val, zarr_val, vcf_type):
     assert vcf_val is not None
-    if not isinstance(vcf_val, tuple):
-        # Scalar
-        zarr_val = np.array(zarr_val, ndmin=1)
-        assert len(zarr_val.shape) == 1
-        assert vcf_val == zarr_val[0]
-        if len(zarr_val) > 1:
-            assert_all_fill(zarr_val[1:], vcf_type)
-    else:
+    if vcf_type in ("String", "Character"):
+        split = list(vcf_val.split(","))
+        k = len(split)
+        if k == 1:
+            # Scalar
+            assert vcf_val == zarr_val
+        else:
+            nt.assert_equal(split, zarr_val[:k])
+            assert_all_fill(zarr_val[k:], vcf_type)
+
+    elif isinstance(vcf_val, tuple):
         vcf_missing_value_map = {
             "Integer": -1,
             "Float": FLOAT32_MISSING,
-            "String": ".",
-            "Character": ".",
         }
         v = [vcf_missing_value_map[vcf_type] if x is None else x for x in vcf_val]
         missing = np.array([j for j, x in enumerate(vcf_val) if x is None], dtype=int)
@@ -1342,31 +1450,50 @@ def assert_info_val_equal(vcf_val, zarr_val, vcf_type):
         assert_all_missing(zarr_val[missing], vcf_type)
         if k < len(zarr_val):
             assert_all_fill(zarr_val[k:], vcf_type)
+    else:
+        # Scalar
+        zarr_val = np.array(zarr_val, ndmin=1)
+        assert len(zarr_val.shape) == 1
+        assert vcf_val == zarr_val[0]
+        if len(zarr_val) > 1:
+            assert_all_fill(zarr_val[1:], vcf_type)
 
 
 def assert_format_val_equal(vcf_val, zarr_val, vcf_type):
     assert vcf_val is not None
     assert isinstance(vcf_val, np.ndarray)
+    if vcf_type in ("String", "Character"):
+        assert len(vcf_val) == len(zarr_val)
+        for v, z in zip(vcf_val, zarr_val):
+            split = list(v.split(","))
+            # Note: deliberately duplicating logic here between this and the
+            # INFO col above to make sure all combinations are covered by tests
+            k = len(split)
+            if k == 1:
+                assert v == z
+            else:
+                nt.assert_equal(split, z[:k])
+                assert_all_fill(z[k:], vcf_type)
+    else:
+        assert vcf_val.shape[0] == zarr_val.shape[0]
+        if len(vcf_val.shape) == len(zarr_val.shape) + 1:
+            assert vcf_val.shape[-1] == 1
+            vcf_val = vcf_val[..., 0]
+        assert len(vcf_val.shape) <= 2
+        assert len(vcf_val.shape) == len(zarr_val.shape)
+        if len(vcf_val.shape) == 2:
+            k = vcf_val.shape[1]
+            if zarr_val.shape[1] != k:
+                assert_all_fill(zarr_val[:, k:], vcf_type)
+                zarr_val = zarr_val[:, :k]
+        assert vcf_val.shape == zarr_val.shape
+        if vcf_type == "Integer":
+            vcf_val[vcf_val == VCF_INT_MISSING] = INT_MISSING
+            vcf_val[vcf_val == VCF_INT_FILL] = INT_FILL
+        elif vcf_type == "Float":
+            nt.assert_equal(vcf_val.view(np.int32), zarr_val.view(np.int32))
 
-    assert vcf_val.shape[0] == zarr_val.shape[0]
-    if len(vcf_val.shape) == len(zarr_val.shape) + 1:
-        assert vcf_val.shape[-1] == 1
-        vcf_val = vcf_val[..., 0]
-    assert len(vcf_val.shape) <= 2
-    assert len(vcf_val.shape) == len(zarr_val.shape)
-    if len(vcf_val.shape) == 2:
-        k = vcf_val.shape[1]
-        if zarr_val.shape[1] != k:
-            assert_all_fill(zarr_val[:, k:], vcf_type)
-            zarr_val = zarr_val[:, :k]
-    assert vcf_val.shape == zarr_val.shape
-    if vcf_type == "Integer":
-        vcf_val[vcf_val == VCF_INT_MISSING] = INT_MISSING
-        vcf_val[vcf_val == VCF_INT_FILL] = INT_FILL
-    elif vcf_type == "Float":
-        nt.assert_equal(vcf_val.view(np.int32), zarr_val.view(np.int32))
-
-    nt.assert_equal(vcf_val, zarr_val)
+        nt.assert_equal(vcf_val, zarr_val)
 
 
 def validate(vcf_path, zarr_path, show_progress=False):
@@ -1434,12 +1561,8 @@ def validate(vcf_path, zarr_path, show_progress=False):
             gt = row.genotype.array()
             gt_zarr = next(call_genotype)
             gt_vcf = gt[:, :-1]
-            # NOTE weirdly cyvcf2 seems to remap genotypes automatically
+            # NOTE cyvcf2 remaps genotypes automatically
             # into the same missing/pad encoding that sgkit uses.
-            # if np.any(gt_zarr < 0):
-            #     print("MISSING")
-            #     print(gt_zarr)
-            #     print(gt_vcf)
             nt.assert_array_equal(gt_zarr, gt_vcf)
 
         for name, (vcf_type, zarr_iter) in info_fields.items():
