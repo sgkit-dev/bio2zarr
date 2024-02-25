@@ -879,8 +879,9 @@ def explode(
     )
 
 
-def summarise(columnarised):
-    pcvcf = vcf.PickleChunkedVcf.load(columnarised)
+def inspect(columnarised):
+    # TODO add support for the Zarr format also
+    pcvcf = PickleChunkedVcf.load(columnarised)
     return pcvcf.summary_table()
 
 

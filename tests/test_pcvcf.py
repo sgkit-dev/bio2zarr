@@ -27,6 +27,9 @@ class TestSmallExample:
         cols = [d["name"] for d in data]
         assert sorted(cols) == self.columns
 
+    def test_inspect(self, pcvcf):
+        assert pcvcf.summary_table() == vcf.inspect(pcvcf.path)
+
     def test_mapping_methods(self, pcvcf):
         assert len(pcvcf) == len(self.columns)
         assert pcvcf["ALT"] is pcvcf.columns["ALT"]

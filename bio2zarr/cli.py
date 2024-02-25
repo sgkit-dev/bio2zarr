@@ -48,9 +48,9 @@ def explode(vcfs, out_path, verbose, worker_processes, column_chunk_size):
 @click.command
 @click.argument("columnarised", type=click.Path())
 @verbose
-def summarise(columnarised, verbose):
+def inspect(columnarised, verbose):
     setup_logging(verbose)
-    data = vcf.summarise(columnarised)
+    data = vcf.inspect(columnarised)
     click.echo(tabulate.tabulate(data, headers="keys"))
 
 
@@ -104,7 +104,7 @@ def vcf2zarr():
 
 
 vcf2zarr.add_command(explode)
-vcf2zarr.add_command(summarise)
+vcf2zarr.add_command(inspect)
 vcf2zarr.add_command(genspec)
 vcf2zarr.add_command(to_zarr)
 vcf2zarr.add_command(convert_vcf)
