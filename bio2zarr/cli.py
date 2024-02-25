@@ -50,8 +50,7 @@ def explode(vcfs, out_path, verbose, worker_processes, column_chunk_size):
 @verbose
 def summarise(columnarised, verbose):
     setup_logging(verbose)
-    pcvcf = vcf.PickleChunkedVcf.load(columnarised)
-    data = pcvcf.summary_table()
+    data = vcf.summarise(columnarised)
     click.echo(tabulate.tabulate(data, headers="keys"))
 
 

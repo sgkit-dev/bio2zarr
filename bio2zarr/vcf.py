@@ -879,6 +879,11 @@ def explode(
     )
 
 
+def summarise(columnarised):
+    pcvcf = vcf.PickleChunkedVcf.load(columnarised)
+    return pcvcf.summary_table()
+
+
 @dataclasses.dataclass
 class ZarrColumnSpec:
     # TODO change to "variable_name"
