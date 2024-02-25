@@ -295,7 +295,7 @@ class TestSmallExample:
         with open(schema, "w") as f:
             vcf.mkschema(exploded, f)
         out = tmp_path / "example.zarr"
-        vcf.to_zarr(exploded, out, schema, worker_processes=worker_processes)
+        vcf.encode(exploded, out, schema, worker_processes=worker_processes)
         ds2 = sg.load_dataset(out)
         xt.assert_equal(ds, ds2)
 

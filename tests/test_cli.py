@@ -47,3 +47,20 @@ class TestWithMocks:
             # the CliRunner
             # mocked.assert_called_once_with("path", stdout)
             mocked.assert_called_once()
+
+    def test_encode(self):
+        runner = ct.CliRunner(mix_stderr=False)
+        with mock.patch("bio2zarr.vcf.encode") as mocked:
+            result = runner.invoke(
+                cli.vcf2zarr, ["encode", "if_path", "zarr_path"], catch_exceptions=False
+            )
+            assert result.exit_code == 0
+            assert len(result.stdout) == 0
+            assert len(result.stderr) == 0
+            mocked.assert_called_once_with(
+                "if_path",
+                "zarr_path",
+                None,
+                worker_processes=1,
+                show_progress=True,
+            )

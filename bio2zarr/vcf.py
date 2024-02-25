@@ -1326,19 +1326,19 @@ def mkschema(if_path, out):
     out.write(spec.asjson())
 
 
-def to_zarr(
-    if_path, zarr_path, conversion_spec, worker_processes=1, show_progress=False
+def encode(
+    if_path, zarr_path, schema_path, worker_processes=1, show_progress=False
 ):
     pcvcf = PickleChunkedVcf.load(if_path)
-    if conversion_spec is None:
-        spec = ZarrConversionSpec.generate(pcvcf)
+    if schema_path is None:
+        schema = ZarrConversionSpec.generate(pcvcf)
     else:
-        with open(conversion_spec, "r") as f:
-            spec = ZarrConversionSpec.fromjson(f.read())
+        with open(schema_path, "r") as f:
+            schema = ZarrConversionSpec.fromjson(f.read())
     SgvcfZarr.convert(
         pcvcf,
         zarr_path,
-        conversion_spec=spec,
+        conversion_spec=schema,
         worker_processes=worker_processes,
         show_progress=show_progress,
     )

@@ -65,14 +65,14 @@ def mkschema(if_path):
 @click.argument("if_path", type=click.Path())
 @click.argument("zarr_path", type=click.Path())
 @verbose
-@click.option("-s", "--conversion-spec", default=None)
+@click.option("-s", "--schema", default=None)
 @worker_processes
-def to_zarr(if_path, zarr_path, verbose, conversion_spec, worker_processes):
+def encode(if_path, zarr_path, verbose, schema, worker_processes):
     setup_logging(verbose)
-    vcf.to_zarr(
+    vcf.encode(
         if_path,
         zarr_path,
-        conversion_spec,
+        schema,
         worker_processes=worker_processes,
         show_progress=True,
     )
@@ -105,7 +105,7 @@ def vcf2zarr():
 vcf2zarr.add_command(explode)
 vcf2zarr.add_command(inspect)
 vcf2zarr.add_command(mkschema)
-vcf2zarr.add_command(to_zarr)
+vcf2zarr.add_command(encode)
 vcf2zarr.add_command(convert_vcf)
 vcf2zarr.add_command(validate)
 
