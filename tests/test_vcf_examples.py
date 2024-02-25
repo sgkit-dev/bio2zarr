@@ -13,7 +13,7 @@ class TestSmallExample:
     @pytest.fixture(scope="class")
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
-        vcf.convert_vcf([self.data_path], out)
+        vcf.convert([self.data_path], out)
         return sg.load_dataset(out)
 
     def test_filters(self, ds):
@@ -224,7 +224,7 @@ class TestSmallExample:
     def test_no_genotypes(self, ds, tmp_path):
         path = "tests/data/vcf/sample_no_genotypes.vcf.gz"
         out = tmp_path / "example.vcf.zarr"
-        vcf.convert_vcf([path], out)
+        vcf.convert([path], out)
         ds2 = sg.load_dataset(out)
         assert len(ds2["sample_id"]) == 0
         for col in ds:
@@ -244,7 +244,7 @@ class TestSmallExample:
         self, ds, tmp_path, chunk_length, chunk_width, y_chunks, x_chunks
     ):
         out = tmp_path / "example.vcf.zarr"
-        vcf.convert_vcf(
+        vcf.convert(
             [self.data_path], out, chunk_length=chunk_length, chunk_width=chunk_width
         )
         ds2 = sg.load_dataset(out)
@@ -277,7 +277,7 @@ class TestSmallExample:
     @pytest.mark.parametrize("worker_processes", [0, 1, 2])
     def test_worker_processes(self, ds, tmp_path, worker_processes):
         out = tmp_path / "example.vcf.zarr"
-        vcf.convert_vcf(
+        vcf.convert(
             [self.data_path], out, chunk_length=3, worker_processes=worker_processes
         )
         ds2 = sg.load_dataset(out)
@@ -306,7 +306,7 @@ class Test1000G2020Example:
     @pytest.fixture(scope="class")
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
-        vcf.convert_vcf([self.data_path], out, worker_processes=0)
+        vcf.convert([self.data_path], out, worker_processes=0)
         return sg.load_dataset(out)
 
     def test_position(self, ds):
@@ -418,7 +418,7 @@ class Test1000G2020AnnotationsExample:
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.zarr"
         # TODO capture warnings from htslib here
-        vcf.convert_vcf([self.data_path], out, worker_processes=0)
+        vcf.convert([self.data_path], out, worker_processes=0)
         return sg.load_dataset(out)
 
     def test_position(self, ds):
@@ -650,7 +650,7 @@ class TestGeneratedFieldsExample:
     @pytest.fixture(scope="class")
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "vcf.zarr"
-        vcf.convert_vcf([self.data_path], out)
+        vcf.convert([self.data_path], out)
         return sg.load_dataset(out)
 
     def test_info_string1(self, ds):
@@ -700,5 +700,5 @@ class TestGeneratedFieldsExample:
 def test_by_validating(name, tmp_path):
     path = f"tests/data/vcf/{name}"
     out = tmp_path / "test.zarr"
-    vcf.convert_vcf([path], out, worker_processes=0)
+    vcf.convert([path], out, worker_processes=0)
     vcf.validate(path, out)

@@ -1344,7 +1344,7 @@ def encode(
     )
 
 
-def convert_vcf(
+def convert(
     vcfs,
     out_path,
     *,

@@ -85,7 +85,7 @@ def encode(if_path, zarr_path, verbose, schema, worker_processes):
 @worker_processes
 def convert_vcf(vcfs, out_path, verbose, worker_processes):
     setup_logging(verbose)
-    vcf.convert_vcf(
+    vcf.convert(
         vcfs, out_path, show_progress=True, worker_processes=worker_processes
     )
 
