@@ -33,3 +33,17 @@ class TestWithMocks:
             assert result.stdout == "\n"
             assert len(result.stderr) == 0
             mocked.assert_called_once_with("path")
+
+    def test_mkschema(self):
+        runner = ct.CliRunner(mix_stderr=False)
+        with mock.patch("bio2zarr.vcf.mkschema") as mocked:
+            result = runner.invoke(
+                cli.vcf2zarr, ["mkschema", "path"], catch_exceptions=False
+            )
+            assert result.exit_code == 0
+            assert len(result.stdout) == 0
+            assert len(result.stderr) == 0
+            # TODO figure out how to test that we call it with stdout from
+            # the CliRunner
+            # mocked.assert_called_once_with("path", stdout)
+            mocked.assert_called_once()

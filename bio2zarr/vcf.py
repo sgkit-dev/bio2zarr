@@ -887,7 +887,6 @@ def inspect(if_path):
 
 @dataclasses.dataclass
 class ZarrColumnSpec:
-    # TODO change to "variable_name"
     name: str
     dtype: str
     shape: tuple
@@ -897,6 +896,11 @@ class ZarrColumnSpec:
     vcf_field: str
     compressor: dict
     # TODO add filters
+
+    def __post_init__(self):
+        self.shape = tuple(self.shape)
+        self.chunks = tuple(self.chunks)
+        self.dimensions = tuple(self.dimensions)
 
 
 @dataclasses.dataclass
@@ -908,16 +912,23 @@ class ZarrConversionSpec:
     contig_id: list
     contig_length: list
     filter_id: list
-    variables: list
+    columns: dict
 
     def asdict(self):
         return dataclasses.asdict(self)
 
+    def asjson(self):
+        return json.dumps(self.asdict(), indent=4)
+
     @staticmethod
     def fromdict(d):
         ret = ZarrConversionSpec(**d)
-        ret.variables = [ZarrColumnSpec(**cd) for cd in d["variables"]]
+        ret.columns = {key: ZarrColumnSpec(**value) for key,value in d["columns"].items()}
         return ret
+
+    @staticmethod
+    def fromjson(s):
+        return ZarrConversionSpec.fromdict(json.loads(s))
 
     @staticmethod
     def generate(pcvcf, chunk_length=None, chunk_width=None):
@@ -1070,7 +1081,7 @@ class ZarrConversionSpec:
         return ZarrConversionSpec(
             chunk_width=chunk_width,
             chunk_length=chunk_length,
-            variables=colspecs,
+            columns={col.name: col for col in colspecs},
             dimensions=["variants", "samples", "ploidy", "alleles", "filters"],
             sample_id=pcvcf.metadata.samples,
             contig_id=pcvcf.metadata.contig_names,
@@ -1261,8 +1272,8 @@ class SgvcfZarr:
         logger.info(f"Create zarr at {write_path}")
         sgvcf = SgvcfZarr(write_path)
         sgvcf.root = zarr.group(store=store, overwrite=True)
-        for variable in conversion_spec.variables[:]:
-            sgvcf.create_array(variable)
+        for column in conversion_spec.columns.values():
+            sgvcf.create_array(column)
 
         progress_config = core.ProgressConfig(
             total=pcvcf.total_uncompressed_bytes,
@@ -1287,7 +1298,7 @@ class SgvcfZarr:
             )
             pwm.submit(sgvcf.encode_filters, pcvcf, conversion_spec.filter_id)
             has_gt = False
-            for variable in conversion_spec.variables[:]:
+            for variable in conversion_spec.columns.values():
                 if variable.vcf_field is not None:
                     # print("Encode", variable.name)
                     # TODO for large columns it's probably worth splitting up
@@ -1309,10 +1320,10 @@ class SgvcfZarr:
         os.rename(write_path, path)
 
 
-def generate_spec(if_path, out):
+def mkschema(if_path, out):
     pcvcf = PickleChunkedVcf.load(if_path)
     spec = ZarrConversionSpec.generate(pcvcf)
-    json.dump(spec.asdict(), out, indent=4)
+    out.write(spec.asjson())
 
 
 def to_zarr(
@@ -1323,8 +1334,7 @@ def to_zarr(
         spec = ZarrConversionSpec.generate(pcvcf)
     else:
         with open(conversion_spec, "r") as f:
-            d = json.load(f)
-            spec = ZarrConversionSpec.fromdict(d)
+            spec = ZarrConversionSpec.fromjson(f.read())
     SgvcfZarr.convert(
         pcvcf,
         zarr_path,

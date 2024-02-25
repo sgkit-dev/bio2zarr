@@ -22,6 +22,15 @@ class TestSmallExample:
         out = tmp_path_factory.mktemp("data") / "example.exploded"
         return vcf.explode([self.data_path], out)
 
+    def test_mkschema(self, tmp_path, pcvcf):
+        schema_file = tmp_path / "schema.json"
+        with open(schema_file, "w") as f:
+            vcf.mkschema(pcvcf.path, f)
+        with open(schema_file, "r") as f:
+            schema1 = vcf.ZarrConversionSpec.fromjson(f.read())
+        schema2 = vcf.ZarrConversionSpec.generate(pcvcf)
+        assert schema1 == schema2
+
     def test_summary_table(self, pcvcf):
         data = pcvcf.summary_table()
         cols = [d["name"] for d in data]
@@ -110,8 +119,7 @@ class TestGeneratedFieldsExample:
         ],
     )
     def test_info_schemas(self, schema, name, dtype, shape):
-        variables = [v for v in schema.variables if v.name == name]
-        v = variables[0]
+        v = schema.columns[name]
         assert v.dtype == dtype
         assert tuple(v.shape) == shape
 

@@ -56,10 +56,9 @@ def inspect(if_path, verbose):
 
 @click.command
 @click.argument("if_path", type=click.Path())
-# @click.argument("specfile", type=click.Path())
-def genspec(if_path):
+def mkschema(if_path):
     stream = click.get_text_stream("stdout")
-    vcf.generate_spec(if_path, stream)
+    vcf.mkschema(if_path, stream)
 
 
 @click.command
@@ -105,7 +104,7 @@ def vcf2zarr():
 
 vcf2zarr.add_command(explode)
 vcf2zarr.add_command(inspect)
-vcf2zarr.add_command(genspec)
+vcf2zarr.add_command(mkschema)
 vcf2zarr.add_command(to_zarr)
 vcf2zarr.add_command(convert_vcf)
 vcf2zarr.add_command(validate)

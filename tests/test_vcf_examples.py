@@ -293,7 +293,7 @@ class TestSmallExample:
         )
         schema = tmp_path / "schema.json"
         with open(schema, "w") as f:
-            vcf.generate_spec(exploded, f)
+            vcf.mkschema(exploded, f)
         out = tmp_path / "example.zarr"
         vcf.to_zarr(exploded, out, schema, worker_processes=worker_processes)
         ds2 = sg.load_dataset(out)
