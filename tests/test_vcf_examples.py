@@ -654,13 +654,38 @@ class TestGeneratedFieldsExample:
         return sg.load_dataset(out)
 
     def test_info_string1(self, ds):
-        print(repr(ds["variant_IS1"].values))
+        values = ds["variant_IS1"].values
+        non_missing = values[values != "."]
+        nt.assert_array_equal(non_missing, ["bc"])
+
+    def test_info_char1(self, ds):
+        values = ds["variant_IC1"].values
+        non_missing = values[values != "."]
+        nt.assert_array_equal(non_missing, "f")
 
     def test_info_string2(self, ds):
-        print(repr(ds["variant_IS2"].values))
+        values = ds["variant_IS2"].values
+        missing = np.all(values == ".", axis=1)
+        non_missing_rows = values[~missing]
+        nt.assert_array_equal(
+            non_missing_rows, [["hij", "d"], [".", "d"], ["hij", "."]]
+        )
 
-    def test_format_string2(self, ds):
-        print(repr(ds["call_FS2"].values))
+    # FIXME can't figure out how to do the row masking properly here
+    # def test_format_string1(self, ds):
+    #     values = ds["call_FS1"].values
+    #     missing = np.all(values == ".", axis=1)
+    #     non_missing_rows = values[~missing]
+    #     print(non_missing_rows)
+    #     # nt.assert_array_equal(non_missing_rows, [["bc"], ["."]])
+
+    # def test_format_string2(self, ds):
+    #     values = ds["call_FS2"].values
+    #     missing = np.all(values == ".", axis=1)
+    #     non_missing_rows = values[~missing]
+    #     non_missing = [v for v in pcvcf["FORMAT/FS2"].values if v is not None]
+    #     nt.assert_array_equal(non_missing[0], [["bc", "op"], [".", "op"]])
+    #     nt.assert_array_equal(non_missing[1], [["bc", "."], [".", "."]])
 
 
 @pytest.mark.parametrize(

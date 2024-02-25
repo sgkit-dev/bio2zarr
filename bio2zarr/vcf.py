@@ -116,7 +116,7 @@ class VcfField:
         elif self.vcf_type == "Flag":
             ret = "bool"
         elif self.vcf_type == "Character":
-            ret = "S1"
+            ret = "U1"
         else:
             assert self.vcf_type == "String"
             ret = "O"
@@ -1393,7 +1393,7 @@ def assert_all_fill(zarr_val, vcf_type):
         assert_all_fill_string(zarr_val)
     elif vcf_type == "Float":
         assert_all_fill_float(zarr_val)
-    else:
+    else:  # pragma: no cover
         assert False
 
 
@@ -1406,7 +1406,7 @@ def assert_all_missing(zarr_val, vcf_type):
         assert zarr_val == False  # noqa 712
     elif vcf_type == "Float":
         assert_all_missing_float(zarr_val)
-    else:
+    else:  # pragma: no cover
         assert False
 
 
@@ -1425,19 +1425,20 @@ def assert_format_val_missing(zarr_val, vcf_type):
 
 def assert_info_val_equal(vcf_val, zarr_val, vcf_type):
     assert vcf_val is not None
-    if not isinstance(vcf_val, tuple):
-        # Scalar
-        zarr_val = np.array(zarr_val, ndmin=1)
-        assert len(zarr_val.shape) == 1
-        assert vcf_val == zarr_val[0]
-        if len(zarr_val) > 1:
-            assert_all_fill(zarr_val[1:], vcf_type)
-    else:
+    if vcf_type in ("String", "Character"):
+        split = list(vcf_val.split(","))
+        k = len(split)
+        if k == 1:
+            # Scalar
+            assert vcf_val == zarr_val
+        else:
+            nt.assert_equal(split, zarr_val[:k])
+            assert_all_fill(zarr_val[k:], vcf_type)
+
+    elif isinstance(vcf_val, tuple):
         vcf_missing_value_map = {
             "Integer": -1,
             "Float": FLOAT32_MISSING,
-            "String": ".",
-            "Character": ".",
         }
         v = [vcf_missing_value_map[vcf_type] if x is None else x for x in vcf_val]
         missing = np.array([j for j, x in enumerate(vcf_val) if x is None], dtype=int)
@@ -1449,31 +1450,50 @@ def assert_info_val_equal(vcf_val, zarr_val, vcf_type):
         assert_all_missing(zarr_val[missing], vcf_type)
         if k < len(zarr_val):
             assert_all_fill(zarr_val[k:], vcf_type)
+    else:
+        # Scalar
+        zarr_val = np.array(zarr_val, ndmin=1)
+        assert len(zarr_val.shape) == 1
+        assert vcf_val == zarr_val[0]
+        if len(zarr_val) > 1:
+            assert_all_fill(zarr_val[1:], vcf_type)
 
 
 def assert_format_val_equal(vcf_val, zarr_val, vcf_type):
     assert vcf_val is not None
     assert isinstance(vcf_val, np.ndarray)
+    if vcf_type in ("String", "Character"):
+        assert len(vcf_val) == len(zarr_val)
+        for v, z in zip(vcf_val, zarr_val):
+            split = list(v.split(","))
+            # Note: deliberately duplicating logic here between this and the
+            # INFO col above to make sure all combinations are covered by tests
+            k = len(split)
+            if k == 1:
+                assert v == z
+            else:
+                nt.assert_equal(split, z[:k])
+                assert_all_fill(z[k:], vcf_type)
+    else:
+        assert vcf_val.shape[0] == zarr_val.shape[0]
+        if len(vcf_val.shape) == len(zarr_val.shape) + 1:
+            assert vcf_val.shape[-1] == 1
+            vcf_val = vcf_val[..., 0]
+        assert len(vcf_val.shape) <= 2
+        assert len(vcf_val.shape) == len(zarr_val.shape)
+        if len(vcf_val.shape) == 2:
+            k = vcf_val.shape[1]
+            if zarr_val.shape[1] != k:
+                assert_all_fill(zarr_val[:, k:], vcf_type)
+                zarr_val = zarr_val[:, :k]
+        assert vcf_val.shape == zarr_val.shape
+        if vcf_type == "Integer":
+            vcf_val[vcf_val == VCF_INT_MISSING] = INT_MISSING
+            vcf_val[vcf_val == VCF_INT_FILL] = INT_FILL
+        elif vcf_type == "Float":
+            nt.assert_equal(vcf_val.view(np.int32), zarr_val.view(np.int32))
 
-    assert vcf_val.shape[0] == zarr_val.shape[0]
-    if len(vcf_val.shape) == len(zarr_val.shape) + 1:
-        assert vcf_val.shape[-1] == 1
-        vcf_val = vcf_val[..., 0]
-    assert len(vcf_val.shape) <= 2
-    assert len(vcf_val.shape) == len(zarr_val.shape)
-    if len(vcf_val.shape) == 2:
-        k = vcf_val.shape[1]
-        if zarr_val.shape[1] != k:
-            assert_all_fill(zarr_val[:, k:], vcf_type)
-            zarr_val = zarr_val[:, :k]
-    assert vcf_val.shape == zarr_val.shape
-    if vcf_type == "Integer":
-        vcf_val[vcf_val == VCF_INT_MISSING] = INT_MISSING
-        vcf_val[vcf_val == VCF_INT_FILL] = INT_FILL
-    elif vcf_type == "Float":
-        nt.assert_equal(vcf_val.view(np.int32), zarr_val.view(np.int32))
-
-    nt.assert_equal(vcf_val, zarr_val)
+        nt.assert_equal(vcf_val, zarr_val)
 
 
 def validate(vcf_path, zarr_path, show_progress=False):
@@ -1541,12 +1561,8 @@ def validate(vcf_path, zarr_path, show_progress=False):
             gt = row.genotype.array()
             gt_zarr = next(call_genotype)
             gt_vcf = gt[:, :-1]
-            # NOTE weirdly cyvcf2 seems to remap genotypes automatically
+            # NOTE cyvcf2 remaps genotypes automatically
             # into the same missing/pad encoding that sgkit uses.
-            # if np.any(gt_zarr < 0):
-            #     print("MISSING")
-            #     print(gt_zarr)
-            #     print(gt_vcf)
             nt.assert_array_equal(gt_zarr, gt_vcf)
 
         for name, (vcf_type, zarr_iter) in info_fields.items():
