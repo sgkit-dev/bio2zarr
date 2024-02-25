@@ -923,7 +923,9 @@ class ZarrConversionSpec:
     @staticmethod
     def fromdict(d):
         ret = ZarrConversionSpec(**d)
-        ret.columns = {key: ZarrColumnSpec(**value) for key,value in d["columns"].items()}
+        ret.columns = {
+            key: ZarrColumnSpec(**value) for key, value in d["columns"].items()
+        }
         return ret
 
     @staticmethod
@@ -1326,9 +1328,7 @@ def mkschema(if_path, out):
     out.write(spec.asjson())
 
 
-def encode(
-    if_path, zarr_path, schema_path, worker_processes=1, show_progress=False
-):
+def encode(if_path, zarr_path, schema_path, worker_processes=1, show_progress=False):
     pcvcf = PickleChunkedVcf.load(if_path)
     if schema_path is None:
         schema = ZarrConversionSpec.generate(pcvcf)

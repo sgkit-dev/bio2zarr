@@ -65,11 +65,13 @@ class TestWithMocks:
                 show_progress=True,
             )
 
-    def test_convert(self):
+    def test_convert_vcf(self):
         runner = ct.CliRunner(mix_stderr=False)
         with mock.patch("bio2zarr.vcf.convert") as mocked:
             result = runner.invoke(
-                cli.vcf2zarr, ["convert", "vcf_path", "zarr_path"], catch_exceptions=False
+                cli.vcf2zarr,
+                ["convert", "vcf_path", "zarr_path"],
+                catch_exceptions=False,
             )
             assert result.exit_code == 0
             assert len(result.stdout) == 0
@@ -78,5 +80,40 @@ class TestWithMocks:
                 ("vcf_path",),
                 "zarr_path",
                 worker_processes=1,
+                show_progress=True,
+            )
+
+    def test_validate(self):
+        runner = ct.CliRunner(mix_stderr=False)
+        with mock.patch("bio2zarr.vcf.validate") as mocked:
+            result = runner.invoke(
+                cli.vcf2zarr,
+                ["validate", "vcf_path", "zarr_path"],
+                catch_exceptions=False,
+            )
+            assert result.exit_code == 0
+            assert len(result.stdout) == 0
+            assert len(result.stderr) == 0
+            mocked.assert_called_once_with(
+                "vcf_path",
+                "zarr_path",
+                show_progress=True,
+            )
+
+    def test_convert_plink(self):
+        runner = ct.CliRunner(mix_stderr=False)
+        with mock.patch("bio2zarr.plink.convert") as mocked:
+            result = runner.invoke(
+                cli.plink2zarr, ["convert", "in", "out"], catch_exceptions=False
+            )
+            assert result.exit_code == 0
+            assert len(result.stdout) == 0
+            assert len(result.stderr) == 0
+            mocked.assert_called_once_with(
+                "in",
+                "out",
+                worker_processes=1,
+                chunk_width=None,
+                chunk_length=None,
                 show_progress=True,
             )
