@@ -1,8 +1,11 @@
 from unittest import mock
 
+import pytest
 import click.testing as ct
 
 from bio2zarr import cli
+from bio2zarr import __main__ as main
+from bio2zarr import provenance
 
 
 class TestWithMocks:
@@ -117,3 +120,11 @@ class TestWithMocks:
                 chunk_length=None,
                 show_progress=True,
             )
+
+
+@pytest.mark.parametrize("cmd", [main.bio2zarr, cli.vcf2zarr, cli.plink2zarr])
+def test_version(cmd):
+    runner = ct.CliRunner(mix_stderr=False)
+    result = runner.invoke(cmd, ["--version"], catch_exceptions=False)
+    s = f"version {provenance.__version__}\n"
+    assert result.stdout.endswith(s)

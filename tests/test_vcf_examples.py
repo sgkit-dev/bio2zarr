@@ -6,6 +6,7 @@ import sgkit as sg
 import cyvcf2
 
 from bio2zarr import vcf
+from bio2zarr import provenance
 
 
 class TestSmallExample:
@@ -37,6 +38,9 @@ class TestSmallExample:
     def test_header(self, ds):
         vcf = cyvcf2.VCF(self.data_path)
         assert ds.attrs["vcf_header"] == vcf.raw_header
+
+    def test_source(self, ds):
+        assert ds.attrs["source"] == f"bio2zarr-{provenance.__version__}"
 
     def test_contigs(self, ds):
         nt.assert_array_equal(ds["contig_id"], ["19", "20", "X"])

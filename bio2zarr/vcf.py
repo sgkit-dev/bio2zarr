@@ -23,6 +23,7 @@ import tqdm
 import zarr
 
 from . import core
+from . import provenance
 
 logger = logging.getLogger(__name__)
 
@@ -1287,6 +1288,7 @@ class SgvcfZarr:
 
         sgvcf.root.attrs["vcf_zarr_version"] = "0.2"
         sgvcf.root.attrs["vcf_header"] = pcvcf.vcf_header
+        sgvcf.root.attrs["source"] = f"bio2zarr-{provenance.__version__}"
 
         progress_config = core.ProgressConfig(
             total=pcvcf.total_uncompressed_bytes,

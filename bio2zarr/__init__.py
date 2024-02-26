@@ -1,2 +1,1 @@
-
-from .vcf import explode as explode_vcf
+from . provenance import __version__
