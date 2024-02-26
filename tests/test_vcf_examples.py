@@ -3,6 +3,7 @@ import numpy.testing as nt
 import xarray.testing as xt
 import pytest
 import sgkit as sg
+import cyvcf2
 
 from bio2zarr import vcf
 
@@ -32,6 +33,10 @@ class TestSmallExample:
                 [True, False, False],
             ],
         )
+
+    def test_header(self, ds):
+        vcf = cyvcf2.VCF(self.data_path)
+        assert ds.attrs["vcf_header"] == vcf.raw_header
 
     def test_contigs(self, ds):
         nt.assert_array_equal(ds["contig_id"], ["19", "20", "X"])
