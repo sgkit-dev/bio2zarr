@@ -4,6 +4,7 @@ import coloredlogs
 
 from . import vcf
 from . import plink
+from . import provenance
 
 # Common arguments/options
 verbose = click.option("-v", "--verbose", count=True, help="Increase verbosity")
@@ -12,6 +13,7 @@ worker_processes = click.option(
     "-p", "--worker-processes", type=int, default=1, help="Number of worker processes"
 )
 
+version = click.version_option(version=provenance.__version__)
 
 # Note: logging hasn't been implemented in the code at all, this is just
 # a first pass to try out some ways of doing things to see what works.
@@ -111,6 +113,7 @@ def validate(vcfs, out_path):
     vcf.validate(vcfs[0], out_path, show_progress=True)
 
 
+@version
 @click.group()
 def vcf2zarr():
     pass
@@ -145,6 +148,7 @@ def convert_plink(in_path, out_path, worker_processes, chunk_width, chunk_length
     )
 
 
+@version
 @click.group()
 def plink2zarr():
     pass

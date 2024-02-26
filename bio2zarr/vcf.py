@@ -23,6 +23,7 @@ import tqdm
 import zarr
 
 from . import core
+from . import provenance
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +179,7 @@ def fixed_vcf_field_definitions():
 def scan_vcfs(paths, show_progress):
     partitions = []
     vcf_metadata = None
+    header = None
     logger.info(f"Scanning {len(paths)} VCFs")
     for path in tqdm.tqdm(paths, desc="Scan ", disable=not show_progress):
         vcf = cyvcf2.VCF(path)
@@ -215,6 +217,9 @@ def scan_vcfs(paths, show_progress):
 
         if vcf_metadata is None:
             vcf_metadata = metadata
+            # We just take the first header, assuming the others
+            # are compatible.
+            header = vcf.raw_header
         else:
             if metadata != vcf_metadata:
                 raise ValueError("Incompatible VCF chunks")
@@ -230,7 +235,7 @@ def scan_vcfs(paths, show_progress):
         )
     partitions.sort(key=lambda x: x.first_position)
     vcf_metadata.partitions = partitions
-    return vcf_metadata
+    return vcf_metadata, header
 
 
 def sanitise_value_bool(buff, j, value):
@@ -668,9 +673,10 @@ class ThreadedColumnWriter(contextlib.AbstractContextManager):
 
 
 class PickleChunkedVcf(collections.abc.Mapping):
-    def __init__(self, path, metadata):
+    def __init__(self, path, metadata, vcf_header):
         self.path = path
         self.metadata = metadata
+        self.vcf_header = vcf_header
 
         self.columns = {}
         for field in self.metadata.fields:
@@ -753,7 +759,9 @@ class PickleChunkedVcf(collections.abc.Mapping):
         path = pathlib.Path(path)
         with open(path / "metadata.json") as f:
             metadata = VcfMetadata.fromdict(json.load(f))
-        return PickleChunkedVcf(path, metadata)
+        with open(path / "header.txt") as f:
+            header = f.read()
+        return PickleChunkedVcf(path, metadata, header)
 
     @staticmethod
     def convert_partition(
@@ -820,8 +828,8 @@ class PickleChunkedVcf(collections.abc.Mapping):
     ):
         out_path = pathlib.Path(out_path)
         # TODO make scan work in parallel using general progress code too
-        vcf_metadata = scan_vcfs(vcfs, show_progress=show_progress)
-        pcvcf = PickleChunkedVcf(out_path, vcf_metadata)
+        vcf_metadata, header = scan_vcfs(vcfs, show_progress=show_progress)
+        pcvcf = PickleChunkedVcf(out_path, vcf_metadata, header)
         pcvcf.mkdirs()
 
         total_variants = sum(
@@ -855,6 +863,8 @@ class PickleChunkedVcf(collections.abc.Mapping):
 
         with open(out_path / "metadata.json", "w") as f:
             json.dump(vcf_metadata.asdict(), f, indent=4)
+        with open(out_path / "header.txt", "w") as f:
+            f.write(header)
         return pcvcf
 
 
@@ -1214,7 +1224,6 @@ class SgvcfZarr:
         logger.debug("Contig done")
 
     def encode_filters(self, pcvcf, filter_names):
-        self.root.attrs["filters"] = filter_names
         array = self.root.array(
             "filter_id",
             filter_names,
@@ -1276,6 +1285,10 @@ class SgvcfZarr:
         sgvcf.root = zarr.group(store=store, overwrite=True)
         for column in conversion_spec.columns.values():
             sgvcf.create_array(column)
+
+        sgvcf.root.attrs["vcf_zarr_version"] = "0.2"
+        sgvcf.root.attrs["vcf_header"] = pcvcf.vcf_header
+        sgvcf.root.attrs["source"] = f"bio2zarr-{provenance.__version__}"
 
         progress_config = core.ProgressConfig(
             total=pcvcf.total_uncompressed_bytes,

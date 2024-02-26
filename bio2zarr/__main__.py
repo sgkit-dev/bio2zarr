@@ -2,8 +2,9 @@ import click
 
 from . import cli
 
+@cli.version
 @click.group()
-def top_level():
+def bio2zarr():
     pass
 
 # Provide a single top-level interface to all of the functionality.
@@ -11,8 +12,8 @@ def top_level():
 # install individual commands as console scripts. However, this
 # is handy for development and for those whose PATHs aren't set
 # up in the right way.
-top_level.add_command(cli.vcf2zarr)
-top_level.add_command(cli.plink2zarr)
+bio2zarr.add_command(cli.vcf2zarr)
+bio2zarr.add_command(cli.plink2zarr)
 
 if __name__ == "__main__":
-    top_level()
+    bio2zarr()
