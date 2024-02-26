@@ -29,14 +29,14 @@ python3 -m bio2zarr vcf2zarr explode tests/data/vcf/sample.vcf.gz tmp/sample.exp
 
 Then, (optionally) inspect this representation to get a feel for your dataset
 ```
-python3 -m bio2zarr vcf2zarr summarise tmp/sample.exploded
+python3 -m bio2zarr vcf2zarr inspec tmp/sample.exploded
 ```
 
 Then, (optionally) generate a conversion schema to describe the corresponding
 Zarr arrays:
 
 ```
-python3 -m bio2zarr vcf2zarr genspec tmp/sample.exploded > sample.schema.json
+python3 -m bio2zarr vcf2zarr mkschema tmp/sample.exploded > sample.schema.json
 ```
 
 View and edit the schema, deleting any columns you don't want.
@@ -44,7 +44,7 @@ View and edit the schema, deleting any columns you don't want.
 Finally, convert to Zarr
 
 ```
-python3 -m bio2zarr vcf2zarr to-zarr tmp/sample.exploded tmp/sample.zarr -s sample.schema.json
+python3 -m bio2zarr vcf2zarr encode tmp/sample.exploded tmp/sample.zarr -s sample.schema.json
 ```
 
 Use the ``-p, --worker-processes`` argument to control the number of workers used
