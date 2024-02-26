@@ -24,6 +24,7 @@ import zarr
 
 from . import core
 from . import provenance
+from .vcf_partition import partition_into_regions, region_filter
 
 logger = logging.getLogger(__name__)
 
@@ -127,8 +128,7 @@ class VcfField:
 @dataclasses.dataclass
 class VcfPartition:
     vcf_path: str
-    num_records: int
-    first_position: int
+    region: str
 
 
 @dataclasses.dataclass
@@ -139,6 +139,7 @@ class VcfMetadata:
     fields: list
     contig_lengths: list = None
     partitions: list = None
+    num_records: int = 0
 
     @staticmethod
     def fromdict(d):
@@ -176,12 +177,14 @@ def fixed_vcf_field_definitions():
     return fields
 
 
-def scan_vcfs(paths, show_progress):
+def scan_vcfs(paths, show_progress, target_num_partitions):
     partitions = []
     vcf_metadata = None
     header = None
     logger.info(f"Scanning {len(paths)} VCFs")
+    total_records = 0
     for path in tqdm.tqdm(paths, desc="Scan ", disable=not show_progress):
+        # TODO use contextlib.closing on this
         vcf = cyvcf2.VCF(path)
         logger.debug(f"Scanning {path}")
 
@@ -223,17 +226,21 @@ def scan_vcfs(paths, show_progress):
         else:
             if metadata != vcf_metadata:
                 raise ValueError("Incompatible VCF chunks")
-        record = next(vcf)
+        vcf_metadata.num_records += vcf.num_records
 
-        partitions.append(
-            # Requires cyvcf2>=0.30.27
-            VcfPartition(
-                vcf_path=str(path),
-                num_records=vcf.num_records,
-                first_position=(record.CHROM, record.POS),
+        # https://github.com/pystatgen/sgkit/issues/1200
+        regions = partition_into_regions(path, num_parts=target_num_partitions)
+        for region in regions:
+            partitions.append(
+                # Requires cyvcf2>=0.30.27
+                VcfPartition(
+                    vcf_path=str(path),
+                    region=region,
+                )
             )
-        )
-    partitions.sort(key=lambda x: x.first_position)
+    # TODO figure out if this is safe when we have multiple chrs
+    # in the file
+    partitions.sort(key=lambda x: x.region)
     vcf_metadata.partitions = partitions
     return vcf_metadata, header
 
@@ -732,7 +739,7 @@ class PickleChunkedVcf(collections.abc.Mapping):
 
     @functools.cached_property
     def num_records(self):
-        return sum(partition.num_records for partition in self.metadata.partitions)
+        return self.metadata.num_records
 
     @property
     def num_partitions(self):
@@ -761,7 +768,12 @@ class PickleChunkedVcf(collections.abc.Mapping):
             metadata = VcfMetadata.fromdict(json.load(f))
         with open(path / "header.txt") as f:
             header = f.read()
-        return PickleChunkedVcf(path, metadata, header)
+        pcvcf = PickleChunkedVcf(path, metadata, header)
+        logger.info(
+            f"Loaded PickleChunkedVcf(partitions={pcvcf.num_partitions}, "
+            f"records={pcvcf.num_records}, columns={pcvcf.num_columns})"
+        )
+        return pcvcf
 
     @staticmethod
     def convert_partition(
@@ -774,7 +786,9 @@ class PickleChunkedVcf(collections.abc.Mapping):
     ):
         partition = vcf_metadata.partitions[partition_index]
         vcf = cyvcf2.VCF(partition.vcf_path)
-        logger.info(f"Start partition {partition_index} {partition.vcf_path}")
+        logger.info(
+            f"Start partition {partition_index} {partition.vcf_path}: {partition.region}"
+        )
 
         info_fields = []
         format_fields = []
@@ -788,6 +802,8 @@ class PickleChunkedVcf(collections.abc.Mapping):
                 else:
                     format_fields.append(field)
 
+        variants = region_filter(vcf(partition.region), partition.region)
+
         with ThreadedColumnWriter(
             vcf_metadata,
             out_path,
@@ -795,7 +811,7 @@ class PickleChunkedVcf(collections.abc.Mapping):
             encoder_threads=0,
             chunk_size=column_chunk_size,
         ) as tcw:
-            for variant in vcf:
+            for variant in variants:
                 tcw.append("CHROM", variant.CHROM)
                 tcw.append("POS", variant.POS)
                 tcw.append("QUAL", variant.QUAL)
@@ -828,20 +844,24 @@ class PickleChunkedVcf(collections.abc.Mapping):
     ):
         out_path = pathlib.Path(out_path)
         # TODO make scan work in parallel using general progress code too
-        vcf_metadata, header = scan_vcfs(vcfs, show_progress=show_progress)
+        target_num_partitions = max(1, worker_processes * 10)
+        vcf_metadata, header = scan_vcfs(
+            vcfs,
+            show_progress=show_progress,
+            target_num_partitions=target_num_partitions,
+        )
         pcvcf = PickleChunkedVcf(out_path, vcf_metadata, header)
         pcvcf.mkdirs()
 
-        total_variants = sum(
-            partition.num_records for partition in vcf_metadata.partitions
-        )
-
         logger.info(
-            f"Exploding {pcvcf.num_columns} columns {total_variants} variants "
+            f"Exploding {pcvcf.num_columns} columns {vcf_metadata.num_records} variants "
             f"{pcvcf.num_samples} samples"
         )
         progress_config = core.ProgressConfig(
-            total=total_variants, units="vars", title="Explode", show=show_progress
+            total=vcf_metadata.num_records,
+            units="vars",
+            title="Explode",
+            show=show_progress,
         )
         with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
             for j, partition in enumerate(vcf_metadata.partitions):

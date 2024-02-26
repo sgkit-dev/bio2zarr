@@ -1,4 +1,6 @@
 from typing import Any, Dict, Optional, Sequence, Union
+import re
+import itertools
 
 import fsspec
 import numpy as np
@@ -9,6 +11,25 @@ from bio2zarr.csi import CSI_EXTENSION, read_csi
 from bio2zarr.tbi import TABIX_EXTENSION, read_tabix
 from bio2zarr.typing import PathType
 from bio2zarr.utils import ceildiv, get_file_length
+
+
+def region_filter(variants, region=None):
+    """Filter out variants that don't start in the given region."""
+    if region is None:
+        return variants
+    else:
+        start = get_region_start(region)
+        return itertools.filterfalse(lambda v: v.POS < start, variants)
+
+
+def get_region_start(region: str) -> int:
+    """Return the start position of the region string."""
+    if re.search(r":\d+-\d*$", region):
+        contig, start_end = region.rsplit(":", 1)
+        start, end = start_end.split("-")
+    else:
+        return 1
+    return int(start)
 
 
 def region_string(contig: str, start: int, end: Optional[int] = None) -> str:
@@ -141,8 +162,9 @@ def partition_into_regions(
         target_part_size_bytes = file_length // num_parts
     elif target_part_size_bytes is not None:
         num_parts = ceildiv(file_length, target_part_size_bytes)
-    if num_parts == 1:
-        return None
+    # FIXME - changing semantics from sgkit version here.
+    # if num_parts == 1:
+    #     return None
     part_lengths = np.array([i * target_part_size_bytes for i in range(num_parts)])
 
     if index_path is None:
@@ -160,7 +182,8 @@ def partition_into_regions(
     # Search the file offsets to find which indexes the part lengths fall at
     ind = np.searchsorted(file_offsets, part_lengths)
 
-    # Drop any parts that are greater than the file offsets (these will be covered by a region with no end)
+    # Drop any parts that are greater than the file offsets
+    # (these will be covered by a region with no end)
     ind = np.delete(ind, ind >= len(file_offsets))  # type: ignore[no-untyped-call]
 
     # Drop any duplicates
@@ -184,16 +207,19 @@ def partition_into_regions(
             end = next_start - 1  # subtract one since positions are inclusive
             if next_contig == contig:  # contig doesn't change
                 regions.append(region_string(contig, start, end))
-            else:  # contig changes, so need two regions (or possibly more if any sequences were skipped)
+            else:
+                # contig changes, so need two regions (or possibly more if any
+                # sequences were skipped)
                 regions.append(region_string(contig, start))
                 for ri in range(region_contigs[i] + 1, region_contigs[i + 1]):
-                    regions.append(sequence_names[ri])  # pragma: no cover
+                    regions.append(sequence_names[ri])
                 regions.append(region_string(next_contig, 1, end))
 
     # https://github.com/pystatgen/sgkit/issues/1200
+    # Turns out we need this for correctness.
 
     # Add any sequences at the end that were not skipped
-    # for ri in range(region_contigs[-1] + 1, len(sequence_names)):
-    #     regions.append(sequence_names[ri])  # pragma: no cover
+    for ri in range(region_contigs[-1] + 1, len(sequence_names)):
+        regions.append(sequence_names[ri])
 
     return regions

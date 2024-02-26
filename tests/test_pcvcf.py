@@ -45,7 +45,7 @@ class TestSmallExample:
         assert list(iter(pcvcf)) == list(iter(pcvcf))
 
     def test_num_partitions(self, pcvcf):
-        assert pcvcf.num_partitions == 1
+        assert pcvcf.num_partitions == 3
 
     def test_num_records(self, pcvcf):
         assert pcvcf.num_records == 9
