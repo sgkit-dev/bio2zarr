@@ -189,8 +189,11 @@ def partition_into_regions(
                 for ri in range(region_contigs[i] + 1, region_contigs[i + 1]):
                     regions.append(sequence_names[ri])  # pragma: no cover
                 regions.append(region_string(next_contig, 1, end))
+
+    # https://github.com/pystatgen/sgkit/issues/1200
+
     # Add any sequences at the end that were not skipped
-    for ri in range(region_contigs[-1] + 1, len(sequence_names)):
-        regions.append(sequence_names[ri])  # pragma: no cover
+    # for ri in range(region_contigs[-1] + 1, len(sequence_names)):
+    #     regions.append(sequence_names[ri])  # pragma: no cover
 
     return regions
