@@ -4,9 +4,7 @@
 import pathlib
 import click
 
-import bio2zarr as bz
 
-# tmp, come up with better names and flatten hierarchy
 from bio2zarr import vcf
 
 
@@ -15,7 +13,6 @@ from bio2zarr import vcf
 @click.option("-p", "--worker-processes", type=int, default=1)
 @click.option("-f", "--force", is_flag=True, default=False)
 def cli(vcfs, worker_processes, force):
-
     data_path = pathlib.Path("validation-data")
     if len(vcfs) == 0:
         vcfs = list(data_path.glob("*.vcf.gz")) + list(data_path.glob("*.bcf"))
@@ -27,23 +24,23 @@ def cli(vcfs, worker_processes, force):
         print(f)
         exploded = tmp_path / (f.name + ".exploded")
         if force or not exploded.exists():
-            bz.explode_vcf(
+            vcf.explode(
                 [f],
                 exploded,
                 worker_processes=worker_processes,
                 show_progress=True,
             )
-        spec = tmp_path / (f.name + ".spec")
+        spec = tmp_path / (f.name + ".schema")
         if force or not spec.exists():
             with open(spec, "w") as specfile:
-                vcf.generate_spec(exploded, specfile)
+                vcf.mkschema(exploded, specfile)
 
         zarr = tmp_path / (f.name + ".zarr")
         if force or not zarr.exists():
-            vcf.to_zarr(
+            vcf.encode(
                 exploded,
                 zarr,
-                conversion_spec=spec,
+                spec,
                 worker_processes=worker_processes,
                 show_progress=True,
             )
