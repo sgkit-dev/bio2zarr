@@ -1,5 +1,6 @@
 from typing import Any, Dict, Optional, Sequence, Union
 import re
+import pathlib
 import itertools
 from dataclasses import dataclass
 
@@ -8,8 +9,6 @@ import numpy as np
 from cyvcf2 import VCF
 import humanfriendly
 
-from bio2zarr.csi import CSI_EXTENSION, read_csi
-from bio2zarr.tbi import TABIX_EXTENSION, read_tabix
 from bio2zarr.typing import PathType
 from bio2zarr.utils import (
     get_file_offset,
