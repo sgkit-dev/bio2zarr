@@ -1,4 +1,5 @@
 import concurrent.futures as cf
+import warnings
 import collections
 import dataclasses
 import functools
@@ -240,6 +241,7 @@ def scan_vcfs(paths, show_progress, target_num_partitions):
             )
     # TODO figure out if this is safe when we have multiple chrs
     # in the file
+    # FIXME this isn't working because region strings don't sort correctly
     partitions.sort(key=lambda x: x.region)
     vcf_metadata.partitions = partitions
     return vcf_metadata, header
@@ -802,8 +804,22 @@ class PickleChunkedVcf(collections.abc.Mapping):
                 else:
                     format_fields.append(field)
 
-        variants = region_filter(vcf(partition.region), partition.region)
+        def variants():
+            with warnings.catch_warnings():
+                # TODO cyvcf2 emits a warning for empty regions; either make the
+                # warning more specific, or remove the need for querying empty
+                # regions.
+                # FIXME this also absorbs any warnings emitted within the loop,
+                # so definitely need to do this a different way.
+                warnings.simplefilter("ignore")
+                for var in region_filter(vcf(partition.region), partition.region):
+                    yield var
 
+        # FIXME it looks like this is actually a bit pointless now that we
+        # can split up into multiple regions within the VCF. It's simpler
+        # and easier to explain and predict performance if we just do
+        # everything syncronously.  We can keep the same interface,
+        # just remove the "Threaded" bit and simplify.
         with ThreadedColumnWriter(
             vcf_metadata,
             out_path,
@@ -811,7 +827,7 @@ class PickleChunkedVcf(collections.abc.Mapping):
             encoder_threads=0,
             chunk_size=column_chunk_size,
         ) as tcw:
-            for variant in variants:
+            for variant in variants():
                 tcw.append("CHROM", variant.CHROM)
                 tcw.append("POS", variant.POS)
                 tcw.append("QUAL", variant.QUAL)
@@ -844,7 +860,7 @@ class PickleChunkedVcf(collections.abc.Mapping):
     ):
         out_path = pathlib.Path(out_path)
         # TODO make scan work in parallel using general progress code too
-        target_num_partitions = max(1, worker_processes * 10)
+        target_num_partitions = max(1, worker_processes * 4)
         vcf_metadata, header = scan_vcfs(
             vcfs,
             show_progress=show_progress,

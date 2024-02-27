@@ -13,6 +13,9 @@ from bio2zarr.typing import PathType
 from bio2zarr.utils import ceildiv, get_file_length
 
 
+# TODO create a Region dataclass that will sort correctly, and has
+# a str method that does the correct thing
+
 def region_filter(variants, region=None):
     """Filter out variants that don't start in the given region."""
     if region is None:
@@ -37,6 +40,7 @@ def region_string(contig: str, start: int, end: Optional[int] = None) -> str:
         return f"{contig}:{start}-{end}"
     else:
         return f"{contig}:{start}-"
+
 
 
 def get_tabix_path(
@@ -216,7 +220,9 @@ def partition_into_regions(
                 regions.append(region_string(next_contig, 1, end))
 
     # https://github.com/pystatgen/sgkit/issues/1200
-    # Turns out we need this for correctness.
+    # Turns out we need this for correctness. It's just that the
+    # tests aren't particularly comprehensive. There must be some way we can
+    # detect stuff that's in the index, and not in the header?
 
     # Add any sequences at the end that were not skipped
     for ri in range(region_contigs[-1] + 1, len(sequence_names)):
