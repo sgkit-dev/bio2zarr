@@ -11,6 +11,34 @@ from bio2zarr.vcf_partition import partition_into_regions
 from .utils import count_variants, path_for_test
 
 
+class TestCEUTrio2021VcfExample:
+    data_path = "tests/data/vcf/CEUTrio.20.21.gatk3.4.g.vcf.bgz"
+
+    @pytest.fixture(scope="class")
+    def index(self):
+        tabix_path = get_tabix_path(self.data_path)
+        return read_tabix(tabix_path)
+
+    def test_record_counts(self, index):
+        # print(index.sequence_names)
+        print(index.record_counts)
+        # for i, contig in enumerate(tabix.sequence_names):
+        #     assert tabix.record_counts[i] == count_variants(vcf_path, contig)
+
+    # def test_one_region(self, index):
+    #     parts = partition_into_regions(self.data_path, num_parts=1)
+    #     assert parts == ["20:1-", "21"]
+
+
+class TestCEUTrio2021BcfExample(TestCEUTrio2021VcfExample):
+    data_path = "tests/data/vcf/CEUTrio.20.21.gatk3.4.g.bcf"
+
+    @pytest.fixture(scope="class")
+    def index(self):
+        csi_path = get_csi_path(self.data_path)
+        return read_csi(csi_path)
+
+
 class TestCsiIndex:
     @pytest.mark.parametrize(
         "vcf_file",
