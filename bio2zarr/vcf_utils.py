@@ -52,11 +52,18 @@ def region_string(contig: str, start: int, end: Optional[int] = None) -> str:
     else:
         return f"{contig}:{start}-"
 
+
 @dataclass
 class Region:
     contig: str
     start: Optional[int] = None
-    end: Optional[int]=None
+    end: Optional[int] = None
+
+    def __post_init__(self):
+        if self.start is not None:
+            self.start = int(self.start)
+        if self.end is not None:
+            self.end = int(self.end)
 
     def __str__(self):
         s = f"{self.contig}"
@@ -67,6 +74,7 @@ class Region:
         return s
 
     # TODO add "parse" class method
+
 
 def get_tabix_path(
     vcf_path: PathType, storage_options: Optional[Dict[str, str]] = None
@@ -530,18 +538,19 @@ def read_tabix(
         )
 
 
-
 class IndexedVcf:
-    def __init__(self, path, index_path=None):
-        # for h in vcf.header_iter():
-        #     print(h)
-        # if index_path is None:
-        #     index_path = get_tabix_path(vcf_path, storage_options=storage_options)
-        #     if index_path is None:
-        #         index_path = get_csi_path(vcf_path, storage_options=storage_options)
-        #         if index_path is None:
-        #             raise ValueError("Cannot find .tbi or .csi file.")
-        self.vcf_path = path
+    def __init__(self, vcf_path, index_path=None):
+        vcf_path = pathlib.Path(vcf_path)
+        if index_path is None:
+            index_path = vcf_path.with_suffix(vcf_path.suffix + ".tbi")
+            if not index_path.exists():
+                index_path = vcf_path.with_suffix(vcf_path.suffix + ".csi")
+                if not index_path.exists():
+                    raise ValueError("Cannot find .tbi or .csi file.")
+        else:
+            index_path = pathlib.Path(index_path)
+
+        self.vcf_path = vcf_path
         self.index_path = index_path
         self.file_type = None
         self.index_type = None
@@ -561,7 +570,7 @@ class IndexedVcf:
                 self.file_type = "vcf"
                 self.sequence_names = self.index.parse_vcf_aux()
             else:
-                with contextlib.closing(cyvcf2.VCF(path)) as vcf:
+                with contextlib.closing(cyvcf2.VCF(vcf_path)) as vcf:
                     self.sequence_names = vcf.seqnames
         else:
             self.sequence_names = self.index.sequence_names

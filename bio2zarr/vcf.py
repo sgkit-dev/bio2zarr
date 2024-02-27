@@ -25,7 +25,7 @@ import zarr
 
 from . import core
 from . import provenance
-from .vcf_partition import partition_into_regions, region_filter
+from . import vcf_utils
 
 logger = logging.getLogger(__name__)
 
@@ -229,8 +229,11 @@ def scan_vcfs(paths, show_progress, target_num_partitions):
                 raise ValueError("Incompatible VCF chunks")
         vcf_metadata.num_records += vcf.num_records
 
-        # https://github.com/pystatgen/sgkit/issues/1200
-        regions = partition_into_regions(path, num_parts=target_num_partitions)
+        # TODO: Move all our usage of the VCF class behind the IndexedVCF
+        # so that we open the VCF once, and we explicitly set the index.
+        # Otherwise cyvcf2 will do things behind our backs.
+        indexed_vcf = vcf_utils.IndexedVcf(path)
+        regions = indexed_vcf.partition_into_regions(num_parts=target_num_partitions)
         for region in regions:
             partitions.append(
                 # Requires cyvcf2>=0.30.27
@@ -241,8 +244,7 @@ def scan_vcfs(paths, show_progress, target_num_partitions):
             )
     # TODO figure out if this is safe when we have multiple chrs
     # in the file
-    # FIXME this isn't working because region strings don't sort correctly
-    partitions.sort(key=lambda x: x.region)
+    partitions.sort(key=lambda x: (x.region.contig, x.region.start))
     vcf_metadata.partitions = partitions
     return vcf_metadata, header
 
@@ -805,14 +807,20 @@ class PickleChunkedVcf(collections.abc.Mapping):
                     format_fields.append(field)
 
         def variants():
-            with warnings.catch_warnings():
-                # TODO cyvcf2 emits a warning for empty regions; either make the
-                # warning more specific, or remove the need for querying empty
-                # regions.
-                # FIXME this also absorbs any warnings emitted within the loop,
-                # so definitely need to do this a different way.
-                warnings.simplefilter("ignore")
-                for var in region_filter(vcf(partition.region), partition.region):
+            # with warnings.catch_warnings():
+            #     # TODO cyvcf2 emits a warning for empty regions; either make the
+            #     # warning more specific, or remove the need for querying empty
+            #     # regions.
+            #     # FIXME this also absorbs any warnings emitted within the loop,
+            #     # so definitely need to do this a different way.
+            #     warnings.simplefilter("ignore")
+            #     for var in region_filter(vcf(partition.region), partition.region):
+            #         yield var
+
+            # TODO move this into the IndexedVCF class
+            start = 1 if partition.region.start is None else partition.region.start
+            for var in vcf(str(partition.region)):
+                if var.POS >= start:
                     yield var
 
         # FIXME it looks like this is actually a bit pointless now that we
