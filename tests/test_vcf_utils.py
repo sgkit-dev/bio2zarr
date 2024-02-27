@@ -1,11 +1,11 @@
 import pytest
 from cyvcf2 import VCF
 
-from bio2zarr.csi import read_csi
-from bio2zarr.tbi import read_tabix
-from bio2zarr.vcf_partition import get_csi_path
-from bio2zarr.vcf_partition import get_tabix_path
-from bio2zarr.vcf_partition import partition_into_regions
+from bio2zarr.vcf_utils import read_csi
+from bio2zarr.vcf_utils import read_tabix
+from bio2zarr.vcf_utils import get_csi_path
+from bio2zarr.vcf_utils import get_tabix_path
+from bio2zarr.vcf_utils import partition_into_regions
 
 
 from .utils import count_variants, path_for_test
