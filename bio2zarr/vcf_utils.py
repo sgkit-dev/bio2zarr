@@ -1,4 +1,6 @@
 from typing import Any, Dict, Optional, Sequence, Union
+import contextlib
+import struct
 import re
 import pathlib
 import itertools
@@ -7,6 +9,7 @@ from dataclasses import dataclass
 import fsspec
 import numpy as np
 from cyvcf2 import VCF
+import cyvcf2
 import humanfriendly
 
 from bio2zarr.typing import PathType
@@ -49,6 +52,21 @@ def region_string(contig: str, start: int, end: Optional[int] = None) -> str:
     else:
         return f"{contig}:{start}-"
 
+@dataclass
+class Region:
+    contig: str
+    start: Optional[int] = None
+    end: Optional[int]=None
+
+    def __str__(self):
+        s = f"{self.contig}"
+        if self.start is not None:
+            s += f":{self.start}-"
+        if self.end is not None:
+            s += str(self.end)
+        return s
+
+    # TODO add "parse" class method
 
 def get_tabix_path(
     vcf_path: PathType, storage_options: Optional[Dict[str, str]] = None
@@ -263,6 +281,19 @@ class CSIIndex:
     record_counts: Sequence[int]
     n_no_coor: int
 
+    def parse_vcf_aux(self):
+        assert len(self.aux) > 0
+        # The first 7 values form the Tabix header or something, but I don't
+        # know how to interpret what's in there. The n_ref value doesn't seem
+        # to correspond to the number of contigs at all anyway, so just
+        # ignoring for now.
+        # values = struct.Struct("<7i").unpack(self.aux[:28])
+        # tabix_header = Header(*values, 0)
+        names = self.aux[28:]
+        # Convert \0-terminated names to strings
+        sequence_names = [str(name, "utf-8") for name in names.split(b"\x00")[:-1]]
+        return sequence_names
+
     def offsets(self) -> Any:
         pseudo_bin = bin_limit(self.min_shift, self.depth) + 1
 
@@ -388,12 +419,6 @@ class Header:
     l_nm: int
 
 
-# @dataclass
-# class Chunk:
-#     cnk_beg: int
-#     cnk_end: int
-
-
 @dataclass
 class TabixBin:
     bin: int
@@ -503,3 +528,123 @@ def read_tabix(
         return TabixIndex(
             header, sequence_names, bins, linear_indexes, record_counts, n_no_coor
         )
+
+
+
+class IndexedVcf:
+    def __init__(self, path, index_path=None):
+        # for h in vcf.header_iter():
+        #     print(h)
+        # if index_path is None:
+        #     index_path = get_tabix_path(vcf_path, storage_options=storage_options)
+        #     if index_path is None:
+        #         index_path = get_csi_path(vcf_path, storage_options=storage_options)
+        #         if index_path is None:
+        #             raise ValueError("Cannot find .tbi or .csi file.")
+        self.vcf_path = path
+        self.index_path = index_path
+        self.file_type = None
+        self.index_type = None
+        if index_path.suffix == ".csi":
+            self.index_type = "csi"
+        elif index_path.suffix == ".tbi":
+            self.index_type = "tabix"
+            self.file_type = "vcf"
+        else:
+            raise ValueError("TODO")
+        self.index = read_index(self.index_path)
+        self.sequence_names = None
+        if self.index_type == "csi":
+            # Determine the file-type based on the "aux" field.
+            self.file_type = "bcf"
+            if len(self.index.aux) > 0:
+                self.file_type = "vcf"
+                self.sequence_names = self.index.parse_vcf_aux()
+            else:
+                with contextlib.closing(cyvcf2.VCF(path)) as vcf:
+                    self.sequence_names = vcf.seqnames
+        else:
+            self.sequence_names = self.index.sequence_names
+
+    def contig_record_counts(self):
+        d = dict(zip(self.sequence_names, self.index.record_counts))
+        if self.file_type == "bcf":
+            d = {k: v for k, v in d.items() if v > 0}
+        return d
+
+    def partition_into_regions(
+        self,
+        num_parts: Optional[int] = None,
+        target_part_size: Union[None, int, str] = None,
+    ):
+        if num_parts is None and target_part_size is None:
+            raise ValueError("One of num_parts or target_part_size must be specified")
+
+        if num_parts is not None and target_part_size is not None:
+            raise ValueError(
+                "Only one of num_parts or target_part_size may be specified"
+            )
+
+        if num_parts is not None and num_parts < 1:
+            raise ValueError("num_parts must be positive")
+
+        if target_part_size is not None:
+            if isinstance(target_part_size, int):
+                target_part_size_bytes = target_part_size
+            else:
+                target_part_size_bytes = humanfriendly.parse_size(target_part_size)
+            if target_part_size_bytes < 1:
+                raise ValueError("target_part_size must be positive")
+
+        # Calculate the desired part file boundaries
+        file_length = get_file_length(self.vcf_path)
+        if num_parts is not None:
+            target_part_size_bytes = file_length // num_parts
+        elif target_part_size_bytes is not None:
+            num_parts = ceildiv(file_length, target_part_size_bytes)
+        part_lengths = np.array([i * target_part_size_bytes for i in range(num_parts)])
+
+        file_offsets, region_contig_indexes, region_positions = self.index.offsets()
+
+        # Search the file offsets to find which indexes the part lengths fall at
+        ind = np.searchsorted(file_offsets, part_lengths)
+
+        # Drop any parts that are greater than the file offsets
+        # (these will be covered by a region with no end)
+        ind = np.delete(ind, ind >= len(file_offsets))
+
+        # Drop any duplicates
+        ind = np.unique(ind)
+
+        # Calculate region contig and start for each index
+        region_contigs = region_contig_indexes[ind]
+        region_starts = region_positions[ind]
+
+        # Build region query strings
+        regions = []
+        for i in range(len(region_starts)):
+            contig = self.sequence_names[region_contigs[i]]
+            start = region_starts[i]
+
+            if i == len(region_starts) - 1:  # final region
+                regions.append(Region(contig, start))
+            else:
+                next_contig = self.sequence_names[region_contigs[i + 1]]
+                next_start = region_starts[i + 1]
+                end = next_start - 1  # subtract one since positions are inclusive
+                if next_contig == contig:  # contig doesn't change
+                    regions.append(Region(contig, start, end))
+                else:
+                    # contig changes, so need two regions (or possibly more if any
+                    # sequences were skipped)
+                    regions.append(Region(contig, start))
+                    for ri in range(region_contigs[i] + 1, region_contigs[i + 1]):
+                        regions.append(self.sequence_names[ri])
+                    regions.append(Region(next_contig, 1, end))
+
+        # Add any sequences at the end that were not skipped
+        for ri in range(region_contigs[-1] + 1, len(self.sequence_names)):
+            if self.index.record_counts[ri] > 0:
+                regions.append(Region(self.sequence_names[ri]))
+
+        return regions

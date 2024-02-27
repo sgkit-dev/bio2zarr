@@ -2,6 +2,7 @@ import pathlib
 
 import pytest
 from cyvcf2 import VCF
+import numpy as np
 
 from bio2zarr import vcf_utils
 
@@ -16,57 +17,53 @@ from .utils import count_variants, path_for_test
 
 data_path = pathlib.Path("tests/data/vcf/")
 
-# bcftools index -s
-@pytest.mark.parametrize(["index_file", "expected"], [
-    ("sample.vcf.gz.tbi", [2, 6, 1]),
-    ("sample.bcf.csi", [2, 6, 1]),
-    ("sample_no_genotypes.vcf.gz.csi", [2, 6, 1]),
-    ("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi", [3450, 16460]),
-    ("CEUTrio.20.21.gatk3.4.g.bcf.csi", [3450, 16460]),
-    ("1kg_2020_chrM.vcf.gz.tbi", [23]),
-    ("1kg_2020_chrM.vcf.gz.csi", [23]),
-    # ("1kg_2020_chrM.bcf.csi", [23]),
-    # ("1kg_2020_chr20_annotations.bcf.csi", [21]),
-])
+
+# values computed using bcftools index -s
+@pytest.mark.parametrize(
+    ["index_file", "expected"],
+    [
+        ("sample.vcf.gz.tbi", {"19": 2, "20": 6, "X": 1}),
+        ("sample.bcf.csi", {"19": 2, "20": 6, "X": 1}),
+        ("sample_no_genotypes.vcf.gz.csi", {"19": 2, "20": 6, "X": 1}),
+        ("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi", {"20": 3450, "21": 16460}),
+        ("CEUTrio.20.21.gatk3.4.g.bcf.csi", {"20": 3450, "21": 16460}),
+        ("1kg_2020_chrM.vcf.gz.tbi", {"chrM": 23}),
+        ("1kg_2020_chrM.vcf.gz.csi", {"chrM": 23}),
+        ("1kg_2020_chrM.bcf.csi", {"chrM": 23}),
+        ("1kg_2020_chr20_annotations.bcf.csi", {"chr20": 21}),
+        ("NA12878.prod.chr20snippet.g.vcf.gz.tbi", {"20": 301778}),
+    ],
+)
 def test_index_record_count(index_file, expected):
-    index = vcf_utils.read_index(data_path / index_file)
-    assert index.record_counts == expected
+    vcf_path = data_path / (".".join(list(index_file.split("."))[:-1]))
+    indexed_vcf = vcf_utils.IndexedVcf(vcf_path, data_path / index_file)
+    assert indexed_vcf.contig_record_counts() == expected
 
 
-
-# class TestCEUTrio2021VcfExample:
-#     data_path = "tests/data/vcf/CEUTrio.20.21.gatk3.4.g.vcf.bgz"
-
-#     @pytest.fixture(scope="class")
-#     def index(self):
-#         tabix_path = get_tabix_path(self.data_path)
-#         return read_tabix(tabix_path)
-
-#     def test_record_counts(self, index):
-#         assert index.record_counts == [3450, 16460]
-#         # print(index)
-#         # # print(index.sequence_names)
-#         # print(index.record_counts)
-#         # for i, contig in enumerate(tabix.sequence_names):
-#         #     assert tabix.record_counts[i] == count_variants(vcf_path, contig)
-
-#     # def test_one_region(self, index):
-#     #     parts = partition_into_regions(self.data_path, num_parts=1)
-#     #     assert parts == ["20:1-", "21"]
-
-
-# class TestCEUTrio2021BcfExample(TestCEUTrio2021VcfExample):
-#     data_path = "tests/data/vcf/CEUTrio.20.21.gatk3.4.g.bcf"
-
-#     @pytest.fixture(scope="class")
-#     def index(self):
-#         csi_path = get_csi_path(self.data_path)
-#         return read_csi(csi_path)
+@pytest.mark.parametrize(
+    ["index_file", "expected"],
+    [
+        ("sample.vcf.gz.tbi", ["19:1-", "20", "X"]),
+        ("sample.bcf.csi", ["19:1-", "20", "X"]),
+        ("sample_no_genotypes.vcf.gz.csi", ["19:1-", "20", "X"]),
+        ("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi", ["20:1-", "21"]),
+        ("CEUTrio.20.21.gatk3.4.g.bcf.csi", ["20:1-", "21"]),
+        ("1kg_2020_chrM.vcf.gz.tbi", ["chrM:1-"]),
+        ("1kg_2020_chrM.vcf.gz.csi", ["chrM:1-"]),
+        ("1kg_2020_chrM.bcf.csi", ["chrM:1-"]),
+        ("1kg_2020_chr20_annotations.bcf.csi", ["chr20:49153-"]),
+        ("NA12878.prod.chr20snippet.g.vcf.gz.tbi", ["20:1-"]),
+    ],
+)
+def test_partition_into_one_part(index_file, expected):
+    vcf_path = data_path / (".".join(list(index_file.split("."))[:-1]))
+    indexed_vcf = vcf_utils.IndexedVcf(vcf_path, data_path / index_file)
+    regions = indexed_vcf.partition_into_regions(num_parts=1)
+    assert all(isinstance(r, vcf_utils.Region) for r in regions)
+    assert [str(r) for r in regions] == expected
 
 
 class TestCsiIndex:
-
-
     @pytest.mark.parametrize(
         "filename",
         ["CEUTrio.20.21.gatk3.4.g.vcf.bgz", "CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi"],
@@ -77,10 +74,12 @@ class TestCsiIndex:
 
 
 class TestTabixIndex:
-
     @pytest.mark.parametrize(
         "filename",
-        ["CEUTrio.20.21.gatk3.4.g.vcf.bgz", "CEUTrio.20.21.gatk3.4.g.bcf.csi", ],
+        [
+            "CEUTrio.20.21.gatk3.4.g.vcf.bgz",
+            "CEUTrio.20.21.gatk3.4.g.bcf.csi",
+        ],
     )
     def test_invalid_tbi(self, filename):
         with pytest.raises(ValueError, match=r"File not in Tabix format."):
@@ -158,11 +157,6 @@ class TestPartitionIntoRegions:
 
         with pytest.raises(ValueError, match=r"target_part_size must be positive"):
             partition_into_regions(vcf_path, target_part_size=0)
-
-    def test_one_part(self):
-        vcf_path = data_path / "CEUTrio.20.21.gatk3.4.g.vcf.bgz"
-        parts = partition_into_regions(vcf_path, num_parts=1)
-        assert parts == ["20:1-", "21"]
 
     @pytest.mark.skip("TODO")
     def test_missing_index(self, temp_path):
