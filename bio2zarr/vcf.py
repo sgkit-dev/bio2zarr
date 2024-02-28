@@ -138,11 +138,15 @@ class VcfMetadata:
     format_version: str
     samples: list
     contig_names: list
+    contig_record_counts: dict
     filters: list
     fields: list
-    contig_lengths: list = None
     partitions: list = None
-    num_records: int = 0
+    contig_lengths: list = None
+
+    @property
+    def num_records(self):
+        return sum(self.contig_record_counts.values())
 
     @staticmethod
     def fromdict(d):
@@ -179,19 +183,10 @@ def fixed_vcf_field_definitions():
     ]
     return fields
 
-
-# TODO refactor this to use the ProcessPoolExecutor, and the IndexedVCF class
-def scan_vcfs(paths, show_progress, target_num_partitions):
-    partitions = []
-    vcf_metadata = None
-    header = None
-    logger.info(f"Scanning {len(paths)} VCFs")
-    total_records = 0
-    for path in tqdm.tqdm(paths, desc="Scan ", disable=not show_progress):
-        # TODO use contextlib.closing on this
-        vcf = cyvcf2.VCF(path)
-        logger.debug(f"Scanning {path}")
-
+def scan_vcf(path, target_num_partitions):
+    logger.debug(f"Scanning {path}")
+    with vcf_utils.IndexedVcf(path) as indexed_vcf:
+        vcf = indexed_vcf.vcf
         filters = [
             h["ID"]
             for h in vcf.header_iter()
@@ -214,43 +209,68 @@ def scan_vcfs(paths, show_progress, target_num_partitions):
         metadata = VcfMetadata(
             samples=vcf.samples,
             contig_names=vcf.seqnames,
+            contig_record_counts=indexed_vcf.contig_record_counts(),
             filters=filters,
+            # TODO use the mapping dictionary
             fields=fields,
+            partitions=[],
             # FIXME do something systematic with this
-            format_version="0.1"
+            format_version="0.1",
         )
         try:
             metadata.contig_lengths = vcf.seqlens
         except AttributeError:
             pass
 
-        if vcf_metadata is None:
-            vcf_metadata = metadata
-            # We just take the first header, assuming the others
-            # are compatible.
-            header = vcf.raw_header
-        else:
-            if metadata != vcf_metadata:
-                raise ValueError("Incompatible VCF chunks")
-        vcf_metadata.num_records += vcf.num_records
-
-        # TODO: Move all our usage of the VCF class behind the IndexedVCF
-        # so that we open the VCF once, and we explicitly set the index.
-        # Otherwise cyvcf2 will do things behind our backs.
-        indexed_vcf = vcf_utils.IndexedVcf(path)
         regions = indexed_vcf.partition_into_regions(num_parts=target_num_partitions)
         for region in regions:
-            partitions.append(
+            metadata.partitions.append(
                 VcfPartition(
                     vcf_path=str(path),
                     region=region,
                 )
             )
+        core.update_progress(1)
+        return metadata, vcf.raw_header
+
+
+def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
+    logger.info(f"Scanning {len(paths)} VCFs")
+    progress_config = core.ProgressConfig(
+        total=len(paths),
+        units="files",
+        title="Scan",
+        show=show_progress,
+    )
+    with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
+        for path in paths:
+            pwm.submit(scan_vcf, path, target_num_partitions)
+        results = list(pwm.results_as_completed())
+
+    # Sort to make the ordering deterministic
+    results.sort(key=lambda t: t[0].partitions[0].vcf_path)
+    # We just take the first header, assuming the others
+    # are compatible.
+    all_partitions = []
+    contig_record_counts = collections.Counter()
+    for metadata, _ in results:
+        all_partitions.extend(metadata.partitions)
+        metadata.partitions.clear()
+        contig_record_counts += metadata.contig_record_counts
+        metadata.contig_record_counts.clear()
+
+    vcf_metadata, header = results[0]
+    for metadata, _ in results[1:]:
+        if metadata != vcf_metadata:
+            raise ValueError("Incompatible VCF chunks")
+
+    vcf_metadata.contig_record_counts = dict(contig_record_counts)
+
     # Sort by contig (in the order they appear in the header) first,
     # then by start coordinate
-    contig_index_map = {contig: j for j, contig in enumerate(vcf.seqnames)}
-    partitions.sort(key=lambda x: (contig_index_map[x.region.contig], x.region.start))
-    vcf_metadata.partitions = partitions
+    contig_index_map = {contig: j for j, contig in enumerate(metadata.contig_names)}
+    all_partitions.sort(key=lambda x: (contig_index_map[x.region.contig], x.region.start))
+    vcf_metadata.partitions = all_partitions
     return vcf_metadata, header
 
 
@@ -627,7 +647,7 @@ class ThreadedColumnWriter(contextlib.AbstractContextManager):
             # NOTE: this is only for testing, not for production use!
             self.executor = core.SynchronousExecutor()
         else:
-            self.executor = cf.ProcessPoolExecutor(max_workers=encoder_threads)
+            self.executor = cf.ThreadPoolExecutor(max_workers=encoder_threads)
 
         self.buffers = {}
         num_samples = len(vcf_metadata.samples)
@@ -748,7 +768,7 @@ class PickleChunkedVcf(collections.abc.Mapping):
 
     @functools.cached_property
     def num_records(self):
-        return self.metadata.num_records
+        return sum(self.metadata.contig_record_counts.values())
 
     @property
     def num_partitions(self):
@@ -883,6 +903,7 @@ class PickleChunkedVcf(collections.abc.Mapping):
         target_num_partitions = max(1, worker_processes * 4)
         vcf_metadata, header = scan_vcfs(
             vcfs,
+            worker_processes=worker_processes,
             show_progress=show_progress,
             target_num_partitions=target_num_partitions,
         )
