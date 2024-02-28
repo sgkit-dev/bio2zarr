@@ -704,6 +704,7 @@ class TestGeneratedFieldsExample:
         "sample_no_genotypes.vcf.gz",
         "1kg_2020_chrM.vcf.gz",
         "field_type_combos.vcf.gz",
+        "out_of_order_contigs.vcf.gz",
     ],
 )
 def test_by_validating(name, tmp_path):
