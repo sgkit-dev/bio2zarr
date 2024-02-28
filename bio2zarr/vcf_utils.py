@@ -365,9 +365,11 @@ def read_tabix(
         )
 
 
-class IndexedVcf:
+class IndexedVcf(contextlib.AbstractContextManager):
     def __init__(self, vcf_path, index_path=None):
+        self.vcf = None
         vcf_path = pathlib.Path(vcf_path)
+        # TODO use constants here instead of strings
         if index_path is None:
             index_path = vcf_path.with_suffix(vcf_path.suffix + ".tbi")
             if not index_path.exists():
@@ -379,6 +381,7 @@ class IndexedVcf:
 
         self.vcf_path = vcf_path
         self.index_path = index_path
+        # TODO use Enums for these
         self.file_type = None
         self.index_type = None
         if index_path.suffix == ".csi":
@@ -387,7 +390,9 @@ class IndexedVcf:
             self.index_type = "tabix"
             self.file_type = "vcf"
         else:
-            raise ValueError("TODO")
+            raise ValueError("Only .tbi or .csi indexes are supported.")
+        self.vcf = cyvcf2.VCF(vcf_path)
+        self.vcf.set_index(str(self.index_path))
         self.sequence_names = None
         if self.index_type == "csi":
             # Determine the file-type based on the "aux" field.
@@ -403,11 +408,27 @@ class IndexedVcf:
             self.index = read_tabix(self.index_path)
             self.sequence_names = self.index.sequence_names
 
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.vcf is not None:
+            self.vcf.close()
+            self.vcf = None
+        return False
+
     def contig_record_counts(self):
         d = dict(zip(self.sequence_names, self.index.record_counts))
         if self.file_type == "bcf":
             d = {k: v for k, v in d.items() if v > 0}
         return d
+
+    def count_variants(self, region):
+        return sum(1 for _ in self.variants(region))
+
+    def variants(self, region):
+        # Need to filter because of indels overlapping the region
+        start = 1 if region.start is None else region.start
+        for var in self.vcf(str(region)):
+            if var.POS >= start:
+                yield var
 
     def partition_into_regions(
         self,

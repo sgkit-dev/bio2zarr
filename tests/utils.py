@@ -52,6 +52,4 @@ def get_region_start(region: str) -> int:
 def count_variants(path: PathType, region: Optional[str] = None) -> int:
     """Count the number of variants in a VCF file."""
     with open_vcf(path) as vcf:
-        if region is not None:
-            vcf = vcf(region)
-        return sum(1 for _ in region_filter(vcf, region))
+        return sum(1 for _ in region_filter(vcf(str(region)), str(region)))
