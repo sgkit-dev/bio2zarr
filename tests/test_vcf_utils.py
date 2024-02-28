@@ -1,12 +1,9 @@
 import pathlib
 
 import pytest
-from cyvcf2 import VCF
 import numpy as np
 
 from bio2zarr import vcf_utils
-
-from .utils import count_variants, path_for_test
 
 data_path = pathlib.Path("tests/data/vcf/")
 
