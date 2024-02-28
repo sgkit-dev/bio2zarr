@@ -32,6 +32,7 @@ data_path = pathlib.Path("tests/data/vcf/")
         ("1kg_2020_chrM.bcf.csi", {"chrM": 23}),
         ("1kg_2020_chr20_annotations.bcf.csi", {"chr20": 21}),
         ("NA12878.prod.chr20snippet.g.vcf.gz.tbi", {"20": 301778}),
+        ("multi_contig.vcf.gz.tbi", {str(j): 933 for j in range(5)}),
     ],
 )
 def test_index_record_count(index_file, expected):
@@ -53,6 +54,7 @@ def test_index_record_count(index_file, expected):
         ("1kg_2020_chrM.bcf.csi", ["chrM:1-"]),
         ("1kg_2020_chr20_annotations.bcf.csi", ["chr20:49153-"]),
         ("NA12878.prod.chr20snippet.g.vcf.gz.tbi", ["20:1-"]),
+        ("multi_contig.vcf.gz.tbi", ["0:1-"] + [str(j) for j in range(1, 5)]),
     ],
 )
 def test_partition_into_one_part(index_file, expected):
@@ -60,6 +62,18 @@ def test_partition_into_one_part(index_file, expected):
     indexed_vcf = vcf_utils.IndexedVcf(vcf_path, data_path / index_file)
     regions = indexed_vcf.partition_into_regions(num_parts=1)
     assert all(isinstance(r, vcf_utils.Region) for r in regions)
+    assert [str(r) for r in regions] == expected
+
+
+def test_tabix_multi_chrom_bug():
+    index_file = "multi_contig.vcf.gz.tbi"
+    vcf_path = data_path / (".".join(list(index_file.split("."))[:-1]))
+    indexed_vcf = vcf_utils.IndexedVcf(vcf_path, data_path / index_file)
+    regions = indexed_vcf.partition_into_regions(num_parts=10)
+    # An earlier version of the code returned this, i.e. with a duplicate
+    # for 4 with end coord of 0
+    # ["0:1-", "1", "2", "3", "4:1-0", "4:1-"]
+    expected = ["0:1-", "1", "2", "3", "4:1-"]
     assert [str(r) for r in regions] == expected
 
 

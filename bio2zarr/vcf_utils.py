@@ -63,7 +63,7 @@ class Region:
             assert self.start > 0
         if self.end is not None:
             self.end = int(self.end)
-            assert self.end > 0
+            assert self.end > self.start
 
     def __str__(self):
         s = f"{self.contig}"
@@ -641,6 +641,7 @@ class IndexedVcf:
                 next_contig = self.sequence_names[region_contigs[i + 1]]
                 next_start = region_starts[i + 1]
                 end = next_start - 1  # subtract one since positions are inclusive
+                # print("next_start", next_contig, next_start)
                 if next_contig == contig:  # contig doesn't change
                     regions.append(Region(contig, start, end))
                 else:
@@ -648,8 +649,9 @@ class IndexedVcf:
                     # sequences were skipped)
                     regions.append(Region(contig, start))
                     for ri in range(region_contigs[i] + 1, region_contigs[i + 1]):
-                        regions.append(self.sequence_names[ri])
-                    regions.append(Region(next_contig, 1, end))
+                        regions.append(Region(self.sequence_names[ri]))
+                    if end >= 1:
+                        regions.append(Region(next_contig, 1, end))
 
         # Add any sequences at the end that were not skipped
         for ri in range(region_contigs[-1] + 1, len(self.sequence_names)):
