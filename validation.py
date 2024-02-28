@@ -12,6 +12,8 @@ from bio2zarr import vcf
 @click.argument("vcfs", nargs=-1)
 @click.option("-p", "--worker-processes", type=int, default=1)
 @click.option("-f", "--force", is_flag=True, default=False)
+# TODO add options for verbose and to force the use of a given
+# index file
 def cli(vcfs, worker_processes, force):
     data_path = pathlib.Path("validation-data")
     if len(vcfs) == 0:
