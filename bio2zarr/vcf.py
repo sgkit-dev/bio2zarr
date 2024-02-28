@@ -1575,6 +1575,7 @@ def assert_format_val_equal(vcf_val, zarr_val, vcf_type):
         nt.assert_equal(vcf_val, zarr_val)
 
 
+# TODO rename to "verify"
 def validate(vcf_path, zarr_path, show_progress=False):
     store = zarr.DirectoryStore(zarr_path)
 
@@ -1616,7 +1617,7 @@ def validate(vcf_path, zarr_path, show_progress=False):
     assert pos[start_index] == first_pos
     vcf = cyvcf2.VCF(vcf_path)
     if show_progress:
-        iterator = tqdm.tqdm(vcf, total=vcf.num_records)
+        iterator = tqdm.tqdm(vcf, desc=" Verify", total=vcf.num_records)
     else:
         iterator = vcf
     for j, row in enumerate(iterator, start_index):

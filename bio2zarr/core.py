@@ -179,7 +179,7 @@ def set_progress(value):
 def progress_thread_worker(config):
     pbar = tqdm.tqdm(
         total=config.total,
-        desc=config.title,
+        desc=f"{config.title:>7}",
         unit_scale=True,
         unit=config.units,
         smoothing=0.1,
