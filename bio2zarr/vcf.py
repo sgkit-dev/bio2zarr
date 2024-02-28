@@ -135,6 +135,7 @@ class VcfPartition:
 
 @dataclasses.dataclass
 class VcfMetadata:
+    format_version: str
     samples: list
     contig_names: list
     filters: list
@@ -179,6 +180,7 @@ def fixed_vcf_field_definitions():
     return fields
 
 
+# TODO refactor this to use the ProcessPoolExecutor, and the IndexedVCF class
 def scan_vcfs(paths, show_progress, target_num_partitions):
     partitions = []
     vcf_metadata = None
@@ -214,6 +216,8 @@ def scan_vcfs(paths, show_progress, target_num_partitions):
             contig_names=vcf.seqnames,
             filters=filters,
             fields=fields,
+            # FIXME do something systematic with this
+            format_version="0.1"
         )
         try:
             metadata.contig_lengths = vcf.seqlens
@@ -976,6 +980,7 @@ class ZarrColumnSpec:
 
 @dataclasses.dataclass
 class ZarrConversionSpec:
+    format_version: str
     chunk_width: int
     chunk_length: int
     dimensions: list
@@ -1152,6 +1157,8 @@ class ZarrConversionSpec:
             )
 
         return ZarrConversionSpec(
+            # TODO do something systematic
+            format_version="0.1",
             chunk_width=chunk_width,
             chunk_length=chunk_length,
             columns={col.name: col for col in colspecs},
