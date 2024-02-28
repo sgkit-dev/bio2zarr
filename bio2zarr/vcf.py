@@ -1172,6 +1172,19 @@ class SgvcfZarr:
         a.attrs["_ARRAY_DIMENSIONS"] = variable.dimensions
 
     def encode_column(self, pcvcf, column, encoder_threads=4):
+        # TODO we're doing this the wrong way at the moment, overcomplicating
+        # things by having the ThreadedZarrEncoder. It would be simpler if
+        # we split the columns into vertical chunks, and just pushed a bunch
+        # of futures for encoding start:end slices of each column. The
+        # complicating factor here is that we need to get these slices
+        # out of the pcvcf, which takes a little bit of doing (but fine,
+        # because we know the number of records in each partition).
+        # An annoying factor then is how to update the progess meter
+        # because the "bytes read" approach becomes problematic
+        # when we might access the same chunk several times.
+        # Would perhaps be better to call sys.getsizeof() on the stored
+        # value each time.
+
         source_col = pcvcf.columns[column.vcf_field]
         array = self.root[column.name]
         ba = core.BufferedArray(array)
