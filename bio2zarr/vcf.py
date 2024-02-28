@@ -1,4 +1,3 @@
-import concurrent.futures as cf
 import collections
 import dataclasses
 import functools
@@ -142,6 +141,22 @@ class VcfMetadata:
     fields: list
     partitions: list = None
     contig_lengths: list = None
+
+    @property
+    def info_fields(self):
+        fields = []
+        for field in self.fields:
+            if field.category == "INFO":
+                fields.append(field)
+        return fields
+
+    @property
+    def format_fields(self):
+        fields = []
+        for field in self.fields:
+            if field.category == "FORMAT":
+                fields.append(field)
+        return fields
 
     @property
     def num_records(self):
@@ -629,27 +644,19 @@ class FieldBuffer:
         self.chunk_index += 1
 
 
-class ThreadedColumnWriter(contextlib.AbstractContextManager):
+class ColumnWriter(contextlib.AbstractContextManager):
     def __init__(
         self,
         vcf_metadata,
         out_path,
         partition_index,
         *,
-        encoder_threads=0,
         chunk_size=1,
     ):
-        self.encoder_threads = encoder_threads
         self.partition_index = partition_index
         # chunk_size is in megabytes
         self.max_buffered_bytes = chunk_size * 2**20
         assert self.max_buffered_bytes > 0
-
-        if encoder_threads <= 0:
-            # NOTE: this is only for testing, not for production use!
-            self.executor = core.SynchronousExecutor()
-        else:
-            self.executor = cf.ThreadPoolExecutor(max_workers=encoder_threads)
 
         self.buffers = {}
         num_samples = len(vcf_metadata.samples)
@@ -657,7 +664,6 @@ class ThreadedColumnWriter(contextlib.AbstractContextManager):
             field = PickleChunkedVcfField(vcf_field, out_path)
             transformer = VcfValueTransformer.factory(vcf_field, num_samples)
             self.buffers[vcf_field.full_name] = FieldBuffer(field, transformer)
-        self.futures = set()
 
     @property
     def field_summaries(self):
@@ -676,37 +682,19 @@ class ThreadedColumnWriter(contextlib.AbstractContextManager):
         if buff.buffered_bytes >= self.max_buffered_bytes:
             self._flush_buffer(name, buff)
 
-    def _service_futures(self):
-        max_waiting = 2 * self.encoder_threads
-        while len(self.futures) > max_waiting:
-            futures_done, _ = cf.wait(self.futures, return_when=cf.FIRST_COMPLETED)
-            for future in futures_done:
-                exception = future.exception()
-                if exception is not None:
-                    raise exception
-                self.futures.remove(future)
-
     def _flush_buffer(self, name, buff):
-        self._service_futures()
         logger.debug(f"Schedule write {name}:{self.partition_index}.{buff.chunk_index}")
-        future = self.executor.submit(
-            buff.field.write_chunk,
+        buff.field.write_chunk(
             self.partition_index,
             buff.chunk_index,
             buff.buff,
         )
-        self.futures.add(future)
         buff.reset()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is None:
-            # Normal exit condition
             for name, buff in self.buffers.items():
                 self._flush_buffer(name, buff)
-            core.wait_on_futures(self.futures)
-        else:
-            core.cancel_futures(self.futures)
-        self.executor.shutdown()
         return False
 
 
@@ -812,41 +800,31 @@ class PickleChunkedVcf(collections.abc.Mapping):
         partition_index,
         out_path,
         *,
-        encoder_threads=4,
         column_chunk_size=16,
     ):
         partition = vcf_metadata.partitions[partition_index]
         logger.info(
             f"Start p{partition_index} {partition.vcf_path}__{partition.region}"
         )
-
-        info_fields = []
+        info_fields = vcf_metadata.info_fields
         format_fields = []
         has_gt = False
-        for field in vcf_metadata.fields:
-            if field.category == "INFO":
-                info_fields.append(field)
-            elif field.category == "FORMAT":
-                if field.name == "GT":
-                    has_gt = True
-                else:
-                    format_fields.append(field)
+        for field in vcf_metadata.format_fields:
+            if field.name == "GT":
+                has_gt = True
+            else:
+                format_fields.append(field)
 
-        # FIXME it looks like this is actually a bit pointless now that we
-        # can split up into multiple regions within the VCF. It's simpler
-        # and easier to explain and predict performance if we just do
-        # everything syncronously.  We can keep the same interface,
-        # just remove the "Threaded" bit and simplify.
-        with ThreadedColumnWriter(
+        with ColumnWriter(
             vcf_metadata,
             out_path,
             partition_index,
-            encoder_threads=0,
             chunk_size=column_chunk_size,
         ) as tcw:
             with vcf_utils.IndexedVcf(partition.vcf_path) as ivcf:
                 num_records = 0
                 for variant in ivcf.variants(partition.region):
+                    num_records += 1
                     tcw.append("CHROM", variant.CHROM)
                     tcw.append("POS", variant.POS)
                     tcw.append("QUAL", variant.QUAL)
@@ -865,12 +843,10 @@ class PickleChunkedVcf(collections.abc.Mapping):
                         except KeyError:
                             pass
                         tcw.append(field.full_name, val)
-
                     # Note: an issue with updating the progress per variant here like this
                     # is that we get a significant pause at the end of the counter while
                     # all the "small" fields get flushed. Possibly not much to be done about it.
                     core.update_progress(1)
-                    num_records += 1
 
         logger.info(
             f"Finish p{partition_index} {partition.vcf_path}__{partition.region}="
