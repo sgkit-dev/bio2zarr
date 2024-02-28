@@ -23,8 +23,6 @@ from bio2zarr.utils import (
 )
 
 
-# TODO create a Region dataclass that will sort correctly, and has
-# a str method that does the correct thing
 
 
 def region_filter(variants, region=None):
@@ -62,8 +60,10 @@ class Region:
     def __post_init__(self):
         if self.start is not None:
             self.start = int(self.start)
+            assert self.start > 0
         if self.end is not None:
             self.end = int(self.end)
+            assert self.end > 0
 
     def __str__(self):
         s = f"{self.contig}"

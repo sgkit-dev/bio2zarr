@@ -236,14 +236,14 @@ def scan_vcfs(paths, show_progress, target_num_partitions):
         regions = indexed_vcf.partition_into_regions(num_parts=target_num_partitions)
         for region in regions:
             partitions.append(
-                # Requires cyvcf2>=0.30.27
                 VcfPartition(
                     vcf_path=str(path),
                     region=region,
                 )
             )
-    # TODO figure out if this is safe when we have multiple chrs
-    # in the file
+    # TODO figure out if this is correct. It should be fine because of VCF
+    # sorting, but need to verify there isn't some loophole with BCF, where
+    # contigs are sorted by their index in the list rather than string value.
     partitions.sort(key=lambda x: (x.region.contig, x.region.start))
     vcf_metadata.partitions = partitions
     return vcf_metadata, header
@@ -791,7 +791,7 @@ class PickleChunkedVcf(collections.abc.Mapping):
         partition = vcf_metadata.partitions[partition_index]
         vcf = cyvcf2.VCF(partition.vcf_path)
         logger.info(
-            f"Start partition {partition_index} {partition.vcf_path}: {partition.region}"
+            f"Start p{partition_index} {partition.vcf_path}__{partition.region}"
         )
 
         info_fields = []
@@ -835,6 +835,7 @@ class PickleChunkedVcf(collections.abc.Mapping):
             encoder_threads=0,
             chunk_size=column_chunk_size,
         ) as tcw:
+            num_records = 0
             for variant in variants():
                 tcw.append("CHROM", variant.CHROM)
                 tcw.append("POS", variant.POS)
@@ -859,8 +860,13 @@ class PickleChunkedVcf(collections.abc.Mapping):
                 # is that we get a significant pause at the end of the counter while
                 # all the "small" fields get flushed. Possibly not much to be done about it.
                 core.update_progress(1)
+                num_records += 1
 
-        return tcw.field_summaries
+        logger.info(
+            f"Finish p{partition_index} {partition.vcf_path}__{partition.region}="
+            f"{num_records} records")
+
+        return tcw.field_summaries, num_records
 
     @staticmethod
     def convert(
@@ -896,7 +902,13 @@ class PickleChunkedVcf(collections.abc.Mapping):
                     out_path,
                     column_chunk_size=column_chunk_size,
                 )
-            partition_summaries = list(pwm.results_as_completed())
+            num_records = 0
+            partition_summaries = []
+            for partition_summary, partition_num_records in pwm.results_as_completed():
+                num_records += partition_num_records
+                partition_summaries.append(partition_summary)
+
+        assert num_records == pcvcf.num_records
 
         for field in vcf_metadata.fields:
             # Clear the summary to avoid problems when running in debug

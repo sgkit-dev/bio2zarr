@@ -3,6 +3,7 @@ import tabulate
 import coloredlogs
 
 from . import vcf
+from . import vcf_utils
 from . import plink
 from . import provenance
 
@@ -14,6 +15,7 @@ worker_processes = click.option(
 )
 
 version = click.version_option(version=provenance.__version__)
+
 
 # Note: logging hasn't been implemented in the code at all, this is just
 # a first pass to try out some ways of doing things to see what works.
@@ -155,3 +157,15 @@ def plink2zarr():
 
 
 plink2zarr.add_command(convert_plink)
+
+
+@click.command
+@version
+@click.argument("vcf_path", type=click.Path())
+@click.option("-i", "--index", type=click.Path(), default=None)
+@click.option("-n", "--num-parts", type=int, default=None)
+# @click.option("-s", "--part-size", type=int, default=None)
+def vcf_partition(vcf_path, index, num_parts):
+    indexed_vcf = vcf_utils.IndexedVcf(vcf_path, index)
+    regions = indexed_vcf.partition_into_regions(num_parts=num_parts)
+    click.echo("\n".join(map(str, regions)))

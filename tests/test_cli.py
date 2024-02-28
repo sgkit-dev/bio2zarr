@@ -122,7 +122,26 @@ class TestWithMocks:
             )
 
 
-@pytest.mark.parametrize("cmd", [main.bio2zarr, cli.vcf2zarr, cli.plink2zarr])
+class TestVcfPartition:
+    def test_num_parts(self):
+        path = "tests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz"
+
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcf_partition, [path, "-n", "5"], catch_exceptions=False
+        )
+        assert list(result.stdout.splitlines()) == [
+            "20:1-278528",
+            "20:278529-442368",
+            "20:442369-638976",
+            "20:638977-819200",
+            "20:819201-",
+        ]
+
+
+@pytest.mark.parametrize(
+    "cmd", [main.bio2zarr, cli.vcf2zarr, cli.plink2zarr, cli.vcf_partition]
+)
 def test_version(cmd):
     runner = ct.CliRunner(mix_stderr=False)
     result = runner.invoke(cmd, ["--version"], catch_exceptions=False)
