@@ -130,6 +130,7 @@ class VcfField:
 class VcfPartition:
     vcf_path: str
     region: str
+    num_records: int = -1
 
 
 @dataclasses.dataclass
@@ -241,10 +242,10 @@ def scan_vcfs(paths, show_progress, target_num_partitions):
                     region=region,
                 )
             )
-    # TODO figure out if this is correct. It should be fine because of VCF
-    # sorting, but need to verify there isn't some loophole with BCF, where
-    # contigs are sorted by their index in the list rather than string value.
-    partitions.sort(key=lambda x: (x.region.contig, x.region.start))
+    # Sort by contig (in the order they appear in the header) first,
+    # then by start coordinate
+    contig_index_map = {contig: j for j, contig in enumerate(vcf.seqnames)}
+    partitions.sort(key=lambda x: (contig_index_map[x.region.contig], x.region.start))
     vcf_metadata.partitions = partitions
     return vcf_metadata, header
 
@@ -864,9 +865,10 @@ class PickleChunkedVcf(collections.abc.Mapping):
 
         logger.info(
             f"Finish p{partition_index} {partition.vcf_path}__{partition.region}="
-            f"{num_records} records")
+            f"{num_records} records"
+        )
 
-        return tcw.field_summaries, num_records
+        return partition_index, tcw.field_summaries, num_records
 
     @staticmethod
     def convert(
@@ -904,11 +906,14 @@ class PickleChunkedVcf(collections.abc.Mapping):
                 )
             num_records = 0
             partition_summaries = []
-            for partition_summary, partition_num_records in pwm.results_as_completed():
-                num_records += partition_num_records
-                partition_summaries.append(partition_summary)
+            for index, summary, num_records in pwm.results_as_completed():
+                partition_summaries.append(summary)
+                vcf_metadata.partitions[index].num_records = num_records
 
-        assert num_records == pcvcf.num_records
+        total_records = sum(
+            partition.num_records for partition in vcf_metadata.partitions
+        )
+        assert total_records == pcvcf.num_records
 
         for field in vcf_metadata.fields:
             # Clear the summary to avoid problems when running in debug
