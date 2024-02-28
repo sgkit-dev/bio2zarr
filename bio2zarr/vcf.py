@@ -1,5 +1,4 @@
 import concurrent.futures as cf
-import warnings
 import collections
 import dataclasses
 import functools
@@ -183,6 +182,7 @@ def fixed_vcf_field_definitions():
     ]
     return fields
 
+
 def scan_vcf(path, target_num_partitions):
     logger.debug(f"Scanning {path}")
     with vcf_utils.IndexedVcf(path) as indexed_vcf:
@@ -269,7 +269,9 @@ def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
     # Sort by contig (in the order they appear in the header) first,
     # then by start coordinate
     contig_index_map = {contig: j for j, contig in enumerate(metadata.contig_names)}
-    all_partitions.sort(key=lambda x: (contig_index_map[x.region.contig], x.region.start))
+    all_partitions.sort(
+        key=lambda x: (contig_index_map[x.region.contig], x.region.start)
+    )
     vcf_metadata.partitions = all_partitions
     return vcf_metadata, header
 
@@ -814,7 +816,6 @@ class PickleChunkedVcf(collections.abc.Mapping):
         column_chunk_size=16,
     ):
         partition = vcf_metadata.partitions[partition_index]
-        vcf = cyvcf2.VCF(partition.vcf_path)
         logger.info(
             f"Start p{partition_index} {partition.vcf_path}__{partition.region}"
         )
@@ -831,23 +832,6 @@ class PickleChunkedVcf(collections.abc.Mapping):
                 else:
                     format_fields.append(field)
 
-        def variants():
-            # with warnings.catch_warnings():
-            #     # TODO cyvcf2 emits a warning for empty regions; either make the
-            #     # warning more specific, or remove the need for querying empty
-            #     # regions.
-            #     # FIXME this also absorbs any warnings emitted within the loop,
-            #     # so definitely need to do this a different way.
-            #     warnings.simplefilter("ignore")
-            #     for var in region_filter(vcf(partition.region), partition.region):
-            #         yield var
-
-            # TODO move this into the IndexedVCF class
-            start = 1 if partition.region.start is None else partition.region.start
-            for var in vcf(str(partition.region)):
-                if var.POS >= start:
-                    yield var
-
         # FIXME it looks like this is actually a bit pointless now that we
         # can split up into multiple regions within the VCF. It's simpler
         # and easier to explain and predict performance if we just do
@@ -860,38 +844,38 @@ class PickleChunkedVcf(collections.abc.Mapping):
             encoder_threads=0,
             chunk_size=column_chunk_size,
         ) as tcw:
-            num_records = 0
-            for variant in variants():
-                tcw.append("CHROM", variant.CHROM)
-                tcw.append("POS", variant.POS)
-                tcw.append("QUAL", variant.QUAL)
-                tcw.append("ID", variant.ID)
-                tcw.append("FILTERS", variant.FILTERS)
-                tcw.append("REF", variant.REF)
-                tcw.append("ALT", variant.ALT)
-                for field in info_fields:
-                    tcw.append(field.full_name, variant.INFO.get(field.name, None))
-                if has_gt:
-                    tcw.append("FORMAT/GT", variant.genotype.array())
-                for field in format_fields:
-                    val = None
-                    try:
-                        val = variant.format(field.name)
-                    except KeyError:
-                        pass
-                    tcw.append(field.full_name, val)
+            with vcf_utils.IndexedVcf(partition.vcf_path) as ivcf:
+                num_records = 0
+                for variant in ivcf.variants(partition.region):
+                    tcw.append("CHROM", variant.CHROM)
+                    tcw.append("POS", variant.POS)
+                    tcw.append("QUAL", variant.QUAL)
+                    tcw.append("ID", variant.ID)
+                    tcw.append("FILTERS", variant.FILTERS)
+                    tcw.append("REF", variant.REF)
+                    tcw.append("ALT", variant.ALT)
+                    for field in info_fields:
+                        tcw.append(field.full_name, variant.INFO.get(field.name, None))
+                    if has_gt:
+                        tcw.append("FORMAT/GT", variant.genotype.array())
+                    for field in format_fields:
+                        val = None
+                        try:
+                            val = variant.format(field.name)
+                        except KeyError:
+                            pass
+                        tcw.append(field.full_name, val)
 
-                # Note: an issue with updating the progress per variant here like this
-                # is that we get a significant pause at the end of the counter while
-                # all the "small" fields get flushed. Possibly not much to be done about it.
-                core.update_progress(1)
-                num_records += 1
+                    # Note: an issue with updating the progress per variant here like this
+                    # is that we get a significant pause at the end of the counter while
+                    # all the "small" fields get flushed. Possibly not much to be done about it.
+                    core.update_progress(1)
+                    num_records += 1
 
         logger.info(
             f"Finish p{partition_index} {partition.vcf_path}__{partition.region}="
             f"{num_records} records"
         )
-
         return partition_index, tcw.field_summaries, num_records
 
     @staticmethod
