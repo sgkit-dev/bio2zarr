@@ -1,14 +1,12 @@
 from typing import IO, Any, Dict, Optional, Sequence, Union
 import contextlib
 import struct
-import re
 import pathlib
-import itertools
+import gzip
 from dataclasses import dataclass
+import os
 
-import fsspec
 import numpy as np
-from cyvcf2 import VCF
 import cyvcf2
 import humanfriendly
 
@@ -19,30 +17,9 @@ TABIX_EXTENSION = ".tbi"
 TABIX_LINEAR_INDEX_INTERVAL_SIZE = 1 << 14  # 16kb interval size
 
 
-def open_gzip(path: PathType, storage_options: Optional[Dict[str, str]]) -> IO[Any]:
-    url = str(path)
-    storage_options = storage_options or {}
-    openfile: IO[Any] = fsspec.open(url, compression="gzip", **storage_options)
-    return openfile
-
-
 def ceildiv(a: int, b: int) -> int:
     """Safe integer ceil function"""
     return -(-a // b)
-
-
-def get_file_length(
-    path: PathType, storage_options: Optional[Dict[str, str]] = None
-) -> int:
-    """Get the length of a file in bytes."""
-    url = str(path)
-    storage_options = storage_options or {}
-    with fsspec.open(url, **storage_options) as openfile:
-        fs = openfile.fs
-        size = fs.size(url)
-        if size is None:
-            raise IOError(f"Cannot determine size of file {url}")  # pragma: no cover
-        return int(size)
 
 
 def get_file_offset(vfp: int) -> int:
@@ -224,7 +201,7 @@ def read_csi(
     ValueError
         If the file is not a CSI file.
     """
-    with open_gzip(file, storage_options=storage_options) as f:
+    with gzip.open(file) as f:
         magic = read_bytes_as_value(f, "4s")
         if magic != b"CSI\x01":
             raise ValueError("File not in CSI format.")
@@ -337,7 +314,7 @@ def read_tabix(
     ValueError
         If the file is not a tabix file.
     """
-    with open_gzip(file, storage_options=storage_options) as f:
+    with gzip.open(file) as f:
         magic = read_bytes_as_value(f, "4s")
         if magic != b"TBI\x01":
             raise ValueError("File not in Tabix format.")
@@ -457,7 +434,7 @@ class IndexedVcf:
                 raise ValueError("target_part_size must be positive")
 
         # Calculate the desired part file boundaries
-        file_length = get_file_length(self.vcf_path)
+        file_length = os.stat(self.vcf_path).st_size
         if num_parts is not None:
             target_part_size_bytes = file_length // num_parts
         elif target_part_size_bytes is not None:
