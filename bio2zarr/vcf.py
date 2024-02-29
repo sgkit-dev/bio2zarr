@@ -1,5 +1,3 @@
-import concurrent.futures as cf
-import warnings
 import collections
 import dataclasses
 import functools
@@ -138,11 +136,31 @@ class VcfMetadata:
     format_version: str
     samples: list
     contig_names: list
+    contig_record_counts: dict
     filters: list
     fields: list
-    contig_lengths: list = None
     partitions: list = None
-    num_records: int = 0
+    contig_lengths: list = None
+
+    @property
+    def info_fields(self):
+        fields = []
+        for field in self.fields:
+            if field.category == "INFO":
+                fields.append(field)
+        return fields
+
+    @property
+    def format_fields(self):
+        fields = []
+        for field in self.fields:
+            if field.category == "FORMAT":
+                fields.append(field)
+        return fields
+
+    @property
+    def num_records(self):
+        return sum(self.contig_record_counts.values())
 
     @staticmethod
     def fromdict(d):
@@ -180,18 +198,10 @@ def fixed_vcf_field_definitions():
     return fields
 
 
-# TODO refactor this to use the ProcessPoolExecutor, and the IndexedVCF class
-def scan_vcfs(paths, show_progress, target_num_partitions):
-    partitions = []
-    vcf_metadata = None
-    header = None
-    logger.info(f"Scanning {len(paths)} VCFs")
-    total_records = 0
-    for path in tqdm.tqdm(paths, desc="Scan ", disable=not show_progress):
-        # TODO use contextlib.closing on this
-        vcf = cyvcf2.VCF(path)
-        logger.debug(f"Scanning {path}")
-
+def scan_vcf(path, target_num_partitions):
+    logger.debug(f"Scanning {path}")
+    with vcf_utils.IndexedVcf(path) as indexed_vcf:
+        vcf = indexed_vcf.vcf
         filters = [
             h["ID"]
             for h in vcf.header_iter()
@@ -214,43 +224,70 @@ def scan_vcfs(paths, show_progress, target_num_partitions):
         metadata = VcfMetadata(
             samples=vcf.samples,
             contig_names=vcf.seqnames,
+            contig_record_counts=indexed_vcf.contig_record_counts(),
             filters=filters,
+            # TODO use the mapping dictionary
             fields=fields,
+            partitions=[],
             # FIXME do something systematic with this
-            format_version="0.1"
+            format_version="0.1",
         )
         try:
             metadata.contig_lengths = vcf.seqlens
         except AttributeError:
             pass
 
-        if vcf_metadata is None:
-            vcf_metadata = metadata
-            # We just take the first header, assuming the others
-            # are compatible.
-            header = vcf.raw_header
-        else:
-            if metadata != vcf_metadata:
-                raise ValueError("Incompatible VCF chunks")
-        vcf_metadata.num_records += vcf.num_records
-
-        # TODO: Move all our usage of the VCF class behind the IndexedVCF
-        # so that we open the VCF once, and we explicitly set the index.
-        # Otherwise cyvcf2 will do things behind our backs.
-        indexed_vcf = vcf_utils.IndexedVcf(path)
         regions = indexed_vcf.partition_into_regions(num_parts=target_num_partitions)
         for region in regions:
-            partitions.append(
+            metadata.partitions.append(
                 VcfPartition(
                     vcf_path=str(path),
                     region=region,
                 )
             )
+        core.update_progress(1)
+        return metadata, vcf.raw_header
+
+
+def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
+    logger.info(f"Scanning {len(paths)} VCFs")
+    progress_config = core.ProgressConfig(
+        total=len(paths),
+        units="files",
+        title="Scan",
+        show=show_progress,
+    )
+    with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
+        for path in paths:
+            pwm.submit(scan_vcf, path, target_num_partitions)
+        results = list(pwm.results_as_completed())
+
+    # Sort to make the ordering deterministic
+    results.sort(key=lambda t: t[0].partitions[0].vcf_path)
+    # We just take the first header, assuming the others
+    # are compatible.
+    all_partitions = []
+    contig_record_counts = collections.Counter()
+    for metadata, _ in results:
+        all_partitions.extend(metadata.partitions)
+        metadata.partitions.clear()
+        contig_record_counts += metadata.contig_record_counts
+        metadata.contig_record_counts.clear()
+
+    vcf_metadata, header = results[0]
+    for metadata, _ in results[1:]:
+        if metadata != vcf_metadata:
+            raise ValueError("Incompatible VCF chunks")
+
+    vcf_metadata.contig_record_counts = dict(contig_record_counts)
+
     # Sort by contig (in the order they appear in the header) first,
     # then by start coordinate
-    contig_index_map = {contig: j for j, contig in enumerate(vcf.seqnames)}
-    partitions.sort(key=lambda x: (contig_index_map[x.region.contig], x.region.start))
-    vcf_metadata.partitions = partitions
+    contig_index_map = {contig: j for j, contig in enumerate(metadata.contig_names)}
+    all_partitions.sort(
+        key=lambda x: (contig_index_map[x.region.contig], x.region.start)
+    )
+    vcf_metadata.partitions = all_partitions
     return vcf_metadata, header
 
 
@@ -607,27 +644,19 @@ class FieldBuffer:
         self.chunk_index += 1
 
 
-class ThreadedColumnWriter(contextlib.AbstractContextManager):
+class ColumnWriter(contextlib.AbstractContextManager):
     def __init__(
         self,
         vcf_metadata,
         out_path,
         partition_index,
         *,
-        encoder_threads=0,
         chunk_size=1,
     ):
-        self.encoder_threads = encoder_threads
         self.partition_index = partition_index
         # chunk_size is in megabytes
         self.max_buffered_bytes = chunk_size * 2**20
         assert self.max_buffered_bytes > 0
-
-        if encoder_threads <= 0:
-            # NOTE: this is only for testing, not for production use!
-            self.executor = core.SynchronousExecutor()
-        else:
-            self.executor = cf.ProcessPoolExecutor(max_workers=encoder_threads)
 
         self.buffers = {}
         num_samples = len(vcf_metadata.samples)
@@ -635,7 +664,6 @@ class ThreadedColumnWriter(contextlib.AbstractContextManager):
             field = PickleChunkedVcfField(vcf_field, out_path)
             transformer = VcfValueTransformer.factory(vcf_field, num_samples)
             self.buffers[vcf_field.full_name] = FieldBuffer(field, transformer)
-        self.futures = set()
 
     @property
     def field_summaries(self):
@@ -654,37 +682,19 @@ class ThreadedColumnWriter(contextlib.AbstractContextManager):
         if buff.buffered_bytes >= self.max_buffered_bytes:
             self._flush_buffer(name, buff)
 
-    def _service_futures(self):
-        max_waiting = 2 * self.encoder_threads
-        while len(self.futures) > max_waiting:
-            futures_done, _ = cf.wait(self.futures, return_when=cf.FIRST_COMPLETED)
-            for future in futures_done:
-                exception = future.exception()
-                if exception is not None:
-                    raise exception
-                self.futures.remove(future)
-
     def _flush_buffer(self, name, buff):
-        self._service_futures()
         logger.debug(f"Schedule write {name}:{self.partition_index}.{buff.chunk_index}")
-        future = self.executor.submit(
-            buff.field.write_chunk,
+        buff.field.write_chunk(
             self.partition_index,
             buff.chunk_index,
             buff.buff,
         )
-        self.futures.add(future)
         buff.reset()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is None:
-            # Normal exit condition
             for name, buff in self.buffers.items():
                 self._flush_buffer(name, buff)
-            core.wait_on_futures(self.futures)
-        else:
-            core.cancel_futures(self.futures)
-        self.executor.shutdown()
         return False
 
 
@@ -748,7 +758,7 @@ class PickleChunkedVcf(collections.abc.Mapping):
 
     @functools.cached_property
     def num_records(self):
-        return self.metadata.num_records
+        return sum(self.metadata.contig_record_counts.values())
 
     @property
     def num_partitions(self):
@@ -790,88 +800,58 @@ class PickleChunkedVcf(collections.abc.Mapping):
         partition_index,
         out_path,
         *,
-        encoder_threads=4,
         column_chunk_size=16,
     ):
         partition = vcf_metadata.partitions[partition_index]
-        vcf = cyvcf2.VCF(partition.vcf_path)
         logger.info(
             f"Start p{partition_index} {partition.vcf_path}__{partition.region}"
         )
-
-        info_fields = []
+        info_fields = vcf_metadata.info_fields
         format_fields = []
         has_gt = False
-        for field in vcf_metadata.fields:
-            if field.category == "INFO":
-                info_fields.append(field)
-            elif field.category == "FORMAT":
-                if field.name == "GT":
-                    has_gt = True
-                else:
-                    format_fields.append(field)
+        for field in vcf_metadata.format_fields:
+            if field.name == "GT":
+                has_gt = True
+            else:
+                format_fields.append(field)
 
-        def variants():
-            # with warnings.catch_warnings():
-            #     # TODO cyvcf2 emits a warning for empty regions; either make the
-            #     # warning more specific, or remove the need for querying empty
-            #     # regions.
-            #     # FIXME this also absorbs any warnings emitted within the loop,
-            #     # so definitely need to do this a different way.
-            #     warnings.simplefilter("ignore")
-            #     for var in region_filter(vcf(partition.region), partition.region):
-            #         yield var
-
-            # TODO move this into the IndexedVCF class
-            start = 1 if partition.region.start is None else partition.region.start
-            for var in vcf(str(partition.region)):
-                if var.POS >= start:
-                    yield var
-
-        # FIXME it looks like this is actually a bit pointless now that we
-        # can split up into multiple regions within the VCF. It's simpler
-        # and easier to explain and predict performance if we just do
-        # everything syncronously.  We can keep the same interface,
-        # just remove the "Threaded" bit and simplify.
-        with ThreadedColumnWriter(
+        with ColumnWriter(
             vcf_metadata,
             out_path,
             partition_index,
-            encoder_threads=0,
             chunk_size=column_chunk_size,
         ) as tcw:
-            num_records = 0
-            for variant in variants():
-                tcw.append("CHROM", variant.CHROM)
-                tcw.append("POS", variant.POS)
-                tcw.append("QUAL", variant.QUAL)
-                tcw.append("ID", variant.ID)
-                tcw.append("FILTERS", variant.FILTERS)
-                tcw.append("REF", variant.REF)
-                tcw.append("ALT", variant.ALT)
-                for field in info_fields:
-                    tcw.append(field.full_name, variant.INFO.get(field.name, None))
-                if has_gt:
-                    tcw.append("FORMAT/GT", variant.genotype.array())
-                for field in format_fields:
-                    val = None
-                    try:
-                        val = variant.format(field.name)
-                    except KeyError:
-                        pass
-                    tcw.append(field.full_name, val)
-
-                # Note: an issue with updating the progress per variant here like this
-                # is that we get a significant pause at the end of the counter while
-                # all the "small" fields get flushed. Possibly not much to be done about it.
-                core.update_progress(1)
-                num_records += 1
+            with vcf_utils.IndexedVcf(partition.vcf_path) as ivcf:
+                num_records = 0
+                for variant in ivcf.variants(partition.region):
+                    num_records += 1
+                    tcw.append("CHROM", variant.CHROM)
+                    tcw.append("POS", variant.POS)
+                    tcw.append("QUAL", variant.QUAL)
+                    tcw.append("ID", variant.ID)
+                    tcw.append("FILTERS", variant.FILTERS)
+                    tcw.append("REF", variant.REF)
+                    tcw.append("ALT", variant.ALT)
+                    for field in info_fields:
+                        tcw.append(field.full_name, variant.INFO.get(field.name, None))
+                    if has_gt:
+                        tcw.append("FORMAT/GT", variant.genotype.array())
+                    for field in format_fields:
+                        val = None
+                        try:
+                            val = variant.format(field.name)
+                        except KeyError:
+                            pass
+                        tcw.append(field.full_name, val)
+                    # Note: an issue with updating the progress per variant here like this
+                    # is that we get a significant pause at the end of the counter while
+                    # all the "small" fields get flushed. Possibly not much to be done about it.
+                    core.update_progress(1)
 
         logger.info(
             f"Finish p{partition_index} {partition.vcf_path}__{partition.region}="
             f"{num_records} records"
         )
-
         return partition_index, tcw.field_summaries, num_records
 
     @staticmethod
@@ -883,6 +863,7 @@ class PickleChunkedVcf(collections.abc.Mapping):
         target_num_partitions = max(1, worker_processes * 4)
         vcf_metadata, header = scan_vcfs(
             vcfs,
+            worker_processes=worker_processes,
             show_progress=show_progress,
             target_num_partitions=target_num_partitions,
         )
@@ -1191,6 +1172,19 @@ class SgvcfZarr:
         a.attrs["_ARRAY_DIMENSIONS"] = variable.dimensions
 
     def encode_column(self, pcvcf, column, encoder_threads=4):
+        # TODO we're doing this the wrong way at the moment, overcomplicating
+        # things by having the ThreadedZarrEncoder. It would be simpler if
+        # we split the columns into vertical chunks, and just pushed a bunch
+        # of futures for encoding start:end slices of each column. The
+        # complicating factor here is that we need to get these slices
+        # out of the pcvcf, which takes a little bit of doing (but fine,
+        # because we know the number of records in each partition).
+        # An annoying factor then is how to update the progess meter
+        # because the "bytes read" approach becomes problematic
+        # when we might access the same chunk several times.
+        # Would perhaps be better to call sys.getsizeof() on the stored
+        # value each time.
+
         source_col = pcvcf.columns[column.vcf_field]
         array = self.root[column.name]
         ba = core.BufferedArray(array)
@@ -1594,6 +1588,7 @@ def assert_format_val_equal(vcf_val, zarr_val, vcf_type):
         nt.assert_equal(vcf_val, zarr_val)
 
 
+# TODO rename to "verify"
 def validate(vcf_path, zarr_path, show_progress=False):
     store = zarr.DirectoryStore(zarr_path)
 
@@ -1635,7 +1630,7 @@ def validate(vcf_path, zarr_path, show_progress=False):
     assert pos[start_index] == first_pos
     vcf = cyvcf2.VCF(vcf_path)
     if show_progress:
-        iterator = tqdm.tqdm(vcf, total=vcf.num_records)
+        iterator = tqdm.tqdm(vcf, desc=" Verify", total=vcf.num_records)
     else:
         iterator = vcf
     for j, row in enumerate(iterator, start_index):

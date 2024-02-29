@@ -7,6 +7,10 @@ import click
 
 from bio2zarr import vcf
 
+# TODO add support here for split vcfs. Perhaps simplest to take a
+# directory provided as input as indicating this, and then having
+# the original unsplit vs split files in there following some
+# naming conventions.
 
 @click.command
 @click.argument("vcfs", nargs=-1)
