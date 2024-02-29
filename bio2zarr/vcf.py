@@ -528,6 +528,10 @@ class PickleChunkedVcfField:
         self.compressor = pcvcf.compressor
         self.num_partitions = pcvcf.num_partitions
         self.num_records = pcvcf.num_records
+        self.partition_record_index = pcvcf.partition_record_index
+        # A map of partition index to the cumulative number of records
+        # in chunks
+        self._chunk_cumulative_records = {}
 
     @staticmethod
     def get_path(base_path, vcf_field):
@@ -536,17 +540,29 @@ class PickleChunkedVcfField:
         return base_path / vcf_field.category / vcf_field.name
 
     def __repr__(self):
-        return f"PickleChunkedVcfField(path={self.path})"
+        partition_chunks = [self.num_chunks(j) for j in range(self.num_partitions)]
+        return f"PickleChunkedVcfField(partition_chunks={partition_chunks}, path={self.path})"
 
     def num_chunks(self, partition_index):
+        return len(self.chunk_files(partition_index))
+
+    def chunk_cumulative_records(self, partition_index):
+        if partition_index not in self._chunk_cumulative_records:
+            partition_path = self.path / f"p{partition_index}"
+            # Let numpy do the string->int parsing
+            a = np.array(os.listdir(partition_path), dtype=int)
+            a.sort()
+            self._chunk_cumulative_records[partition_index] = a
+        return self._chunk_cumulative_records[partition_index]
+
+    def chunk_files(self, partition_index):
         partition_path = self.path / f"p{partition_index}"
-        return len(list(partition_path.iterdir()))
+        return [
+            partition_path / str(n)
+            for n in self.chunk_cumulative_records(partition_index)
+        ]
 
-    def chunk_path(self, partition_index, chunk_index):
-        return self.path / f"p{partition_index}" / f"c{chunk_index}"
-
-    def read_chunk(self, partition_index, chunk_index):
-        path = self.chunk_path(partition_index, chunk_index)
+    def read_chunk(self, path):
         with open(path, "rb") as f:
             pkl = self.compressor.decode(f.read())
         return pickle.loads(pkl), len(pkl)
@@ -555,8 +571,8 @@ class PickleChunkedVcfField:
         num_records = 0
         bytes_read = 0
         for partition_index in range(self.num_partitions):
-            for chunk_index in range(self.num_chunks(partition_index)):
-                chunk, chunk_bytes = self.read_chunk(partition_index, chunk_index)
+            for chunk_path in self.chunk_files(partition_index):
+                chunk, chunk_bytes = self.read_chunk(chunk_path)
                 bytes_read += chunk_bytes
                 for record in chunk:
                     yield record, bytes_read
@@ -569,13 +585,21 @@ class PickleChunkedVcfField:
     def iter_values(self, start=None, stop=None):
         start = 0 if start is None else start
         stop = self.num_records if stop is None else stop
-        num_records = 0
-        for partition_index in range(self.num_partitions):
-            for chunk_index in range(self.num_chunks(partition_index)):
-                chunk, chunk_bytes = self.read_chunk(partition_index, chunk_index)
+        start_partition = (
+            np.searchsorted(self.partition_record_index, start, side="right") - 1
+        )
+        num_records = self.partition_record_index[start_partition]
+        assert num_records <= start
+        for partition_index in range(start_partition, self.num_partitions):
+            # TODO use the offsets from the partition chunk counts to seek to
+            # the first chunk
+            for chunk_path in self.chunk_files(partition_index):
+                chunk, _ = self.read_chunk(chunk_path)
                 for record in chunk:
                     if start <= num_records < stop:
                         yield record
+                    if num_records >= stop:
+                        return
                     num_records += 1
 
     # Note: this involves some computation so should arguably be a method,
@@ -627,6 +651,7 @@ class PcvcfFieldWriter:
     buff: list = dataclasses.field(default_factory=list)
     buffered_bytes: int = 0
     chunk_index: int = 0
+    num_records: int = 0
 
     def append(self, val):
         val = self.transformer.transform_and_update_bounds(val)
@@ -634,6 +659,7 @@ class PcvcfFieldWriter:
         self.buff.append(val)
         val_bytes = sys.getsizeof(val)
         self.buffered_bytes += val_bytes
+        self.num_records += 1
         if self.buffered_bytes >= self.max_buffered_bytes:
             logger.debug(
                 f"Flush {self.path} buffered={self.buffered_bytes} max={self.max_buffered_bytes}"
@@ -644,7 +670,7 @@ class PcvcfFieldWriter:
             self.chunk_index += 1
 
     def write_chunk(self):
-        path = self.path / f"c{self.chunk_index}"
+        path = self.path / f"{self.num_records}"
         logger.debug(f"Start write: {path}")
         pkl = pickle.dumps(self.buff)
         compressed = self.compressor.encode(pkl)
@@ -667,7 +693,7 @@ class PcvcfFieldWriter:
 
 class PcvcfPartitionWriter(contextlib.AbstractContextManager):
     """
-    Writes the data for a PickleChunkedVcf for a given partition.
+    Writes the data for a PickleChunkedVcf partition.
     """
 
     def __init__(
@@ -724,10 +750,20 @@ class PickleChunkedVcf(collections.abc.Mapping):
         self.metadata = metadata
         self.vcf_header = vcf_header
         self.compressor = self.DEFAULT_COMPRESSOR
-
         self.columns = {}
+        partition_num_records = [
+            partition.num_records for partition in self.metadata.partitions
+        ]
+        # Allow us to find which partition a given record is in
+        self.partition_record_index = np.cumsum([0] + partition_num_records)
         for field in self.metadata.fields:
             self.columns[field.full_name] = PickleChunkedVcfField(self, field)
+
+    def __repr__(self):
+        return (
+            f"PickleChunkedVcf(fields={len(self)}, partitions={self.num_partitions}, "
+            f"records={self.num_records}, path={self.path})"
+        )
 
     def __getitem__(self, key):
         return self.columns[key]
@@ -931,7 +967,6 @@ class PickleChunkedVcf(collections.abc.Mapping):
             json.dump(vcf_metadata.asdict(), f, indent=4)
         with open(out_path / "header.txt", "w") as f:
             f.write(header)
-        return pcvcf
 
 
 def explode(
@@ -946,13 +981,14 @@ def explode(
     if out_path.exists():
         shutil.rmtree(out_path)
 
-    return PickleChunkedVcf.convert(
+    PickleChunkedVcf.convert(
         vcfs,
         out_path,
         column_chunk_size=column_chunk_size,
         worker_processes=worker_processes,
         show_progress=show_progress,
     )
+    return PickleChunkedVcf.load(out_path)
 
 
 def inspect(if_path):

@@ -56,14 +56,6 @@ class TestSmallExample:
             [111, 112, 14370, 17330, 1110696, 1230237, 1234567, 1235237, 10],
         )
 
-    def test_POS_slice(self, pcvcf):
-        col = pcvcf["POS"]
-        v = [row[0] for row in col.values]
-        start = 1
-        stop = 6
-        s = [row[0] for row in col.iter_values(start, stop)]
-        assert v[start:stop] == s
-
     def test_REF(self, pcvcf):
         ref = ["A", "A", "G", "T", "A", "T", "G", "T", "AC"]
         assert pcvcf["REF"].values == ref
@@ -156,3 +148,50 @@ class TestGeneratedFieldsExample:
         non_missing = [v for v in pcvcf["FORMAT/FS2"].values if v is not None]
         nt.assert_array_equal(non_missing[0], [["bc", "op"], [".", "op"]])
         nt.assert_array_equal(non_missing[1], [["bc", "."], [".", "."]])
+
+
+class TestSlicing:
+    data_path = "tests/data/vcf/multi_contig.vcf.gz"
+
+    @pytest.fixture(scope="class")
+    def pcvcf(self, tmp_path_factory):
+        out = tmp_path_factory.mktemp("data") / "example.exploded"
+        return vcf.explode([self.data_path], out, column_chunk_size=0.0125)
+
+    def test_repr(self, pcvcf):
+        assert repr(pcvcf).startswith(
+            "PickleChunkedVcf(fields=7, partitions=5, records=4665, path="
+        )
+
+    def test_partition_record_index(self, pcvcf):
+        nt.assert_array_equal(
+            pcvcf.partition_record_index, [0, 933, 1866, 2799, 3732, 4665]
+        )
+
+    def test_pos_chunk_records(self, pcvcf):
+        pos = pcvcf["POS"]
+        for j in range(pos.num_partitions):
+            a = pos.chunk_cumulative_records(j)
+            nt.assert_array_equal(a, [118, 236, 354, 472, 590, 708, 826, 933])
+
+    @pytest.mark.parametrize(
+        ["start", "stop"],
+        [
+            (0, 1),
+            (0, 4665),
+            (100, 200),
+            (118, 237),
+            (710, 850),
+            (931, 1000),
+            (1865, 1867),
+            (1866, 2791),
+            (2732, 3200),
+            (4664, 4665),
+        ],
+    )
+    def test_slice(self, pcvcf, start, stop):
+        # TODO put in the actual values here, 5 copies of 0-933
+        col = pcvcf["POS"]
+        pos = np.array(col.values)
+        pos_slice = np.array(list(col.iter_values(start, stop)))
+        nt.assert_array_equal(pos[start:stop], pos_slice)
