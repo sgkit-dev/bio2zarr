@@ -225,8 +225,10 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is None:
             wait_on_futures(self.futures)
+            # Note: this doesn't seem to be working correctly. If
+            # we set a timeout of None we get deadlocks
             set_progress(self.progress_config.total)
-            timeout = None
+            timeout = 1
         else:
             cancel_futures(self.futures)
             timeout = 0
