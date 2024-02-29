@@ -199,7 +199,6 @@ def fixed_vcf_field_definitions():
 
 
 def scan_vcf(path, target_num_partitions):
-    logger.debug(f"Scanning {path}")
     with vcf_utils.IndexedVcf(path) as indexed_vcf:
         vcf = indexed_vcf.vcf
         filters = [
@@ -238,6 +237,8 @@ def scan_vcf(path, target_num_partitions):
             pass
 
         regions = indexed_vcf.partition_into_regions(num_parts=target_num_partitions)
+        logger.info(
+            f"Split {path} into {len(regions)} regions (target={target_num_partitions})")
         for region in regions:
             metadata.partitions.append(
                 VcfPartition(

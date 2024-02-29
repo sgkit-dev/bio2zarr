@@ -12,6 +12,7 @@ from bio2zarr import vcf
 # the original unsplit vs split files in there following some
 # naming conventions.
 
+
 @click.command
 @click.argument("vcfs", nargs=-1)
 @click.option("-p", "--worker-processes", type=int, default=1)
@@ -21,17 +22,27 @@ from bio2zarr import vcf
 def cli(vcfs, worker_processes, force):
     data_path = pathlib.Path("validation-data")
     if len(vcfs) == 0:
-        vcfs = list(data_path.glob("*.vcf.gz")) + list(data_path.glob("*.bcf"))
+        vcfs = (
+            list(data_path.glob("*.vcf.gz"))
+            + list(data_path.glob("*.bcf"))
+            + list(data_path.glob("*.split"))
+        )
     else:
         vcfs = [pathlib.Path(f) for f in vcfs]
     tmp_path = pathlib.Path("validation-tmp")
     tmp_path.mkdir(exist_ok=True)
     for f in vcfs:
-        print(f)
+        print("Validate", f)
+        if f.is_dir():
+            files = list(f.glob("*.vcf.gz")) + list(f.glob("*.bcf"))
+            source_file = f.with_suffix("").with_suffix("")
+        else:
+            files = [f]
+            source_file = f
         exploded = tmp_path / (f.name + ".exploded")
         if force or not exploded.exists():
             vcf.explode(
-                [f],
+                files,
                 exploded,
                 worker_processes=worker_processes,
                 show_progress=True,
@@ -51,7 +62,7 @@ def cli(vcfs, worker_processes, force):
                 show_progress=True,
             )
 
-        vcf.validate(f, zarr, show_progress=True)
+        vcf.validate(source_file, zarr, show_progress=True)
 
 
 if __name__ == "__main__":
