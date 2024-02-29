@@ -56,6 +56,14 @@ class TestSmallExample:
             [111, 112, 14370, 17330, 1110696, 1230237, 1234567, 1235237, 10],
         )
 
+    def test_POS_slice(self, pcvcf):
+        col = pcvcf["POS"]
+        v = [row[0] for row in col.values]
+        start = 1
+        stop = 6
+        s = [row[0] for row in col.iter_values(start, stop)]
+        assert v[start:stop] == s
+
     def test_REF(self, pcvcf):
         ref = ["A", "A", "G", "T", "A", "T", "G", "T", "AC"]
         assert pcvcf["REF"].values == ref
