@@ -30,7 +30,7 @@ class TestIndexedVcf:
         assert iv.vcf is None
 
     def test_context_manager_error(self):
-        with pytest.raises(ValueError, match="Cannot find"):
+        with pytest.raises(FileNotFoundError, match="no-such-file"):
             with vcf_utils.IndexedVcf(data_path / "no-such-file.bcf"):
                 pass
 
@@ -181,9 +181,7 @@ class TestIndexedVcf:
         with pytest.raises(
             ValueError, match=r"Only .tbi or .csi indexes are supported."
         ):
-            # We don't actually go out the filesystem before checking so can
-            # be anything
-            vcf_utils.IndexedVcf("x", "y")
+            vcf_utils.IndexedVcf(data_path / "sample.vcf.gz", "y")
 
 
 class TestCsiIndex:

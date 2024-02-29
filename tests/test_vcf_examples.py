@@ -728,3 +728,21 @@ def test_by_validating(name, tmp_path):
     out = tmp_path / "test.zarr"
     vcf.convert([path], out, worker_processes=0)
     vcf.validate(path, out)
+
+
+@pytest.mark.parametrize(
+    ["source", "suffix", "files"],
+    [
+        ["sample.vcf.gz", "3.split", ["19:1-.vcf.gz", "20.vcf.gz", "X.vcf.gz"]],
+        ["sample.vcf.gz", "3.split", ["20.vcf.gz", "19:1-.vcf.gz", "X.vcf.gz"]],
+        ["out_of_order_contigs.vcf.gz", "2.split", ["A.vcf.gz", "B:1-.vcf.gz"]],
+        ["out_of_order_contigs.vcf.gz", "2.split", ["A.bcf", "B:1-.bcf"]],
+        ["out_of_order_contigs.vcf.gz", "2.split", ["A.vcf.gz", "B:1-.bcf"]],
+    ],
+)
+def test_by_validating_split(source, suffix, files, tmp_path):
+    source_path = f"tests/data/vcf/{source}"
+    split_files = [f"{source_path}.{suffix}/{f}" for f in files]
+    out = tmp_path / "test.zarr"
+    vcf.convert(split_files, out, worker_processes=0)
+    vcf.validate(source_path, out)
