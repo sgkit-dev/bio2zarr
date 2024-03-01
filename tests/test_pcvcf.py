@@ -168,11 +168,22 @@ class TestSlicing:
             pcvcf.partition_record_index, [0, 933, 1866, 2799, 3732, 4665]
         )
 
+    def test_pos_values(self, pcvcf):
+        col = pcvcf["POS"]
+        pos = np.array([v[0] for v in col.values])
+        # Check the actual values here to make sure other tests make sense
+        actual = np.hstack([1 + np.arange(933) for _ in range(5)])
+        nt.assert_array_equal(pos, actual)
+
     def test_pos_chunk_records(self, pcvcf):
         pos = pcvcf["POS"]
         for j in range(pos.num_partitions):
+            a = pos.chunk_record_index(j)
+            nt.assert_array_equal(a, [0, 118, 236, 354, 472, 590, 708, 826, 933])
             a = pos.chunk_cumulative_records(j)
             nt.assert_array_equal(a, [118, 236, 354, 472, 590, 708, 826, 933])
+            a = pos.chunk_num_records(j)
+            nt.assert_array_equal(a, [118, 118, 118, 118, 118, 118, 107])
 
     @pytest.mark.parametrize(
         ["start", "stop"],
@@ -180,17 +191,23 @@ class TestSlicing:
             (0, 1),
             (0, 4665),
             (100, 200),
+            (100, 500),
+            (100, 1000),
+            (100, 1500),
+            (100, 4500),
+            (2000, 2500),
             (118, 237),
             (710, 850),
             (931, 1000),
             (1865, 1867),
             (1866, 2791),
             (2732, 3200),
+            (2798, 2799),
+            (2799, 2800),
             (4664, 4665),
         ],
     )
     def test_slice(self, pcvcf, start, stop):
-        # TODO put in the actual values here, 5 copies of 0-933
         col = pcvcf["POS"]
         pos = np.array(col.values)
         pos_slice = np.array(list(col.iter_values(start, stop)))
