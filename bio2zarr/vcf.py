@@ -1262,54 +1262,39 @@ class SgvcfZarr:
         )
         a.attrs["_ARRAY_DIMENSIONS"] = variable.dimensions
 
-    def encode_column(self, pcvcf, column, encoder_threads=4):
-        # TODO we're doing this the wrong way at the moment, overcomplicating
-        # things by having the ThreadedZarrEncoder. It would be simpler if
-        # we split the columns into vertical chunks, and just pushed a bunch
-        # of futures for encoding start:end slices of each column. The
-        # complicating factor here is that we need to get these slices
-        # out of the pcvcf, which takes a little bit of doing (but fine,
-        # because we know the number of records in each partition).
-        # An annoying factor then is how to update the progess meter
-        # because the "bytes read" approach becomes problematic
-        # when we might access the same chunk several times.
-        # Would perhaps be better to call sys.getsizeof() on the stored
-        # value each time.
-
+    def encode_column_slice(self, pcvcf, column, start, stop):
         source_col = pcvcf.columns[column.vcf_field]
         array = self.root[column.name]
-        ba = core.BufferedArray(array)
+        ba = core.BufferedArray(array, start)
         sanitiser = source_col.sanitiser_factory(ba.buff.shape)
 
-        with core.ThreadedZarrEncoder([ba], encoder_threads) as te:
-            last_bytes_read = 0
-            for value, bytes_read in source_col.iter_values_bytes():
-                j = te.next_buffer_row()
-                sanitiser(ba.buff, j, value)
-                # print(bytes_read, last_bytes_read, value)
-                if last_bytes_read != bytes_read:
-                    core.update_progress(bytes_read - last_bytes_read)
-                    last_bytes_read = bytes_read
+        for value in source_col.iter_values(start, stop):
+            # We write directly into the buffer in the sanitiser function
+            # to make it easier to reason about dimension padding
+            j = ba.next_buffer_row()
+            sanitiser(ba.buff, j, value)
+            core.update_progress(sys.getsizeof(value))
+        ba.flush()
 
-    def encode_genotypes(self, pcvcf, encoder_threads=4):
+    def encode_genotypes_slice(self, pcvcf, start, stop):
         source_col = pcvcf.columns["FORMAT/GT"]
-        gt = core.BufferedArray(self.root["call_genotype"])
-        gt_mask = core.BufferedArray(self.root["call_genotype_mask"])
-        gt_phased = core.BufferedArray(self.root["call_genotype_phased"])
-        buffered_arrays = [gt, gt_phased, gt_mask]
+        gt = core.BufferedArray(self.root["call_genotype"], start)
+        gt_mask = core.BufferedArray(self.root["call_genotype_mask"], start)
+        gt_phased = core.BufferedArray(self.root["call_genotype_phased"], start)
 
-        with core.ThreadedZarrEncoder(buffered_arrays, encoder_threads) as te:
-            last_bytes_read = 0
-            for value, bytes_read in source_col.iter_values_bytes():
-                j = te.next_buffer_row()
-                sanitise_value_int_2d(gt.buff, j, value[:, :-1])
-                sanitise_value_int_1d(gt_phased.buff, j, value[:, -1])
-                # TODO check is this the correct semantics when we are padding
-                # with mixed ploidies?
-                gt_mask.buff[j] = gt.buff[j] < 0
-                if last_bytes_read != bytes_read:
-                    core.update_progress(bytes_read - last_bytes_read)
-                    last_bytes_read = bytes_read
+        for value in source_col.iter_values(start, stop):
+            j = gt.next_buffer_row()
+            sanitise_value_int_2d(gt.buff, j, value[:, :-1])
+            j = gt_phased.next_buffer_row()
+            sanitise_value_int_1d(gt_phased.buff, j, value[:, -1])
+            # TODO check is this the correct semantics when we are padding
+            # with mixed ploidies?
+            j = gt_mask.next_buffer_row()
+            gt_mask.buff[j] = gt.buff[j] < 0
+            core.update_progress(sys.getsizeof(value))
+        gt.flush()
+        gt_phased.flush()
+        gt_mask.flush()
 
     def encode_alleles(self, pcvcf):
         ref_col = pcvcf.columns["REF"]
@@ -1449,6 +1434,7 @@ class SgvcfZarr:
             units="b",
             show=show_progress,
         )
+        num_slices = max(1, worker_processes * 4)
         with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
             pwm.submit(
                 sgvcf.encode_samples,
@@ -1465,22 +1451,23 @@ class SgvcfZarr:
                 conversion_spec.contig_length,
             )
             pwm.submit(sgvcf.encode_filters, pcvcf, conversion_spec.filter_id)
+            # Using POS arbitrarily to get the array slices
+            slices = core.chunk_aligned_slices(
+                sgvcf.root["variant_position"], num_slices
+            )
             has_gt = False
             for variable in conversion_spec.columns.values():
                 if variable.vcf_field is not None:
-                    # print("Encode", variable.name)
-                    # TODO for large columns it's probably worth splitting up
-                    # these into vertical chunks. Otherwise we tend to get a
-                    # long wait for the largest GT columns to finish.
-                    # Straightforward to do because we can chunk-align the work
-                    # packages.
-                    pwm.submit(sgvcf.encode_column, pcvcf, variable)
+                    for start, stop in slices:
+                        pwm.submit(
+                            sgvcf.encode_column_slice, pcvcf, variable, start, stop
+                        )
                 else:
                     if variable.name == "call_genotype":
                         has_gt = True
             if has_gt:
-                # TODO add mixed ploidy
-                pwm.executor.submit(sgvcf.encode_genotypes, pcvcf)
+                for start, stop in slices:
+                    pwm.submit(sgvcf.encode_genotypes_slice, pcvcf, start, stop)
 
         zarr.consolidate_metadata(write_path)
         # Atomic swap, now we've completely finished.
