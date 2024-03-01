@@ -1,3 +1,6 @@
+import pathlib
+import collections
+
 import numpy as np
 import numpy.testing as nt
 import xarray.testing as xt
@@ -284,11 +287,15 @@ class TestSmallExample:
         assert ds2.sample_id.chunks == (x_chunks,)
 
     @pytest.mark.parametrize("worker_processes", [0, 1, 2])
-    def test_worker_processes(self, ds, tmp_path, worker_processes):
+    @pytest.mark.parametrize("rotate", [0, 1, 2])
+    def test_split(self, ds, tmp_path, worker_processes, rotate):
         out = tmp_path / "example.vcf.zarr"
-        vcf.convert(
-            [self.data_path], out, chunk_length=3, worker_processes=worker_processes
-        )
+        split_path = pathlib.Path(self.data_path + ".3.split")
+        files = collections.deque(sorted(list(split_path.glob("*.vcf.gz"))))
+        # Rotate the list to check we are OK with different orderings
+        files.rotate(rotate)
+        assert len(files) == 3
+        vcf.convert(files, out, worker_processes=worker_processes)
         ds2 = sg.load_dataset(out)
         xt.assert_equal(ds, ds2)
 
@@ -305,6 +312,15 @@ class TestSmallExample:
             vcf.mkschema(exploded, f)
         out = tmp_path / "example.zarr"
         vcf.encode(exploded, out, schema, worker_processes=worker_processes)
+        ds2 = sg.load_dataset(out)
+        xt.assert_equal(ds, ds2)
+
+    @pytest.mark.parametrize("worker_processes", [0, 1, 2])
+    def test_worker_processes(self, ds, tmp_path, worker_processes):
+        out = tmp_path / "example.vcf.zarr"
+        vcf.convert(
+            [self.data_path], out, chunk_length=3, worker_processes=worker_processes
+        )
         ds2 = sg.load_dataset(out)
         xt.assert_equal(ds, ds2)
 
@@ -712,3 +728,21 @@ def test_by_validating(name, tmp_path):
     out = tmp_path / "test.zarr"
     vcf.convert([path], out, worker_processes=0)
     vcf.validate(path, out)
+
+
+@pytest.mark.parametrize(
+    ["source", "suffix", "files"],
+    [
+        ["sample.vcf.gz", "3.split", ["19:1-.vcf.gz", "20.vcf.gz", "X.vcf.gz"]],
+        ["sample.vcf.gz", "3.split", ["20.vcf.gz", "19:1-.vcf.gz", "X.vcf.gz"]],
+        ["out_of_order_contigs.vcf.gz", "2.split", ["A.vcf.gz", "B:1-.vcf.gz"]],
+        ["out_of_order_contigs.vcf.gz", "2.split", ["A.bcf", "B:1-.bcf"]],
+        ["out_of_order_contigs.vcf.gz", "2.split", ["A.vcf.gz", "B:1-.bcf"]],
+    ],
+)
+def test_by_validating_split(source, suffix, files, tmp_path):
+    source_path = f"tests/data/vcf/{source}"
+    split_files = [f"{source_path}.{suffix}/{f}" for f in files]
+    out = tmp_path / "test.zarr"
+    vcf.convert(split_files, out, worker_processes=0)
+    vcf.validate(source_path, out)

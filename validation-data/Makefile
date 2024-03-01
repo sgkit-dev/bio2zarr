@@ -15,9 +15,14 @@ all: 1kg_2020_chr20.bcf.csi \
 	1kg_p3_all_chr1.vcf.gz.csi\
 	1kg_p1_all_chr6.bcf.csi\
 	1kg_p1_all_chr6.vcf.gz.tbi \
-	1kg_p1_all_chr6.vcf.gz.csi
+	1kg_p1_all_chr6.vcf.gz.csi\
+	1kg_2020_chr20.vcf.gz.2.split\
+	1kg_2020_others.vcf.gz.2.split \
+	1kg_2020_others.vcf.gz.5.split \
+	1kg_2020_freebayes.vcf.gz.5.split \
 
 .PRECIOUS: %.bcf
+.PRECIOUS: %.split
 .PRECIOUS: %.vcf.gz
 
 # Modern 1000 genomes data
@@ -37,6 +42,12 @@ all: 1kg_2020_chr20.bcf.csi \
 
 %.vcf.gz.tbi: %.vcf.gz
 	tabix $<
+
+%.2.split: %
+	./split.sh $< 2
+
+%.5.split: %
+	./split.sh $< 5
 
 %.csi: %
 	bcftools index $<

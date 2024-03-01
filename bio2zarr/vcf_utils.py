@@ -369,13 +369,16 @@ class IndexedVcf(contextlib.AbstractContextManager):
     def __init__(self, vcf_path, index_path=None):
         self.vcf = None
         vcf_path = pathlib.Path(vcf_path)
+        if not vcf_path.exists():
+            raise FileNotFoundError(vcf_path)
         # TODO use constants here instead of strings
         if index_path is None:
             index_path = vcf_path.with_suffix(vcf_path.suffix + ".tbi")
             if not index_path.exists():
                 index_path = vcf_path.with_suffix(vcf_path.suffix + ".csi")
                 if not index_path.exists():
-                    raise ValueError("Cannot find .tbi or .csi file.")
+                    raise FileNotFoundError(
+                        "Cannot find .tbi or .csi file for {vcf_path}")
         else:
             index_path = pathlib.Path(index_path)
 
