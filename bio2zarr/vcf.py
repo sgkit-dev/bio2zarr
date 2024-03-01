@@ -712,7 +712,7 @@ class PcvcfFieldWriter:
         # Update the summary
         self.vcf_field.summary.num_chunks += 1
         self.vcf_field.summary.compressed_size += len(compressed)
-        self.vcf_field.summary.uncompressed_size += len(pkl)
+        self.vcf_field.summary.uncompressed_size += self.buffered_bytes
         logger.debug(f"Finish write: {path}")
 
     def flush(self):
@@ -1269,12 +1269,13 @@ class SgvcfZarr:
         sanitiser = source_col.sanitiser_factory(ba.buff.shape)
 
         for value in source_col.iter_values(start, stop):
+            core.update_progress(sys.getsizeof(value))
             # We write directly into the buffer in the sanitiser function
             # to make it easier to reason about dimension padding
             j = ba.next_buffer_row()
             sanitiser(ba.buff, j, value)
-            core.update_progress(sys.getsizeof(value))
         ba.flush()
+        logger.debug(f"{column.name} slice {start}:{stop} done")
 
     def encode_genotypes_slice(self, pcvcf, start, stop):
         source_col = pcvcf.columns["FORMAT/GT"]
@@ -1283,6 +1284,7 @@ class SgvcfZarr:
         gt_phased = core.BufferedArray(self.root["call_genotype_phased"], start)
 
         for value in source_col.iter_values(start, stop):
+            core.update_progress(sys.getsizeof(value))
             j = gt.next_buffer_row()
             sanitise_value_int_2d(gt.buff, j, value[:, :-1])
             j = gt_phased.next_buffer_row()
@@ -1291,10 +1293,10 @@ class SgvcfZarr:
             # with mixed ploidies?
             j = gt_mask.next_buffer_row()
             gt_mask.buff[j] = gt.buff[j] < 0
-            core.update_progress(sys.getsizeof(value))
         gt.flush()
         gt_phased.flush()
         gt_mask.flush()
+        logger.debug(f"GT slice {start}:{stop} done")
 
     def encode_alleles(self, pcvcf):
         ref_col = pcvcf.columns["REF"]

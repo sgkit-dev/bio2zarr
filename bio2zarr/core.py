@@ -146,7 +146,10 @@ def progress_thread_worker(config):
         inc = current - pbar.n
         pbar.update(inc)
         time.sleep(config.poll_interval)
+    # inc = config.total - pbar.n
+    # pbar.update(inc)
     pbar.close()
+    # print("EXITING PROGRESS THREAD")
 
 
 class ParallelWorkManager(contextlib.AbstractContextManager):
