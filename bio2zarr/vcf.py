@@ -539,13 +539,18 @@ class PickleChunkedVcfField:
             return base_path / vcf_field.name
         return base_path / vcf_field.category / vcf_field.name
 
+    @property
+    def name(self):
+        return self.vcf_field.full_name
+
     def partition_path(self, partition_id):
         return self.path / f"p{partition_id}"
 
     def __repr__(self):
         partition_chunks = [self.num_chunks(j) for j in range(self.num_partitions)]
         return (
-            f"PickleChunkedVcfField(partition_chunks={partition_chunks}, "
+            f"PickleChunkedVcfField(name={self.name}, "
+            f"partition_chunks={partition_chunks}, "
             f"path={self.path})"
         )
 

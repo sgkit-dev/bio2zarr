@@ -163,6 +163,11 @@ class TestSlicing:
             "PickleChunkedVcf(fields=7, partitions=5, records=4665, path="
         )
 
+    def test_pos_repr(self, pcvcf):
+        assert repr(pcvcf["POS"]).startswith(
+            "PickleChunkedVcfField(name=POS, partition_chunks=[8, 8, 8, 8, 8], path=")
+
+
     def test_partition_record_index(self, pcvcf):
         nt.assert_array_equal(
             pcvcf.partition_record_index, [0, 933, 1866, 2799, 3732, 4665]
