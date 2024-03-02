@@ -1,5 +1,6 @@
 import logging
 
+import humanfriendly
 import numpy as np
 import zarr
 import bed_reader
@@ -21,12 +22,13 @@ def encode_genotypes_slice(bed_path, zarr_path, start, stop):
     n = gt.array.shape[1]
     assert start % chunk_length == 0
 
-    B = bed.read(dtype=np.int8).T
-
+    logger.debug(f"Reading slice {start}:{stop}")
     chunk_start = start
     while chunk_start < stop:
         chunk_stop = min(chunk_start + chunk_length, stop)
-        bed_chunk = bed.read(index=np.s_[:, chunk_start:chunk_stop], dtype=np.int8).T
+        logger.debug(f"Reading bed slice {chunk_start}:{chunk_stop}")
+        bed_chunk = bed.read(slice(chunk_start, chunk_stop), dtype=np.int8).T
+        logger.debug(f"Got bed slice {humanfriendly.format_size(bed_chunk.nbytes)}")
         # Probably should do this without iterating over rows, but it's a bit
         # simpler and lines up better with the array buffering API. The bottleneck
         # is in the encoding anyway.
@@ -61,6 +63,7 @@ def convert(
     n = bed.iid_count
     m = bed.sid_count
     del bed
+    logging.info(f"Scanned plink with {n} samples and {m} variants")
 
     # FIXME
     if chunk_width is None:

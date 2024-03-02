@@ -155,12 +155,14 @@ vcf2zarr.add_command(validate)
 @click.argument("in_path", type=click.Path())
 @click.argument("out_path", type=click.Path())
 @worker_processes
-@click.option("--chunk-width", type=int, default=None)
-@click.option("--chunk-length", type=int, default=None)
-def convert_plink(in_path, out_path, worker_processes, chunk_width, chunk_length):
+@verbose
+@chunk_length
+@chunk_width
+def convert_plink(in_path, out_path, verbose, worker_processes, chunk_length, chunk_width):
     """
     In development; DO NOT USE!
     """
+    setup_logging(verbose)
     plink.convert(
         in_path,
         out_path,
