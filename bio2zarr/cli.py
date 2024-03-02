@@ -14,6 +14,11 @@ worker_processes = click.option(
     "-p", "--worker-processes", type=int, default=1, help="Number of worker processes"
 )
 
+# TODO help text
+chunk_length = click.option("-l", "--chunk-length", type=int, default=None)
+
+chunk_width = click.option("-w", "--chunk-width", type=int, default=None)
+
 version = click.version_option(version=provenance.__version__)
 
 
@@ -79,8 +84,13 @@ def mkschema(if_path):
 @click.argument("zarr_path", type=click.Path())
 @verbose
 @click.option("-s", "--schema", default=None)
+# TODO: these are mutually exclusive with schema, tell click this
+@chunk_length
+@chunk_width
 @worker_processes
-def encode(if_path, zarr_path, verbose, schema, worker_processes):
+def encode(
+    if_path, zarr_path, verbose, schema, chunk_length, chunk_width, worker_processes
+):
     """
     Encode intermediate format (see explode) to vcfzarr
     """
@@ -89,6 +99,8 @@ def encode(if_path, zarr_path, verbose, schema, worker_processes):
         if_path,
         zarr_path,
         schema,
+        chunk_length=chunk_length,
+        chunk_width=chunk_width,
         worker_processes=worker_processes,
         show_progress=True,
     )
@@ -97,14 +109,23 @@ def encode(if_path, zarr_path, verbose, schema, worker_processes):
 @click.command(name="convert")
 @click.argument("vcfs", nargs=-1, required=True)
 @click.argument("out_path", type=click.Path())
+@chunk_length
+@chunk_width
 @verbose
 @worker_processes
-def convert_vcf(vcfs, out_path, verbose, worker_processes):
+def convert_vcf(vcfs, out_path, chunk_length, chunk_width, verbose, worker_processes):
     """
     Convert input VCF(s) directly to vcfzarr (not recommended for large files)
     """
     setup_logging(verbose)
-    vcf.convert(vcfs, out_path, show_progress=True, worker_processes=worker_processes)
+    vcf.convert(
+        vcfs,
+        out_path,
+        chunk_length=chunk_length,
+        chunk_width=chunk_width,
+        show_progress=True,
+        worker_processes=worker_processes,
+    )
 
 
 @click.command

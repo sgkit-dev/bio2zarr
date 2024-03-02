@@ -90,18 +90,38 @@ class BufferedArray:
     def flush(self):
         # TODO just move sync_flush_array in here
         if self.buffer_row != 0:
-            sync_flush_array(
-                self.buff[: self.buffer_row], self.array, self.array_offset
-            )
+            if len(self.array.chunks) <= 1:
+                sync_flush_1d_array(
+                    self.buff[: self.buffer_row], self.array, self.array_offset
+                )
+            else:
+                sync_flush_2d_array(
+                    self.buff[: self.buffer_row], self.array, self.array_offset
+                )
+            logger.debug(
+                f"Flushed chunk {self.array} {self.array_offset} + {self.buffer_row}")
             self.array_offset += self.chunk_length
             self.buffer_row = 0
 
 
-# TODO: factor these functions into the BufferedArray class
-
-
-def sync_flush_array(np_buffer, zarr_array, offset):
+def sync_flush_1d_array(np_buffer, zarr_array, offset):
     zarr_array[offset : offset + np_buffer.shape[0]] = np_buffer
+    update_progress(1)
+
+
+def sync_flush_2d_array(np_buffer, zarr_array, offset):
+    # Write chunks in the second dimension 1-by-1 to make progress more
+    # incremental, and to avoid large memcopies in the underlying
+    # encoder implementations.
+    s = slice(offset, offset + np_buffer.shape[0])
+    chunk_width = zarr_array.chunks[1]
+    zarr_array_width = zarr_array.shape[1]
+    start = 0
+    while start < zarr_array_width:
+        stop = min(start + chunk_width, zarr_array_width)
+        zarr_array[s, start:stop] = np_buffer[:, start:stop]
+        update_progress(1)
+        start = stop
 
 
 @dataclasses.dataclass
@@ -113,6 +133,10 @@ class ProgressConfig:
     poll_interval: float = 0.001
 
 
+# NOTE: this approach means that we cannot have more than one
+# progressable thing happening per source process. This is
+# probably fine in practise, but there could be corner cases
+# where it's not. Something to watch out for.
 _progress_counter = multiprocessing.Value("Q", 0)
 
 
@@ -146,8 +170,14 @@ def progress_thread_worker(config):
         inc = current - pbar.n
         pbar.update(inc)
         time.sleep(config.poll_interval)
-    # inc = config.total - pbar.n
-    # pbar.update(inc)
+    # TODO figure out why we're sometimes going over total
+    # if get_progress() != config.total:
+    #     print("HOW DID THIS HAPPEN!!")
+    #     print(get_progress())
+    #     print(config)
+    # assert get_progress() == config.total
+    inc = config.total - pbar.n
+    pbar.update(inc)
     pbar.close()
     # print("EXITING PROGRESS THREAD")
 
@@ -187,7 +217,7 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
             # Note: this doesn't seem to be working correctly. If
             # we set a timeout of None we get deadlocks
             set_progress(self.progress_config.total)
-            timeout = 1
+            timeout = None
         else:
             cancel_futures(self.futures)
             timeout = 0
