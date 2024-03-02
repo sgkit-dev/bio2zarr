@@ -98,7 +98,11 @@ class BufferedArray:
                     self.buff[: self.buffer_row], self.array, self.array_offset
                 )
             logger.debug(
-                f"Flushed chunk {self.array} {self.array_offset} + {self.buffer_row}")
+                f"Flushed <{self.array.name} {self.array.shape} "
+                f"{self.array.dtype}> "
+                f"{self.array_offset}:{self.array_offset + self.buffer_row}"
+                f"{self.buff.nbytes / 2**20: .2f}Mb"
+            )
             self.array_offset += self.chunk_length
             self.buffer_row = 0
 
