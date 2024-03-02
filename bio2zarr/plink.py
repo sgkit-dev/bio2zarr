@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 import zarr
 import bed_reader
@@ -5,39 +7,45 @@ import bed_reader
 from . import core
 
 
-def encode_bed_partition_genotypes(
-    bed_path, zarr_path, start_variant, end_variant, encoder_threads=8
-):
-    bed = bed_reader.open_bed(bed_path, num_threads=1)
+logger = logging.getLogger(__name__)
 
+
+def encode_genotypes_slice(bed_path, zarr_path, start, stop):
+    bed = bed_reader.open_bed(bed_path, num_threads=1)
     store = zarr.DirectoryStore(zarr_path)
     root = zarr.group(store=store)
-    gt = core.BufferedArray(root["call_genotype"])
-    gt_mask = core.BufferedArray(root["call_genotype_mask"])
-    gt_phased = core.BufferedArray(root["call_genotype_phased"])
+    gt = core.BufferedArray(root["call_genotype"], start)
+    gt_mask = core.BufferedArray(root["call_genotype_mask"], start)
+    gt_phased = core.BufferedArray(root["call_genotype_phased"], start)
     chunk_length = gt.array.chunks[0]
-    assert start_variant % chunk_length == 0
+    n = gt.array.shape[1]
+    assert start % chunk_length == 0
 
-    buffered_arrays = [gt, gt_phased, gt_mask]
+    B = bed.read(dtype=np.int8).T
 
-    with core.ThreadedZarrEncoder(buffered_arrays, encoder_threads) as te:
-        start = start_variant
-        while start < end_variant:
-            stop = min(start + chunk_length, end_variant)
-            bed_chunk = bed.read(index=slice(start, stop), dtype="int8").T
-            # Note could do this without iterating over rows, but it's a bit
-            # simpler and the bottleneck is in the encoding step anyway. It's
-            # also nice to have updates on the progress monitor.
-            for values in bed_chunk:
-                j = te.next_buffer_row()
-                dest = gt.buff[j]
-                dest[values == -127] = -1
-                dest[values == 2] = 1
-                dest[values == 1, 0] = 1
-                gt_phased.buff[j] = False
-                gt_mask.buff[j] = dest == -1
-                core.update_progress(1)
-            start = stop
+    chunk_start = start
+    while chunk_start < stop:
+        chunk_stop = min(chunk_start + chunk_length, stop)
+        bed_chunk = bed.read(index=np.s_[:, chunk_start:chunk_stop], dtype=np.int8).T
+        # Probably should do this without iterating over rows, but it's a bit
+        # simpler and lines up better with the array buffering API. The bottleneck
+        # is in the encoding anyway.
+        for values in bed_chunk:
+            j = gt.next_buffer_row()
+            g = np.zeros_like(gt.buff[j])
+            g[values == -127] = -1
+            g[values == 2] = 1
+            g[values == 1, 0] = 1
+            gt.buff[j] = g
+            j = gt_phased.next_buffer_row()
+            gt_phased.buff[j] = False
+            j = gt_mask.next_buffer_row()
+            gt_mask.buff[j] = gt.buff[j] == -1
+        chunk_start = chunk_stop
+    gt.flush()
+    gt_phased.flush()
+    gt_mask.flush()
+    logger.debug(f"GT slice {start}:{stop} done")
 
 
 def convert(
@@ -81,7 +89,7 @@ def convert(
     dimensions += ["ploidy"]
     a = root.empty(
         "call_genotype",
-        dtype="i8",
+        dtype="i1",
         shape=list(shape),
         chunks=list(chunks),
         compressor=core.default_compressor,
@@ -97,22 +105,52 @@ def convert(
     )
     a.attrs["_ARRAY_DIMENSIONS"] = list(dimensions)
 
-    chunks_per_future = 2  # FIXME - make a parameter
-    start = 0
-    partitions = []
-    while start < m:
-        stop = min(m, start + chunk_length * chunks_per_future)
-        partitions.append((start, stop))
-        start = stop
-    assert start == m
+    num_slices = max(1, worker_processes * 4)
+    slices = core.chunk_aligned_slices(a, num_slices)
+
+    total_chunks = sum(a.nchunks for a in root.values())
 
     progress_config = core.ProgressConfig(
-        total=m, title="Convert", units="vars", show=show_progress
+        total=total_chunks, title="Convert", units="chunks", show=show_progress
     )
     with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
-        for start, end in partitions:
-            pwm.submit(encode_bed_partition_genotypes, bed_path, zarr_path, start, end)
+        for start, stop in slices:
+            pwm.submit(encode_genotypes_slice, bed_path, zarr_path, start, stop)
 
     # TODO also add atomic swap like VCF. Should be abstracted to
     # share basic code for setting up the variation dataset zarr
     zarr.consolidate_metadata(zarr_path)
+
+
+# FIXME do this more efficiently - currently reading the whole thing
+# in for convenience, and also comparing call-by-call
+def validate(bed_path, zarr_path):
+    store = zarr.DirectoryStore(zarr_path)
+    root = zarr.group(store=store)
+    call_genotype = root["call_genotype"][:]
+
+    bed = bed_reader.open_bed(bed_path, num_threads=1)
+
+    assert call_genotype.shape[0] == bed.sid_count
+    assert call_genotype.shape[1] == bed.iid_count
+    bed_genotypes = bed.read(dtype="int8").T
+    assert call_genotype.shape[0] == bed_genotypes.shape[0]
+    assert call_genotype.shape[1] == bed_genotypes.shape[1]
+    assert call_genotype.shape[2] == 2
+
+    row_id = 0
+    for bed_row, zarr_row in zip(bed_genotypes, call_genotype):
+        # print("ROW", row_id)
+        # print(bed_row, zarr_row)
+        row_id += 1
+        for bed_call, zarr_call in zip(bed_row, zarr_row):
+            if bed_call == -127:
+                assert list(zarr_call) == [-1, -1]
+            elif bed_call == 0:
+                assert list(zarr_call) == [0, 0]
+            elif bed_call == 1:
+                assert list(zarr_call) == [1, 0]
+            elif bed_call == 2:
+                assert list(zarr_call) == [1, 1]
+            else:  # pragma no cover
+                assert False

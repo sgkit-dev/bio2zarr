@@ -88,7 +88,6 @@ class BufferedArray:
         return row
 
     def flush(self):
-        # TODO just move sync_flush_array in here
         if self.buffer_row != 0:
             if len(self.array.chunks) <= 1:
                 sync_flush_1d_array(
