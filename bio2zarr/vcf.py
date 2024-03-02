@@ -11,7 +11,7 @@ import json
 import math
 import tempfile
 import contextlib
-from typing import Any
+from typing import Any, List
 
 import humanfriendly
 import cyvcf2
@@ -238,7 +238,8 @@ def scan_vcf(path, target_num_partitions):
 
         regions = indexed_vcf.partition_into_regions(num_parts=target_num_partitions)
         logger.info(
-            f"Split {path} into {len(regions)} regions (target={target_num_partitions})")
+            f"Split {path} into {len(regions)} regions (target={target_num_partitions})"
+        )
         for region in regions:
             metadata.partitions.append(
                 VcfPartition(
@@ -521,53 +522,63 @@ class SplitStringValueTransformer(StringValueTransformer):
 
 
 class PickleChunkedVcfField:
-    def __init__(self, vcf_field, base_path):
+    def __init__(self, pcvcf, vcf_field):
         self.vcf_field = vcf_field
-        if vcf_field.category == "fixed":
-            self.path = base_path / vcf_field.name
-        else:
-            self.path = base_path / vcf_field.category / vcf_field.name
+        self.path = self.get_path(pcvcf.path, vcf_field)
+        self.compressor = pcvcf.compressor
+        self.num_partitions = pcvcf.num_partitions
+        self.num_records = pcvcf.num_records
+        self.partition_record_index = pcvcf.partition_record_index
+        # A map of partition id to the cumulative number of records
+        # in chunks within that partition
+        self._chunk_record_index = {}
 
-        # TODO Check if other compressors would give reasonable compression
-        # with significantly faster times
-        self.compressor = numcodecs.Blosc(cname="zstd", clevel=7)
-        # TODO have a clearer way of defining this state between
-        # read and write mode.
-        self.num_partitions = None
-        self.num_records = None
-        self.partition_num_chunks = {}
+    @staticmethod
+    def get_path(base_path, vcf_field):
+        if vcf_field.category == "fixed":
+            return base_path / vcf_field.name
+        return base_path / vcf_field.category / vcf_field.name
+
+    @property
+    def name(self):
+        return self.vcf_field.full_name
+
+    def partition_path(self, partition_id):
+        return self.path / f"p{partition_id}"
 
     def __repr__(self):
-        return f"PickleChunkedVcfField(path={self.path})"
+        partition_chunks = [self.num_chunks(j) for j in range(self.num_partitions)]
+        return (
+            f"PickleChunkedVcfField(name={self.name}, "
+            f"partition_chunks={partition_chunks}, "
+            f"path={self.path})"
+        )
 
-    def num_chunks(self, partition_index):
-        if partition_index not in self.partition_num_chunks:
-            partition_path = self.path / f"p{partition_index}"
-            n = len(list(partition_path.iterdir()))
-            self.partition_num_chunks[partition_index] = n
-        return self.partition_num_chunks[partition_index]
+    def num_chunks(self, partition_id):
+        return len(self.chunk_cumulative_records(partition_id))
 
-    def chunk_path(self, partition_index, chunk_index):
-        return self.path / f"p{partition_index}" / f"c{chunk_index}"
+    def chunk_record_index(self, partition_id):
+        if partition_id not in self._chunk_record_index:
+            index_path = self.partition_path(partition_id) / "chunk_index.pkl"
+            with open(index_path, "rb") as f:
+                a = pickle.load(f)
+            assert len(a) > 1
+            assert a[0] == 0
+            self._chunk_record_index[partition_id] = a
+        return self._chunk_record_index[partition_id]
 
-    def write_chunk(self, partition_index, chunk_index, data):
-        path = self.chunk_path(partition_index, chunk_index)
-        logger.debug(f"Start write: {path}")
-        pkl = pickle.dumps(data)
-        # NOTE assuming that reusing the same compressor instance
-        # from multiple threads is OK!
-        compressed = self.compressor.encode(pkl)
-        with open(path, "wb") as f:
-            f.write(compressed)
+    def chunk_cumulative_records(self, partition_id):
+        return self.chunk_record_index(partition_id)[1:]
 
-        # Update the summary
-        self.vcf_field.summary.num_chunks += 1
-        self.vcf_field.summary.compressed_size += len(compressed)
-        self.vcf_field.summary.uncompressed_size += len(pkl)
-        logger.debug(f"Finish write: {path}")
+    def chunk_num_records(self, partition_id):
+        return np.diff(self.chunk_cumulative_records(partition_id))
 
-    def read_chunk(self, partition_index, chunk_index):
-        path = self.chunk_path(partition_index, chunk_index)
+    def chunk_files(self, partition_id, start=0):
+        partition_path = self.partition_path(partition_id)
+        for n in self.chunk_cumulative_records(partition_id)[start:]:
+            yield partition_path / f"{n}.pkl"
+
+    def read_chunk(self, path):
         with open(path, "rb") as f:
             pkl = self.compressor.decode(f.read())
         return pickle.loads(pkl), len(pkl)
@@ -575,9 +586,9 @@ class PickleChunkedVcfField:
     def iter_values_bytes(self):
         num_records = 0
         bytes_read = 0
-        for partition_index in range(self.num_partitions):
-            for chunk_index in range(self.num_chunks(partition_index)):
-                chunk, chunk_bytes = self.read_chunk(partition_index, chunk_index)
+        for partition_id in range(self.num_partitions):
+            for chunk_path in self.chunk_files(partition_id):
+                chunk, chunk_bytes = self.read_chunk(chunk_path)
                 bytes_read += chunk_bytes
                 for record in chunk:
                     yield record, bytes_read
@@ -586,6 +597,45 @@ class PickleChunkedVcfField:
             raise ValueError(
                 f"Corruption detected: incorrect number of records in {str(self.path)}."
             )
+
+    def iter_values(self, start=None, stop=None):
+        start = 0 if start is None else start
+        stop = self.num_records if stop is None else stop
+        start_partition = (
+            np.searchsorted(self.partition_record_index, start, side="right") - 1
+        )
+        offset = self.partition_record_index[start_partition]
+        assert offset <= start
+        chunk_offset = start - offset
+
+        chunk_record_index = self.chunk_record_index(start_partition)
+        start_chunk = (
+            np.searchsorted(chunk_record_index, chunk_offset, side="right") - 1
+        )
+        record_id = offset + chunk_record_index[start_chunk]
+        assert record_id <= start
+        logger.debug(
+            f"Read {self.vcf_field.full_name} slice [{start}:{stop}]:"
+            f"p_start={start_partition}, c_start={start_chunk}, r_start={record_id}"
+        )
+
+        for chunk_path in self.chunk_files(start_partition, start_chunk):
+            chunk, _ = self.read_chunk(chunk_path)
+            for record in chunk:
+                if record_id == stop:
+                    return
+                if record_id >= start:
+                    yield record
+                record_id += 1
+        assert record_id > start
+        for partition_id in range(start_partition + 1, self.num_partitions):
+            for chunk_path in self.chunk_files(partition_id):
+                chunk, _ = self.read_chunk(chunk_path)
+                for record in chunk:
+                    if record_id == stop:
+                        return
+                    yield record
+                    record_id += 1
 
     # Note: this involves some computation so should arguably be a method,
     # but making a property for consistency with xarray etc
@@ -627,91 +677,133 @@ class PickleChunkedVcfField:
 
 
 @dataclasses.dataclass
-class FieldBuffer:
-    field: PickleChunkedVcfField
+class PcvcfFieldWriter:
+    vcf_field: VcfField
+    path: pathlib.Path
     transformer: VcfValueTransformer
-    buff: list = dataclasses.field(default_factory=list)
+    compressor: Any
+    max_buffered_bytes: int
+    buff: List[Any] = dataclasses.field(default_factory=list)
     buffered_bytes: int = 0
-    chunk_index: int = 0
+    chunk_index: List[int] = dataclasses.field(default_factory=lambda: [0])
+    num_records: int = 0
 
     def append(self, val):
+        val = self.transformer.transform_and_update_bounds(val)
+        assert val is None or isinstance(val, np.ndarray)
         self.buff.append(val)
         val_bytes = sys.getsizeof(val)
         self.buffered_bytes += val_bytes
+        self.num_records += 1
+        if self.buffered_bytes >= self.max_buffered_bytes:
+            logger.debug(
+                f"Flush {self.path} buffered={self.buffered_bytes} "
+                f"max={self.max_buffered_bytes}"
+            )
+            self.write_chunk()
+            self.buff.clear()
+            self.buffered_bytes = 0
 
-    def reset(self):
-        self.buff = []
-        self.buffered_bytes = 0
-        self.chunk_index += 1
+    def write_chunk(self):
+        # Update index
+        self.chunk_index.append(self.num_records)
+        path = self.path / f"{self.num_records}.pkl"
+        logger.debug(f"Start write: {path}")
+        pkl = pickle.dumps(self.buff)
+        compressed = self.compressor.encode(pkl)
+        with open(path, "wb") as f:
+            f.write(compressed)
+
+        # Update the summary
+        self.vcf_field.summary.num_chunks += 1
+        self.vcf_field.summary.compressed_size += len(compressed)
+        self.vcf_field.summary.uncompressed_size += self.buffered_bytes
+        logger.debug(f"Finish write: {path}")
+
+    def flush(self):
+        logger.debug(
+            f"Flush {self.path} records={len(self.buff)} buffered={self.buffered_bytes}"
+        )
+        if len(self.buff) > 0:
+            self.write_chunk()
+        with open(self.path / "chunk_index.pkl", "wb") as f:
+            a = np.array(self.chunk_index, dtype=int)
+            pickle.dump(a, f)
 
 
-class ColumnWriter(contextlib.AbstractContextManager):
+class PcvcfPartitionWriter(contextlib.AbstractContextManager):
+    """
+    Writes the data for a PickleChunkedVcf partition.
+    """
+
     def __init__(
         self,
         vcf_metadata,
         out_path,
         partition_index,
+        compressor,
         *,
         chunk_size=1,
     ):
         self.partition_index = partition_index
         # chunk_size is in megabytes
-        self.max_buffered_bytes = chunk_size * 2**20
-        assert self.max_buffered_bytes > 0
+        max_buffered_bytes = chunk_size * 2**20
+        assert max_buffered_bytes > 0
 
-        self.buffers = {}
+        self.field_writers = {}
         num_samples = len(vcf_metadata.samples)
         for vcf_field in vcf_metadata.fields:
-            field = PickleChunkedVcfField(vcf_field, out_path)
+            field_path = PickleChunkedVcfField.get_path(out_path, vcf_field)
+            field_partition_path = field_path / f"p{partition_index}"
             transformer = VcfValueTransformer.factory(vcf_field, num_samples)
-            self.buffers[vcf_field.full_name] = FieldBuffer(field, transformer)
+            self.field_writers[vcf_field.full_name] = PcvcfFieldWriter(
+                vcf_field,
+                field_partition_path,
+                transformer,
+                compressor,
+                max_buffered_bytes,
+            )
 
     @property
     def field_summaries(self):
         return {
-            name: buff.field.vcf_field.summary for name, buff in self.buffers.items()
+            name: field.vcf_field.summary for name, field in self.field_writers.items()
         }
 
     def append(self, name, value):
-        buff = self.buffers[name]
-        # print("Append", name, value)
-        value = buff.transformer.transform_and_update_bounds(value)
-        assert value is None or isinstance(value, np.ndarray)
-        buff.append(value)
-        val_bytes = sys.getsizeof(value)
-        buff.buffered_bytes += val_bytes
-        if buff.buffered_bytes >= self.max_buffered_bytes:
-            self._flush_buffer(name, buff)
-
-    def _flush_buffer(self, name, buff):
-        logger.debug(f"Schedule write {name}:{self.partition_index}.{buff.chunk_index}")
-        buff.field.write_chunk(
-            self.partition_index,
-            buff.chunk_index,
-            buff.buff,
-        )
-        buff.reset()
+        self.field_writers[name].append(value)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is None:
-            for name, buff in self.buffers.items():
-                self._flush_buffer(name, buff)
+            for field in self.field_writers.values():
+                field.flush()
         return False
 
 
 class PickleChunkedVcf(collections.abc.Mapping):
+    # TODO Check if other compressors would give reasonable compression
+    # with significantly faster times
+    DEFAULT_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7)
+
     def __init__(self, path, metadata, vcf_header):
         self.path = path
         self.metadata = metadata
         self.vcf_header = vcf_header
-
+        self.compressor = self.DEFAULT_COMPRESSOR
         self.columns = {}
+        partition_num_records = [
+            partition.num_records for partition in self.metadata.partitions
+        ]
+        # Allow us to find which partition a given record is in
+        self.partition_record_index = np.cumsum([0] + partition_num_records)
         for field in self.metadata.fields:
-            self.columns[field.full_name] = PickleChunkedVcfField(field, path)
+            self.columns[field.full_name] = PickleChunkedVcfField(self, field)
 
-        for col in self.columns.values():
-            col.num_partitions = self.num_partitions
-            col.num_records = self.num_records
+    def __repr__(self):
+        return (
+            f"PickleChunkedVcf(fields={len(self)}, partitions={self.num_partitions}, "
+            f"records={self.num_records}, path={self.path})"
+        )
 
     def __getitem__(self, key):
         return self.columns[key]
@@ -816,10 +908,13 @@ class PickleChunkedVcf(collections.abc.Mapping):
             else:
                 format_fields.append(field)
 
-        with ColumnWriter(
+        compressor = PickleChunkedVcf.DEFAULT_COMPRESSOR
+
+        with PcvcfPartitionWriter(
             vcf_metadata,
             out_path,
             partition_index,
+            compressor,
             chunk_size=column_chunk_size,
         ) as tcw:
             with vcf_utils.IndexedVcf(partition.vcf_path) as ivcf:
@@ -912,7 +1007,6 @@ class PickleChunkedVcf(collections.abc.Mapping):
             json.dump(vcf_metadata.asdict(), f, indent=4)
         with open(out_path / "header.txt", "w") as f:
             f.write(header)
-        return pcvcf
 
 
 def explode(
@@ -927,13 +1021,14 @@ def explode(
     if out_path.exists():
         shutil.rmtree(out_path)
 
-    return PickleChunkedVcf.convert(
+    PickleChunkedVcf.convert(
         vcfs,
         out_path,
         column_chunk_size=column_chunk_size,
         worker_processes=worker_processes,
         show_progress=show_progress,
     )
+    return PickleChunkedVcf.load(out_path)
 
 
 def inspect(if_path):
@@ -1172,54 +1267,40 @@ class SgvcfZarr:
         )
         a.attrs["_ARRAY_DIMENSIONS"] = variable.dimensions
 
-    def encode_column(self, pcvcf, column, encoder_threads=4):
-        # TODO we're doing this the wrong way at the moment, overcomplicating
-        # things by having the ThreadedZarrEncoder. It would be simpler if
-        # we split the columns into vertical chunks, and just pushed a bunch
-        # of futures for encoding start:end slices of each column. The
-        # complicating factor here is that we need to get these slices
-        # out of the pcvcf, which takes a little bit of doing (but fine,
-        # because we know the number of records in each partition).
-        # An annoying factor then is how to update the progess meter
-        # because the "bytes read" approach becomes problematic
-        # when we might access the same chunk several times.
-        # Would perhaps be better to call sys.getsizeof() on the stored
-        # value each time.
-
+    def encode_column_slice(self, pcvcf, column, start, stop):
         source_col = pcvcf.columns[column.vcf_field]
         array = self.root[column.name]
-        ba = core.BufferedArray(array)
+        ba = core.BufferedArray(array, start)
         sanitiser = source_col.sanitiser_factory(ba.buff.shape)
 
-        with core.ThreadedZarrEncoder([ba], encoder_threads) as te:
-            last_bytes_read = 0
-            for value, bytes_read in source_col.iter_values_bytes():
-                j = te.next_buffer_row()
-                sanitiser(ba.buff, j, value)
-                # print(bytes_read, last_bytes_read, value)
-                if last_bytes_read != bytes_read:
-                    core.update_progress(bytes_read - last_bytes_read)
-                    last_bytes_read = bytes_read
+        for value in source_col.iter_values(start, stop):
+            # We write directly into the buffer in the sanitiser function
+            # to make it easier to reason about dimension padding
+            j = ba.next_buffer_row()
+            sanitiser(ba.buff, j, value)
+        ba.flush()
+        logger.debug(f"Encoded {column.name} slice {start}:{stop}")
 
-    def encode_genotypes(self, pcvcf, encoder_threads=4):
+    def encode_genotypes_slice(self, pcvcf, start, stop):
         source_col = pcvcf.columns["FORMAT/GT"]
-        gt = core.BufferedArray(self.root["call_genotype"])
-        gt_mask = core.BufferedArray(self.root["call_genotype_mask"])
-        gt_phased = core.BufferedArray(self.root["call_genotype_phased"])
-        buffered_arrays = [gt, gt_phased, gt_mask]
+        gt = core.BufferedArray(self.root["call_genotype"], start)
+        gt_mask = core.BufferedArray(self.root["call_genotype_mask"], start)
+        gt_phased = core.BufferedArray(self.root["call_genotype_phased"], start)
 
-        with core.ThreadedZarrEncoder(buffered_arrays, encoder_threads) as te:
-            last_bytes_read = 0
-            for value, bytes_read in source_col.iter_values_bytes():
-                j = te.next_buffer_row()
-                sanitise_value_int_2d(gt.buff, j, value[:, :-1])
-                sanitise_value_int_1d(gt_phased.buff, j, value[:, -1])
-                # TODO check is this the correct semantics when we are padding
-                # with mixed ploidies?
-                gt_mask.buff[j] = gt.buff[j] < 0
-                if last_bytes_read != bytes_read:
-                    core.update_progress(bytes_read - last_bytes_read)
-                    last_bytes_read = bytes_read
+        for value in source_col.iter_values(start, stop):
+            # core.update_progress(sys.getsizeof(value))
+            j = gt.next_buffer_row()
+            sanitise_value_int_2d(gt.buff, j, value[:, :-1])
+            j = gt_phased.next_buffer_row()
+            sanitise_value_int_1d(gt_phased.buff, j, value[:, -1])
+            # TODO check is this the correct semantics when we are padding
+            # with mixed ploidies?
+            j = gt_mask.next_buffer_row()
+            gt_mask.buff[j] = gt.buff[j] < 0
+        gt.flush()
+        gt_phased.flush()
+        gt_mask.flush()
+        logger.debug(f"GT slice {start}:{stop} done")
 
     def encode_alleles(self, pcvcf):
         ref_col = pcvcf.columns["REF"]
@@ -1237,8 +1318,8 @@ class SgvcfZarr:
         size = sum(
             col.vcf_field.summary.uncompressed_size for col in [ref_col, alt_col]
         )
-        core.update_progress(size)
         logger.debug("alleles done")
+        core.update_progress(allele_array.nchunks)
 
     def encode_samples(self, pcvcf, sample_id, chunk_width):
         if not np.array_equal(sample_id, pcvcf.metadata.samples):
@@ -1252,8 +1333,10 @@ class SgvcfZarr:
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
         logger.debug("Samples done")
+        core.update_progress(array.nchunks)
 
     def encode_contig(self, pcvcf, contig_names, contig_lengths):
+        logger.debug("Start encode contig")
         array = self.root.array(
             "contig_id",
             contig_names,
@@ -1261,6 +1344,7 @@ class SgvcfZarr:
             compressor=core.default_compressor,
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
+        core.update_progress(array.nchunks)
 
         if contig_lengths is not None:
             array = self.root.array(
@@ -1269,6 +1353,7 @@ class SgvcfZarr:
                 dtype=np.int64,
             )
             array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
+            core.update_progress(array.nchunks)
 
         col = pcvcf.columns["CHROM"]
         array = self.root["variant_contig"]
@@ -1281,9 +1366,9 @@ class SgvcfZarr:
                 # TODO add advice about adding it to the spec
                 raise ValueError(f"Contig '{contig}' was not defined in the header.")
 
+        logger.debug("Start contig write")
         array[:] = buff
-
-        core.update_progress(col.vcf_field.summary.uncompressed_size)
+        core.update_progress(array.nchunks)
         logger.debug("Contig done")
 
     def encode_filters(self, pcvcf, filter_names):
@@ -1294,6 +1379,7 @@ class SgvcfZarr:
             compressor=core.default_compressor,
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["filters"]
+        core.update_progress(array.nchunks)
 
         col = pcvcf.columns["FILTERS"]
         array = self.root["variant_filter"]
@@ -1309,7 +1395,7 @@ class SgvcfZarr:
 
         array[:] = buff
 
-        core.update_progress(col.vcf_field.summary.uncompressed_size)
+        core.update_progress(array.nchunks)
         logger.debug("Filters done")
 
     def encode_id(self, pcvcf):
@@ -1327,18 +1413,19 @@ class SgvcfZarr:
                 id_mask_buff[j] = True
 
         id_array[:] = id_buff
+        core.update_progress(id_array.nchunks)
         id_mask_array[:] = id_mask_buff
-
-        core.update_progress(col.vcf_field.summary.uncompressed_size)
+        core.update_progress(id_mask_array.nchunks)
         logger.debug("ID done")
 
     @staticmethod
-    def convert(
+    def encode(
         pcvcf, path, conversion_spec, *, worker_processes=1, show_progress=False
     ):
         path = pathlib.Path(path)
         # TODO: we should do this as a future to avoid blocking
         if path.exists():
+            logger.warning(f"Deleting existing {path}")
             shutil.rmtree(path)
         write_path = path.with_suffix(path.suffix + f".{os.getpid()}.build")
         store = zarr.DirectoryStore(write_path)
@@ -1353,13 +1440,22 @@ class SgvcfZarr:
         sgvcf.root.attrs["vcf_header"] = pcvcf.vcf_header
         sgvcf.root.attrs["source"] = f"bio2zarr-{provenance.__version__}"
 
+        num_slices = max(1, worker_processes * 4)
+        # Using POS arbitrarily to get the array slices
+        slices = core.chunk_aligned_slices(sgvcf.root["variant_position"], num_slices)
+
+        chunked_1d = [
+            col for col in conversion_spec.columns.values() if len(col.chunks) <= 1
+        ]
         progress_config = core.ProgressConfig(
-            total=pcvcf.total_uncompressed_bytes,
-            title="Encode",
-            units="b",
+            total=sum(sgvcf.root[col.name].nchunks for col in chunked_1d),
+            title="Encode 1D",
+            units="chunks",
             show=show_progress,
         )
         with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
+            # FIXME these need to be split up, as they are quite slow on large
+            # files, and if worker_processes < 8 we get a big pause
             pwm.submit(
                 sgvcf.encode_samples,
                 pcvcf,
@@ -1375,22 +1471,31 @@ class SgvcfZarr:
                 conversion_spec.contig_length,
             )
             pwm.submit(sgvcf.encode_filters, pcvcf, conversion_spec.filter_id)
-            has_gt = False
-            for variable in conversion_spec.columns.values():
-                if variable.vcf_field is not None:
-                    # print("Encode", variable.name)
-                    # TODO for large columns it's probably worth splitting up
-                    # these into vertical chunks. Otherwise we tend to get a
-                    # long wait for the largest GT columns to finish.
-                    # Straightforward to do because we can chunk-align the work
-                    # packages.
-                    pwm.submit(sgvcf.encode_column, pcvcf, variable)
-                else:
-                    if variable.name == "call_genotype":
-                        has_gt = True
-            if has_gt:
-                # TODO add mixed ploidy
-                pwm.executor.submit(sgvcf.encode_genotypes, pcvcf)
+            for col in chunked_1d:
+                if col.vcf_field is not None:
+                    for start, stop in slices:
+                        pwm.submit(sgvcf.encode_column_slice, pcvcf, col, start, stop)
+
+        chunked_2d = [
+            col for col in conversion_spec.columns.values() if len(col.chunks) >= 2
+        ]
+        progress_config = core.ProgressConfig(
+            total=sum(sgvcf.root[col.name].nchunks for col in chunked_2d),
+            title="Encode 2D",
+            units="chunks",
+            show=show_progress,
+        )
+        with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
+            if "call_genotype" in conversion_spec.columns:
+                logger.info(f"Submit encode call_genotypes in {len(slices)} slices")
+                for start, stop in slices:
+                    pwm.submit(sgvcf.encode_genotypes_slice, pcvcf, start, stop)
+
+            for col in chunked_2d:
+                if col.vcf_field is not None:
+                    logger.info(f"Submit encode {col.name} in {len(slices)} slices")
+                    for start, stop in slices:
+                        pwm.submit(sgvcf.encode_column_slice, pcvcf, col, start, stop)
 
         zarr.consolidate_metadata(write_path)
         # Atomic swap, now we've completely finished.
@@ -1404,14 +1509,27 @@ def mkschema(if_path, out):
     out.write(spec.asjson())
 
 
-def encode(if_path, zarr_path, schema_path, worker_processes=1, show_progress=False):
+def encode(
+    if_path,
+    zarr_path,
+    schema_path=None,
+    chunk_length=None,
+    chunk_width=None,
+    worker_processes=1,
+    show_progress=False,
+):
     pcvcf = PickleChunkedVcf.load(if_path)
     if schema_path is None:
-        schema = ZarrConversionSpec.generate(pcvcf)
+        schema = ZarrConversionSpec.generate(
+            pcvcf,
+            chunk_length=chunk_length,
+            chunk_width=chunk_width,
+        )
     else:
+        # TODO checking that chunk_width and chunk_length are None
         with open(schema_path, "r") as f:
             schema = ZarrConversionSpec.fromjson(f.read())
-    SgvcfZarr.convert(
+    SgvcfZarr.encode(
         pcvcf,
         zarr_path,
         conversion_spec=schema,
@@ -1428,23 +1546,20 @@ def convert(
     chunk_width=None,
     worker_processes=1,
     show_progress=False,
+    # TODO add arguments to control location of tmpdir
 ):
-    with tempfile.TemporaryDirectory() as intermediate_form_dir:
+    with tempfile.TemporaryDirectory(prefix="vcf2zarr_if_") as if_dir:
         explode(
             vcfs,
-            intermediate_form_dir,
+            if_dir,
             worker_processes=worker_processes,
             show_progress=show_progress,
         )
-
-        pcvcf = PickleChunkedVcf.load(intermediate_form_dir)
-        spec = ZarrConversionSpec.generate(
-            pcvcf, chunk_length=chunk_length, chunk_width=chunk_width
-        )
-        SgvcfZarr.convert(
-            pcvcf,
+        encode(
+            if_dir,
             out_path,
-            conversion_spec=spec,
+            chunk_length=chunk_length,
+            chunk_width=chunk_width,
             worker_processes=worker_processes,
             show_progress=show_progress,
         )

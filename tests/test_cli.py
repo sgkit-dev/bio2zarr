@@ -64,6 +64,8 @@ class TestWithMocks:
                 "if_path",
                 "zarr_path",
                 None,
+                chunk_length=None,
+                chunk_width=None,
                 worker_processes=1,
                 show_progress=True,
             )
@@ -82,6 +84,8 @@ class TestWithMocks:
             mocked.assert_called_once_with(
                 ("vcf_path",),
                 "zarr_path",
+                chunk_length=None,
+                chunk_width=None,
                 worker_processes=1,
                 show_progress=True,
             )
