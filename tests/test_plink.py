@@ -12,12 +12,13 @@ class TestSmallExample:
     @pytest.fixture(scope="class")
     def ds(self, tmp_path_factory):
         path = "tests/data/plink/plink_sim_10s_100v_10pmiss.bed"
-        out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
+        out = tmp_path_factory.mktemp("data") / "example.plink.zarr"
         plink.convert(path, out)
         return sg.load_dataset(out)
 
-
     @pytest.mark.xfail
+    # FIXME I'm not sure these are the correct genotypes here, at least
+    # the test isn't passing and others are
     def test_genotypes(self, ds):
         # Validate a few randomly selected individual calls
         # (spanning all possible states for a call)
@@ -56,7 +57,7 @@ class TestSmallExample:
         # FIXME not working
         nt.assert_array_equal(actual, expected)
 
-    @pytest.mark.xfail
+    # @pytest.mark.xfail
     @pytest.mark.parametrize(
         ["chunk_length", "chunk_width"],
         [
@@ -73,11 +74,46 @@ class TestSmallExample:
     ):
         path = "tests/data/plink/plink_sim_10s_100v_10pmiss.bed"
         out = tmp_path / "example.zarr"
-        plink.convert(path, out, chunk_length=chunk_length, chunk_width=chunk_width,
-                worker_processes=worker_processes)
+        plink.convert(
+            path,
+            out,
+            chunk_length=chunk_length,
+            chunk_width=chunk_width,
+            worker_processes=worker_processes,
+        )
         ds2 = sg.load_dataset(out)
+        # print()
+        # print(ds.call_genotype.values[2])
+        # print(ds2.call_genotype.values[2])
+
         # print(ds2)
         # print(ds2.call_genotype.values)
         # print(ds.call_genotype.values)
         xt.assert_equal(ds, ds2)
         # TODO check array chunks
+
+
+@pytest.mark.parametrize(
+    ["chunk_length", "chunk_width"],
+    [
+        (10, 1),
+        (10, 10),
+        (33, 3),
+        (99, 10),
+        (3, 10),
+        # This one doesn't fail as it's the same as defaults
+        # (100, 10),
+    ],
+)
+@pytest.mark.parametrize("worker_processes", [0])
+def test_by_validating(tmp_path, chunk_length, chunk_width, worker_processes):
+    path = "tests/data/plink/plink_sim_10s_100v_10pmiss.bed"
+    out = tmp_path / "example.zarr"
+    plink.convert(
+        path,
+        out,
+        chunk_length=chunk_length,
+        chunk_width=chunk_width,
+        worker_processes=worker_processes,
+    )
+    plink.validate(path, out)

@@ -43,5 +43,5 @@ class TestTskitRoundTripVcf:
         nt.assert_equal(ds.variant_position, ts.sites_position)
 
 
-# TODO add a plink equivalant if we can find a way of programatically
-# generating plink data?
+# TODO add a plink equivalant using
+# https://fastlmm.github.io/bed-reader/#bed_reader.to_bed
