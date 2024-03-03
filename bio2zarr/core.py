@@ -4,7 +4,6 @@ import concurrent.futures as cf
 import multiprocessing
 import threading
 import logging
-import functools
 import time
 
 import zarr
@@ -159,32 +158,6 @@ def set_progress(value):
         _progress_counter.value = value
 
 
-def progress_thread_worker(config):
-    pbar = tqdm.tqdm(
-        total=config.total,
-        desc=f"{config.title:>7}",
-        unit_scale=True,
-        unit=config.units,
-        smoothing=0.1,
-        disable=not config.show,
-    )
-
-    while (current := get_progress()) < config.total:
-        inc = current - pbar.n
-        pbar.update(inc)
-        time.sleep(config.poll_interval)
-    # TODO figure out why we're sometimes going over total
-    # if get_progress() != config.total:
-    #     print("HOW DID THIS HAPPEN!!")
-    #     print(get_progress())
-    #     print(config)
-    # assert get_progress() == config.total
-    inc = config.total - pbar.n
-    pbar.update(inc)
-    pbar.close()
-    # print("EXITING PROGRESS THREAD")
-
-
 class ParallelWorkManager(contextlib.AbstractContextManager):
     def __init__(self, worker_processes=1, progress_config=None):
         if worker_processes <= 0:
@@ -194,18 +167,42 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
             self.executor = cf.ProcessPoolExecutor(
                 max_workers=worker_processes,
             )
+        self.futures = []
+
         set_progress(0)
         if progress_config is None:
             progress_config = ProgressConfig()
-        self.bar_thread = threading.Thread(
-            target=progress_thread_worker,
-            args=(progress_config,),
-            name="progress",
-            daemon=True,
-        )
-        self.bar_thread.start()
         self.progress_config = progress_config
-        self.futures = []
+        self.progress_bar = tqdm.tqdm(
+            total=progress_config.total,
+            desc=f"{progress_config.title:>7}",
+            unit_scale=True,
+            unit=progress_config.units,
+            smoothing=0.1,
+            disable=not progress_config.show,
+        )
+        self.completed = False
+        self.completed_lock = threading.Lock()
+        self.progress_thread = threading.Thread(
+            target=self._update_progress_worker,
+            name="progress-update",
+        )
+        self.progress_thread.start()
+
+    def _update_progress(self):
+        current = get_progress()
+        inc = current - self.progress_bar.n
+        # print("UPDATE PROGRESS: current = ", current, self.progress_config.total, inc)
+        self.progress_bar.update(inc)
+
+    def _update_progress_worker(self):
+        completed = False
+        while not completed:
+            self._update_progress()
+            time.sleep(self.progress_config.poll_interval)
+            with self.completed_lock:
+                completed = self.completed
+        logger.debug("Exit progress thread")
 
     def submit(self, *args, **kwargs):
         self.futures.append(self.executor.submit(*args, **kwargs))
@@ -217,13 +214,19 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is None:
             wait_on_futures(self.futures)
-            # Note: this doesn't seem to be working correctly. If
-            # we set a timeout of None we get deadlocks
-            set_progress(self.progress_config.total)
-            timeout = 0.1
         else:
             cancel_futures(self.futures)
-            timeout = 0
-        self.bar_thread.join(timeout)
-        self.executor.shutdown()
+        # There's probably a much cleaner way of doing this with a Condition
+        # or something, but this seems to work OK for now. This setup might
+        # make small conversions a bit laggy as we wait on the sleep interval
+        # though.
+        with self.completed_lock:
+            self.completed = True
+        self.executor.shutdown(wait=False)
+        # FIXME there's currently some thing weird happening at the end of
+        # Encode 1D for 1kg-p3. The progress bar disappears, like we're
+        # setting a total of zero or something.
+        self.progress_thread.join()
+        self._update_progress()
+        self.progress_bar.close()
         return False
