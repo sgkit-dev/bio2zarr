@@ -220,7 +220,7 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
             # Note: this doesn't seem to be working correctly. If
             # we set a timeout of None we get deadlocks
             set_progress(self.progress_config.total)
-            timeout = None
+            timeout = 0.1
         else:
             cancel_futures(self.futures)
             timeout = 0
