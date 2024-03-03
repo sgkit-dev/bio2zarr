@@ -378,7 +378,8 @@ class IndexedVcf(contextlib.AbstractContextManager):
                 index_path = vcf_path.with_suffix(vcf_path.suffix + ".csi")
                 if not index_path.exists():
                     raise FileNotFoundError(
-                        "Cannot find .tbi or .csi file for {vcf_path}")
+                        "Cannot find .tbi or .csi file for {vcf_path}"
+                    )
         else:
             index_path = pathlib.Path(index_path)
 
@@ -405,8 +406,7 @@ class IndexedVcf(contextlib.AbstractContextManager):
                 self.file_type = "vcf"
                 self.sequence_names = self.index.parse_vcf_aux()
             else:
-                with contextlib.closing(cyvcf2.VCF(vcf_path)) as vcf:
-                    self.sequence_names = vcf.seqnames
+                self.sequence_names = self.vcf.seqnames
         else:
             self.index = read_tabix(self.index_path)
             self.sequence_names = self.index.sequence_names
