@@ -98,7 +98,11 @@ class BufferedArray:
                     self.buff[: self.buffer_row], self.array, self.array_offset
                 )
             logger.debug(
-                f"Flushed chunk {self.array} {self.array_offset} + {self.buffer_row}")
+                f"Flushed <{self.array.name} {self.array.shape} "
+                f"{self.array.dtype}> "
+                f"{self.array_offset}:{self.array_offset + self.buffer_row}"
+                f"{self.buff.nbytes / 2**20: .2f}Mb"
+            )
             self.array_offset += self.chunk_length
             self.buffer_row = 0
 
@@ -216,7 +220,7 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
             # Note: this doesn't seem to be working correctly. If
             # we set a timeout of None we get deadlocks
             set_progress(self.progress_config.total)
-            timeout = None
+            timeout = 0.1
         else:
             cancel_futures(self.futures)
             timeout = 0
