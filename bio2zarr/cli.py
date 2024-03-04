@@ -1,6 +1,8 @@
+import logging
+
+import rich.logging as rl
 import click
 import tabulate
-import coloredlogs
 
 from . import vcf
 from . import vcf_utils
@@ -22,19 +24,18 @@ chunk_width = click.option("-w", "--chunk-width", type=int, default=None)
 version = click.version_option(version=provenance.__version__)
 
 
-# Note: logging hasn't been implemented in the code at all, this is just
-# a first pass to try out some ways of doing things to see what works.
 def setup_logging(verbosity):
     level = "WARNING"
     if verbosity == 1:
         level = "INFO"
     elif verbosity >= 2:
         level = "DEBUG"
-    # NOTE: I'm not that excited about coloredlogs, just trying it out
-    # as it is installed by cyvcf2 anyway. We will have some complicated
-    # stuff doing on with threads and processes, to logs might not work
-    # so well anyway.
-    coloredlogs.install(level=level)
+    logging.basicConfig(
+        level=level,
+        format="%(message)s",
+        datefmt="[%X]",
+        handlers=[rl.RichHandler()],
+    )
 
 
 @click.command
@@ -158,7 +159,9 @@ vcf2zarr.add_command(validate)
 @verbose
 @chunk_length
 @chunk_width
-def convert_plink(in_path, out_path, verbose, worker_processes, chunk_length, chunk_width):
+def convert_plink(
+    in_path, out_path, verbose, worker_processes, chunk_length, chunk_width
+):
     """
     In development; DO NOT USE!
     """

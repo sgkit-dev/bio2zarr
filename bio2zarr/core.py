@@ -8,7 +8,8 @@ import time
 
 import zarr
 import numpy as np
-import tqdm
+# import tqdm
+import rich.progress as rp
 import numcodecs
 
 
@@ -173,14 +174,26 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         if progress_config is None:
             progress_config = ProgressConfig()
         self.progress_config = progress_config
-        self.progress_bar = tqdm.tqdm(
-            total=progress_config.total,
-            desc=f"{progress_config.title:>7}",
-            unit_scale=True,
-            unit=progress_config.units,
-            smoothing=0.1,
-            disable=not progress_config.show,
-        )
+        # self.progress_bar = tqdm.tqdm(
+        #     total=progress_config.total,
+        #     desc=f"{progress_config.title:>7}",
+        #     unit_scale=True,
+        #     unit=progress_config.units,
+        #     smoothing=0.1,
+        #     disable=not progress_config.show,
+        # )
+        self.progress_bar = rp.Progress(
+            rp.TimeElapsedColumn(),
+            rp.TextColumn("[progress.description]{task.description}"),
+            rp.BarColumn(),
+            rp.TaskProgressColumn(),
+            rp.MofNCompleteColumn(),
+            rp.TextColumn(f"{progress_config.units} ETA:"),
+            rp.TimeRemainingColumn())
+        self.progress_task = self.progress_bar.add_task(
+            f"{progress_config.title:>7}",
+            total=progress_config.total)
+        self.progress_bar.start()
         self.completed = False
         self.completed_lock = threading.Lock()
         self.progress_thread = threading.Thread(
@@ -191,9 +204,10 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
 
     def _update_progress(self):
         current = get_progress()
-        inc = current - self.progress_bar.n
-        # print("UPDATE PROGRESS: current = ", current, self.progress_config.total, inc)
-        self.progress_bar.update(inc)
+        # inc = current - self.progress_bar.n
+        # print("UPDATE PROGRESS: current = ", current)
+        # self.progress_bar.update(inc)
+        self.progress_bar.update(self.progress_task, completed=current, refresh=True)
 
     def _update_progress_worker(self):
         completed = False
@@ -228,5 +242,5 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         # setting a total of zero or something.
         self.progress_thread.join()
         self._update_progress()
-        self.progress_bar.close()
+        self.progress_bar.stop()
         return False
