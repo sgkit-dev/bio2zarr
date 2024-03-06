@@ -581,22 +581,7 @@ class PickleChunkedVcfField:
     def read_chunk(self, path):
         with open(path, "rb") as f:
             pkl = self.compressor.decode(f.read())
-        return pickle.loads(pkl), len(pkl)
-
-    def iter_values_bytes(self):
-        num_records = 0
-        bytes_read = 0
-        for partition_id in range(self.num_partitions):
-            for chunk_path in self.chunk_files(partition_id):
-                chunk, chunk_bytes = self.read_chunk(chunk_path)
-                bytes_read += chunk_bytes
-                for record in chunk:
-                    yield record, bytes_read
-                    num_records += 1
-        if num_records != self.num_records:
-            raise ValueError(
-                f"Corruption detected: incorrect number of records in {str(self.path)}."
-            )
+        return pickle.loads(pkl)
 
     def iter_values(self, start=None, stop=None):
         start = 0 if start is None else start
@@ -620,7 +605,7 @@ class PickleChunkedVcfField:
         )
 
         for chunk_path in self.chunk_files(start_partition, start_chunk):
-            chunk, _ = self.read_chunk(chunk_path)
+            chunk = self.read_chunk(chunk_path)
             for record in chunk:
                 if record_id == stop:
                     return
@@ -630,7 +615,7 @@ class PickleChunkedVcfField:
         assert record_id > start
         for partition_id in range(start_partition + 1, self.num_partitions):
             for chunk_path in self.chunk_files(partition_id):
-                chunk, _ = self.read_chunk(chunk_path)
+                chunk = self.read_chunk(chunk_path)
                 for record in chunk:
                     if record_id == stop:
                         return
@@ -641,7 +626,19 @@ class PickleChunkedVcfField:
     # but making a property for consistency with xarray etc
     @property
     def values(self):
-        return [record for record, _ in self.iter_values_bytes()]
+        ret = [None] * self.num_records
+        j = 0
+        for partition_id in range(self.num_partitions):
+            for chunk_path in self.chunk_files(partition_id):
+                chunk = self.read_chunk(chunk_path)
+                for record in chunk:
+                    ret[j] = record
+                    j += 1
+        if j != self.num_records:
+            raise ValueError(
+                f"Corruption detected: incorrect number of records in {str(self.path)}."
+            )
+        return ret
 
     def sanitiser_factory(self, shape):
         """
@@ -1288,7 +1285,6 @@ class SgvcfZarr:
         gt_phased = core.BufferedArray(self.root["call_genotype_phased"], start)
 
         for value in source_col.iter_values(start, stop):
-            # core.update_progress(sys.getsizeof(value))
             j = gt.next_buffer_row()
             sanitise_value_int_2d(gt.buff, j, value[:, :-1])
             j = gt_phased.next_buffer_row()
@@ -1300,26 +1296,70 @@ class SgvcfZarr:
         gt.flush()
         gt_phased.flush()
         gt_mask.flush()
-        logger.debug(f"GT slice {start}:{stop} done")
+        logger.debug(f"Encoded GT slice {start}:{stop}")
 
-    def encode_alleles(self, pcvcf):
+    def encode_alleles_slice(self, pcvcf, start, stop):
         ref_col = pcvcf.columns["REF"]
         alt_col = pcvcf.columns["ALT"]
-        ref_values = ref_col.values
-        alt_values = alt_col.values
-        allele_array = self.root["variant_allele"]
+        alleles = core.BufferedArray(self.root["variant_allele"], start)
 
-        # We could do this chunk-by-chunk, but it doesn't seem worth the bother.
-        alleles = np.full(allele_array.shape, "", dtype="O")
-        for j, (ref, alt) in enumerate(zip(ref_values, alt_values)):
-            alleles[j, 0] = ref[0]
-            alleles[j, 1 : 1 + len(alt)] = alt
-        allele_array[:] = alleles
-        size = sum(
-            col.vcf_field.summary.uncompressed_size for col in [ref_col, alt_col]
-        )
-        logger.debug("alleles done")
-        core.update_progress(allele_array.nchunks)
+        for ref, alt in zip(
+            ref_col.iter_values(start, stop), alt_col.iter_values(start, stop)
+        ):
+            j = alleles.next_buffer_row()
+            alleles.buff[j, :] = STR_FILL
+            alleles.buff[j, 0] = ref[0]
+            alleles.buff[j, 1 : 1 + len(alt)] = alt
+        alleles.flush()
+        logger.debug(f"Encoded alleles slice {start}:{stop}")
+
+    def encode_id_slice(self, pcvcf, start, stop):
+        col = pcvcf.columns["ID"]
+        vid = core.BufferedArray(self.root["variant_id"], start)
+        vid_mask = core.BufferedArray(self.root["variant_id_mask"], start)
+
+        for value in col.iter_values(start, stop):
+            j = vid.next_buffer_row()
+            k = vid_mask.next_buffer_row()
+            assert j == k
+            if value is not None:
+                vid.buff[j] = value[0]
+                vid_mask.buff[j] = False
+            else:
+                vid.buff[j] = STR_MISSING
+                vid_mask.buff[j] = True
+        vid.flush()
+        vid_mask.flush()
+        logger.debug(f"Encoded ID slice {start}:{stop}")
+
+    def encode_filters_slice(self, pcvcf, lookup, start, stop):
+        col = pcvcf.columns["FILTERS"]
+        var_filter = core.BufferedArray(self.root["variant_filter"], start)
+
+        for value in col.iter_values(start, stop):
+            j = var_filter.next_buffer_row()
+            var_filter.buff[j] = False
+            try:
+                for f in value:
+                    var_filter.buff[j, lookup[f]] = True
+            except IndexError:
+                raise ValueError(f"Filter '{f}' was not defined in the header.")
+        var_filter.flush()
+        logger.debug(f"Encoded FILTERS slice {start}:{stop}")
+
+    def encode_contig_slice(self, pcvcf, lookup, start, stop):
+        col = pcvcf.columns["CHROM"]
+        contig = core.BufferedArray(self.root["variant_contig"], start)
+
+        for value in col.iter_values(start, stop):
+            j = contig.next_buffer_row()
+            try:
+                contig.buff[j] = lookup[value[0]]
+            except KeyError:
+                # TODO add advice about adding it to the spec
+                raise ValueError(f"Contig '{contig}' was not defined in the header.")
+        contig.flush()
+        logger.debug(f"Encoded CHROM slice {start}:{stop}")
 
     def encode_samples(self, pcvcf, sample_id, chunk_width):
         if not np.array_equal(sample_id, pcvcf.metadata.samples):
@@ -1333,10 +1373,8 @@ class SgvcfZarr:
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
         logger.debug("Samples done")
-        core.update_progress(array.nchunks)
 
-    def encode_contig(self, pcvcf, contig_names, contig_lengths):
-        logger.debug("Start encode contig")
+    def encode_contig_id(self, pcvcf, contig_names, contig_lengths):
         array = self.root.array(
             "contig_id",
             contig_names,
@@ -1344,8 +1382,6 @@ class SgvcfZarr:
             compressor=core.default_compressor,
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
-        core.update_progress(array.nchunks)
-
         if contig_lengths is not None:
             array = self.root.array(
                 "contig_length",
@@ -1353,25 +1389,9 @@ class SgvcfZarr:
                 dtype=np.int64,
             )
             array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
-            core.update_progress(array.nchunks)
+        return {v: j for j, v in enumerate(contig_names)}
 
-        col = pcvcf.columns["CHROM"]
-        array = self.root["variant_contig"]
-        buff = np.zeros_like(array)
-        lookup = {v: j for j, v in enumerate(contig_names)}
-        for j, contig in enumerate(col.values):
-            try:
-                buff[j] = lookup[contig[0]]
-            except KeyError:
-                # TODO add advice about adding it to the spec
-                raise ValueError(f"Contig '{contig}' was not defined in the header.")
-
-        logger.debug("Start contig write")
-        array[:] = buff
-        core.update_progress(array.nchunks)
-        logger.debug("Contig done")
-
-    def encode_filters(self, pcvcf, filter_names):
+    def encode_filter_id(self, pcvcf, filter_names):
         array = self.root.array(
             "filter_id",
             filter_names,
@@ -1379,44 +1399,7 @@ class SgvcfZarr:
             compressor=core.default_compressor,
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["filters"]
-        core.update_progress(array.nchunks)
-
-        col = pcvcf.columns["FILTERS"]
-        array = self.root["variant_filter"]
-        buff = np.zeros_like(array)
-
-        lookup = {v: j for j, v in enumerate(filter_names)}
-        for j, filters in enumerate(col.values):
-            try:
-                for f in filters:
-                    buff[j, lookup[f]] = True
-            except IndexError:
-                raise ValueError(f"Filter '{f}' was not defined in the header.")
-
-        array[:] = buff
-
-        core.update_progress(array.nchunks)
-        logger.debug("Filters done")
-
-    def encode_id(self, pcvcf):
-        col = pcvcf.columns["ID"]
-        id_array = self.root["variant_id"]
-        id_mask_array = self.root["variant_id_mask"]
-        id_buff = np.full_like(id_array, "")
-        id_mask_buff = np.zeros_like(id_mask_array)
-
-        for j, value in enumerate(col.values):
-            if value is not None:
-                id_buff[j] = value[0]
-            else:
-                id_buff[j] = "."  # TODO is this correct??
-                id_mask_buff[j] = True
-
-        id_array[:] = id_buff
-        core.update_progress(id_array.nchunks)
-        id_mask_array[:] = id_mask_buff
-        core.update_progress(id_mask_array.nchunks)
-        logger.debug("ID done")
+        return {v: j for j, v in enumerate(filter_names)}
 
     @staticmethod
     def encode(
@@ -1453,49 +1436,54 @@ class SgvcfZarr:
             units="chunks",
             show=show_progress,
         )
+
+        # Do these syncronously for simplicity so we have the mapping
+        filter_id_map = sgvcf.encode_filter_id(pcvcf, conversion_spec.filter_id)
+        contig_id_map = sgvcf.encode_contig_id(
+            pcvcf, conversion_spec.contig_id, conversion_spec.contig_length
+        )
+
         with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
-            # FIXME these need to be split up, as they are quite slow on large
-            # files, and if worker_processes < 8 we get a big pause
             pwm.submit(
                 sgvcf.encode_samples,
                 pcvcf,
                 conversion_spec.sample_id,
                 conversion_spec.chunk_width,
             )
-            pwm.submit(sgvcf.encode_alleles, pcvcf)
-            pwm.submit(sgvcf.encode_id, pcvcf)
-            pwm.submit(
-                sgvcf.encode_contig,
-                pcvcf,
-                conversion_spec.contig_id,
-                conversion_spec.contig_length,
-            )
-            pwm.submit(sgvcf.encode_filters, pcvcf, conversion_spec.filter_id)
-            for col in chunked_1d:
-                if col.vcf_field is not None:
-                    for start, stop in slices:
+            for start, stop in slices:
+                pwm.submit(sgvcf.encode_alleles_slice, pcvcf, start, stop)
+                pwm.submit(sgvcf.encode_id_slice, pcvcf, start, stop)
+                pwm.submit(
+                    sgvcf.encode_filters_slice, pcvcf, filter_id_map, start, stop
+                )
+                pwm.submit(sgvcf.encode_contig_slice, pcvcf, contig_id_map, start, stop)
+                for col in chunked_1d:
+                    if col.vcf_field is not None:
                         pwm.submit(sgvcf.encode_column_slice, pcvcf, col, start, stop)
 
         chunked_2d = [
             col for col in conversion_spec.columns.values() if len(col.chunks) >= 2
         ]
-        progress_config = core.ProgressConfig(
-            total=sum(sgvcf.root[col.name].nchunks for col in chunked_2d),
-            title="Encode 2D",
-            units="chunks",
-            show=show_progress,
-        )
-        with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
-            if "call_genotype" in conversion_spec.columns:
-                logger.info(f"Submit encode call_genotypes in {len(slices)} slices")
-                for start, stop in slices:
-                    pwm.submit(sgvcf.encode_genotypes_slice, pcvcf, start, stop)
-
-            for col in chunked_2d:
-                if col.vcf_field is not None:
-                    logger.info(f"Submit encode {col.name} in {len(slices)} slices")
+        if len(chunked_2d) > 0:
+            progress_config = core.ProgressConfig(
+                total=sum(sgvcf.root[col.name].nchunks for col in chunked_2d),
+                title="Encode 2D",
+                units="chunks",
+                show=show_progress,
+            )
+            with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
+                if "call_genotype" in conversion_spec.columns:
+                    logger.info(f"Submit encode call_genotypes in {len(slices)} slices")
                     for start, stop in slices:
-                        pwm.submit(sgvcf.encode_column_slice, pcvcf, col, start, stop)
+                        pwm.submit(sgvcf.encode_genotypes_slice, pcvcf, start, stop)
+
+                for col in chunked_2d:
+                    if col.vcf_field is not None:
+                        logger.info(f"Submit encode {col.name} in {len(slices)} slices")
+                        for start, stop in slices:
+                            pwm.submit(
+                                sgvcf.encode_column_slice, pcvcf, col, start, stop
+                            )
 
         zarr.consolidate_metadata(write_path)
         # Atomic swap, now we've completely finished.
@@ -1746,7 +1734,7 @@ def validate(vcf_path, zarr_path, show_progress=False):
     assert pos[start_index] == first_pos
     vcf = cyvcf2.VCF(vcf_path)
     if show_progress:
-        iterator = tqdm.tqdm(vcf, desc=" Verify", total=vcf.num_records)
+        iterator = tqdm.tqdm(vcf, desc="   Verify", total=vcf.num_records)
     else:
         iterator = vcf
     for j, row in enumerate(iterator, start_index):
