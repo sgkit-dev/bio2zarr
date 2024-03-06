@@ -31,7 +31,7 @@ chunk_width = click.option(
     help="Chunk size in the samples dimension",
 )
 
-version = click.version_option(version=provenance.__version__)
+version = click.version_option(version=f"bio2zarr {provenance.__version__}")
 
 
 # Note: logging hasn't been implemented in the code at all, this is just
