@@ -15,9 +15,21 @@ worker_processes = click.option(
 )
 
 # TODO help text
-chunk_length = click.option("-l", "--chunk-length", type=int, default=None)
+chunk_length = click.option(
+    "-l",
+    "--chunk-length",
+    type=int,
+    default=None,
+    help="Chunk size in the variants dimension",
+)
 
-chunk_width = click.option("-w", "--chunk-width", type=int, default=None)
+chunk_width = click.option(
+    "-w",
+    "--chunk-width",
+    type=int,
+    default=None,
+    help="Chunk size in the samples dimension",
+)
 
 version = click.version_option(version=provenance.__version__)
 
@@ -83,13 +95,30 @@ def mkschema(if_path):
 @click.argument("if_path", type=click.Path())
 @click.argument("zarr_path", type=click.Path())
 @verbose
-@click.option("-s", "--schema", default=None)
-# TODO: these are mutually exclusive with schema, tell click this
+@click.option("-s", "--schema", default=None, type=click.Path(exists=True))
 @chunk_length
 @chunk_width
+@click.option(
+    "-V",
+    "--max-variant-chunks",
+    type=int,
+    default=None,
+    help=(
+        "Truncate the output in the variants dimension to have "
+        "this number of chunks. Mainly intended to help with "
+        "schema tuning."
+    ),
+)
 @worker_processes
 def encode(
-    if_path, zarr_path, verbose, schema, chunk_length, chunk_width, worker_processes
+    if_path,
+    zarr_path,
+    verbose,
+    schema,
+    chunk_length,
+    chunk_width,
+    max_variant_chunks,
+    worker_processes,
 ):
     """
     Encode intermediate format (see explode) to vcfzarr
@@ -101,6 +130,7 @@ def encode(
         schema,
         chunk_length=chunk_length,
         chunk_width=chunk_width,
+        max_v_chunks=max_variant_chunks,
         worker_processes=worker_processes,
         show_progress=True,
     )
@@ -132,6 +162,9 @@ def convert_vcf(vcfs, out_path, chunk_length, chunk_width, verbose, worker_proce
 @click.argument("vcfs", nargs=-1, required=True)
 @click.argument("out_path", type=click.Path())
 def validate(vcfs, out_path):
+    """
+    Development only, do not use. Will be removed before release.
+    """
     # FIXME! Will silently not look at remaining VCFs
     vcf.validate(vcfs[0], out_path, show_progress=True)
 
@@ -158,7 +191,9 @@ vcf2zarr.add_command(validate)
 @verbose
 @chunk_length
 @chunk_width
-def convert_plink(in_path, out_path, verbose, worker_processes, chunk_length, chunk_width):
+def convert_plink(
+    in_path, out_path, verbose, worker_processes, chunk_length, chunk_width
+):
     """
     In development; DO NOT USE!
     """

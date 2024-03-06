@@ -1091,7 +1091,7 @@ class ZarrConversionSpec:
             chunk_width = 1000
         if chunk_length is None:
             chunk_length = 10_000
-
+        logger.info(f"Generating schema with chunks={chunk_length, chunk_width}")
         compressor = core.default_compressor.get_config()
 
         def fixed_field_spec(
@@ -1403,7 +1403,13 @@ class SgvcfZarr:
 
     @staticmethod
     def encode(
-        pcvcf, path, conversion_spec, *, worker_processes=1, show_progress=False
+        pcvcf,
+        path,
+        conversion_spec,
+        *,
+        worker_processes=1,
+        max_v_chunks=None,
+        show_progress=False,
     ):
         path = pathlib.Path(path)
         # TODO: we should do this as a future to avoid blocking
@@ -1425,7 +1431,15 @@ class SgvcfZarr:
 
         num_slices = max(1, worker_processes * 4)
         # Using POS arbitrarily to get the array slices
-        slices = core.chunk_aligned_slices(sgvcf.root["variant_position"], num_slices)
+        slices = core.chunk_aligned_slices(
+            sgvcf.root["variant_position"], num_slices, max_chunks=max_v_chunks
+        )
+        truncated = slices[-1][-1]
+        for array in sgvcf.root.values():
+            if array.attrs["_ARRAY_DIMENSIONS"][0] == "variants":
+                shape = list(array.shape)
+                shape[0] = truncated
+                array.resize(shape)
 
         chunked_1d = [
             col for col in conversion_spec.columns.values() if len(col.chunks) <= 1
@@ -1503,6 +1517,7 @@ def encode(
     schema_path=None,
     chunk_length=None,
     chunk_width=None,
+    max_v_chunks=None,
     worker_processes=1,
     show_progress=False,
 ):
@@ -1514,13 +1529,17 @@ def encode(
             chunk_width=chunk_width,
         )
     else:
-        # TODO checking that chunk_width and chunk_length are None
+        logger.info(f"Reading schema from {schema_path}")
+        if chunk_length is not None or chunk_width is not None:
+            raise ValueError("Cannot specify schema along with chunk sizes")
         with open(schema_path, "r") as f:
             schema = ZarrConversionSpec.fromjson(f.read())
+
     SgvcfZarr.encode(
         pcvcf,
         zarr_path,
         conversion_spec=schema,
+        max_v_chunks=max_v_chunks,
         worker_processes=worker_processes,
         show_progress=show_progress,
     )
