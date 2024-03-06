@@ -90,6 +90,7 @@ def convert(
         chunks=(chunk_width,),
     )
     a.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
+    logger.debug(f"Encoded samples")
 
     # TODO encode these in slices - but read them in one go to avoid
     # fetching repeatedly from bim file
@@ -101,6 +102,7 @@ def convert(
         chunks=(chunk_length,),
     )
     a.attrs["_ARRAY_DIMENSIONS"] = ["variants"]
+    logger.debug(f"encoded variant_position")
 
     alleles = np.stack([bed.allele_1, bed.allele_2], axis=1)
     a = root.array(
@@ -111,6 +113,7 @@ def convert(
         chunks=(chunk_length,),
     )
     a.attrs["_ARRAY_DIMENSIONS"] = ["variants", "alleles"]
+    logger.debug(f"encoded variant_allele")
 
     # TODO remove this?
     a = root.empty(
