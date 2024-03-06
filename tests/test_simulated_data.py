@@ -2,6 +2,7 @@ import pytest
 import msprime
 import pysam
 import sgkit as sg
+import numpy as np
 import numpy.testing as nt
 
 from bio2zarr import vcf
@@ -41,7 +42,3 @@ class TestTskitRoundTripVcf:
         nt.assert_equal(ds.variant_allele[:, 0].values, "A")
         nt.assert_equal(ds.variant_allele[:, 1].values, "T")
         nt.assert_equal(ds.variant_position, ts.sites_position)
-
-
-# TODO add a plink equivalant using
-# https://fastlmm.github.io/bed-reader/#bed_reader.to_bed
