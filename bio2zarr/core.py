@@ -23,13 +23,15 @@ default_compressor = numcodecs.Blosc(
 )
 
 
-def chunk_aligned_slices(z, n):
+def chunk_aligned_slices(z, n, max_chunks=None):
     """
     Returns at n slices in the specified zarr array, aligned
     with its chunks
     """
     chunk_size = z.chunks[0]
     num_chunks = int(np.ceil(z.shape[0] / chunk_size))
+    if max_chunks is not None:
+        num_chunks = min(num_chunks, max_chunks)
     slices = []
     splits = np.array_split(np.arange(num_chunks), min(n, num_chunks))
     for split in splits:
@@ -132,7 +134,7 @@ class ProgressConfig:
     units: str = ""
     title: str = ""
     show: bool = False
-    poll_interval: float = 0.001
+    poll_interval: float = 0.01
 
 
 # NOTE: this approach means that we cannot have more than one
@@ -175,7 +177,7 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         self.progress_config = progress_config
         self.progress_bar = tqdm.tqdm(
             total=progress_config.total,
-            desc=f"{progress_config.title:>7}",
+            desc=f"{progress_config.title:>9}",
             unit_scale=True,
             unit=progress_config.units,
             smoothing=0.1,
@@ -186,6 +188,7 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         self.progress_thread = threading.Thread(
             target=self._update_progress_worker,
             name="progress-update",
+            daemon=True,  # Avoids deadlock on exit in awkward error conditions
         )
         self.progress_thread.start()
 

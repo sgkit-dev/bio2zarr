@@ -73,6 +73,22 @@ class TestChunkAlignedSlices:
         assert result == expected
 
     @pytest.mark.parametrize(
+        ["n", "max_chunks", "expected"],
+        [
+            (1, 5, [(0, 20)]),
+            (1, 1, [(0, 5)]),
+            (2, 1, [(0, 5)]),
+            (3, 1, [(0, 5)]),
+            (2, 3, [(0, 10), (10, 15)]),
+            (2, 4, [(0, 10), (10, 20)]),
+        ],
+    )
+    def test_20_chunk_5_max_chunks(self, n, max_chunks, expected):
+        z = zarr.array(np.arange(20), chunks=5, dtype=int)
+        result = core.chunk_aligned_slices(z, n, max_chunks=max_chunks)
+        assert result == expected
+
+    @pytest.mark.parametrize(
         ["n", "expected"],
         [
             (1, [(0, 20)]),

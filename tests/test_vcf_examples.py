@@ -315,6 +315,16 @@ class TestSmallExample:
         ds2 = sg.load_dataset(out)
         xt.assert_equal(ds, ds2)
 
+    @pytest.mark.parametrize("max_v_chunks", [1, 2, 3])
+    @pytest.mark.parametrize("chunk_length", [1, 2, 3])
+    def test_max_v_chunks(self, ds, tmp_path, max_v_chunks, chunk_length):
+        exploded = tmp_path / "example.exploded"
+        vcf.explode([self.data_path], exploded)
+        out = tmp_path / "example.zarr"
+        vcf.encode(exploded, out, chunk_length=chunk_length, max_v_chunks=max_v_chunks)
+        ds2 = sg.load_dataset(out)
+        xt.assert_equal(ds.isel(variants=slice(None, chunk_length * max_v_chunks)), ds2)
+
     @pytest.mark.parametrize("worker_processes", [0, 1, 2])
     def test_worker_processes(self, ds, tmp_path, worker_processes):
         out = tmp_path / "example.vcf.zarr"
