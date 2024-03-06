@@ -12,7 +12,11 @@ logger = logging.getLogger(__name__)
 
 
 def encode_genotypes_slice(bed_path, zarr_path, start, stop):
-    bed = bed_reader.open_bed(bed_path, num_threads=1)
+    # We need to count the A2 alleles here if we want to keep the
+    # alleles reported as allele_1, allele_2. It's obvious here what
+    # the correct approach is, but it is important to note that the
+    # 0th allele is *not* necessarily the REF for these datasets.
+    bed = bed_reader.open_bed(bed_path, num_threads=1, count_A1=False)
     store = zarr.DirectoryStore(zarr_path)
     root = zarr.group(store=store)
     gt = core.BufferedArray(root["call_genotype"], start)
@@ -62,7 +66,6 @@ def convert(
     bed = bed_reader.open_bed(bed_path, num_threads=1)
     n = bed.iid_count
     m = bed.sid_count
-    del bed
     logging.info(f"Scanned plink with {n} samples and {m} variants")
 
     # FIXME
@@ -79,6 +82,40 @@ def convert(
     chunks = [chunk_length, chunk_width]
     dimensions = ["variants", "samples"]
 
+    a = root.array(
+        "sample_id",
+        bed.iid,
+        dtype="str",
+        compressor=core.default_compressor,
+        chunks=(chunk_width,),
+    )
+    a.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
+    logger.debug(f"Encoded samples")
+
+    # TODO encode these in slices - but read them in one go to avoid
+    # fetching repeatedly from bim file
+    a = root.array(
+        "variant_position",
+        bed.bp_position,
+        dtype=np.int32,
+        compressor=core.default_compressor,
+        chunks=(chunk_length,),
+    )
+    a.attrs["_ARRAY_DIMENSIONS"] = ["variants"]
+    logger.debug(f"encoded variant_position")
+
+    alleles = np.stack([bed.allele_1, bed.allele_2], axis=1)
+    a = root.array(
+        "variant_allele",
+        alleles,
+        dtype="str",
+        compressor=core.default_compressor,
+        chunks=(chunk_length,),
+    )
+    a.attrs["_ARRAY_DIMENSIONS"] = ["variants", "alleles"]
+    logger.debug(f"encoded variant_allele")
+
+    # TODO remove this?
     a = root.empty(
         "call_genotype_phased",
         dtype="bool",
@@ -108,6 +145,8 @@ def convert(
     )
     a.attrs["_ARRAY_DIMENSIONS"] = list(dimensions)
 
+    del bed
+
     num_slices = max(1, worker_processes * 4)
     slices = core.chunk_aligned_slices(a, num_slices)
 
@@ -132,7 +171,7 @@ def validate(bed_path, zarr_path):
     root = zarr.group(store=store)
     call_genotype = root["call_genotype"][:]
 
-    bed = bed_reader.open_bed(bed_path, num_threads=1)
+    bed = bed_reader.open_bed(bed_path, count_A1=False, num_threads=1)
 
     assert call_genotype.shape[0] == bed.sid_count
     assert call_genotype.shape[1] == bed.iid_count
