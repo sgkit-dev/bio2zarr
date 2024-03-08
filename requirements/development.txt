@@ -1,0 +1,11 @@
+bed_reader
+click
+cyvcf2
+msprime
+pysam
+pytest
+pytest-coverage
+pytest-xdist
+sgkit
+tabulate
+tqdm
