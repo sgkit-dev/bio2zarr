@@ -334,6 +334,19 @@ class TestSmallExample:
         ds2 = sg.load_dataset(out)
         xt.assert_equal(ds, ds2)
 
+    def test_inspect(self, tmp_path):
+        # TODO pretty weak test, we should be doing this better somewhere else
+        out = tmp_path / "example.vcf.zarr"
+        vcf.convert(
+            [self.data_path],
+            out,
+            chunk_length=3,
+        )
+        data = vcf.inspect(out)
+        assert len(data) > 0
+        for row in data:
+            assert "name" in row
+
 
 class Test1000G2020Example:
     data_path = "tests/data/vcf/1kg_2020_chrM.vcf.gz"
