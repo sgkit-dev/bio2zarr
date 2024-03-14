@@ -40,6 +40,17 @@ FLOAT32_MISSING_AS_INT32, FLOAT32_FILL_AS_INT32 = np.array(
 )
 
 
+def display_number(x):
+    ret = "n/a"
+    if math.isfinite(x):
+        ret = f"{x: 0.2g}"
+    return ret
+
+
+def display_size(n):
+    return humanfriendly.format_size(n)
+
+
 @dataclasses.dataclass
 class VcfFieldSummary:
     num_chunks: int = 0
@@ -812,15 +823,6 @@ class PickleChunkedVcf(collections.abc.Mapping):
         return len(self.columns)
 
     def summary_table(self):
-        def display_number(x):
-            ret = "n/a"
-            if math.isfinite(x):
-                ret = f"{x: 0.2g}"
-            return ret
-
-        def display_size(n):
-            return humanfriendly.format_size(n)
-
         data = []
         for name, col in self.columns.items():
             summary = col.vcf_field.summary
@@ -1028,10 +1030,16 @@ def explode(
     return PickleChunkedVcf.load(out_path)
 
 
-def inspect(if_path):
+def inspect(path):
+    path = pathlib.Path(path)
     # TODO add support for the Zarr format also
-    pcvcf = PickleChunkedVcf.load(if_path)
-    return pcvcf.summary_table()
+    if (path / "metadata.json").exists():
+        obj = PickleChunkedVcf.load(path)
+    elif (path / ".zmetadata").exists():
+        obj = VcfZarr(path)
+    else:
+        raise ValueError("Format not recognised")
+    return obj.summary_table()
 
 
 @dataclasses.dataclass
@@ -1244,6 +1252,40 @@ class ZarrConversionSpec:
         )
 
 
+class VcfZarr:
+    def __init__(self, path):
+        if not (path / ".zmetadata").exists():
+            raise ValueError("Not in VcfZarr format")
+        self.root = zarr.open(path, mode="r")
+
+    def __repr__(self):
+        return repr(self.root)
+
+    def summary_table(self):
+        data = []
+        arrays = [(a.nbytes_stored, a) for _, a in self.root.arrays()]
+        arrays.sort(key=lambda x: x[0])
+        for stored, array in reversed(arrays):
+            d = {
+                "name": array.name,
+                "dtype": str(array.dtype),
+                "stored": display_size(stored),
+                "size": display_size(array.nbytes),
+                "ratio": display_number(array.nbytes / stored),
+                "nchunks": str(array.nchunks),
+                "chunk_size": display_size(array.nbytes / array.nchunks),
+                "avg_chunk_stored": display_size(int(stored / array.nchunks)),
+                "shape": str(array.shape),
+                "chunk_shape": str(array.chunks),
+                "compressor": str(array.compressor),
+                "filters": str(array.filters),
+            }
+            data.append(d)
+        return data
+
+
+# TODO refactor this into a VcfZarrWriter class, and get rid of the
+# statis methods.
 class SgvcfZarr:
     def __init__(self, path):
         self.path = pathlib.Path(path)
