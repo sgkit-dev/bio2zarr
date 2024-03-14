@@ -127,6 +127,7 @@ class TestWithMocks:
             )
 
 
+
 class TestVcfPartition:
     def test_num_parts(self):
         path = "tests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz"
