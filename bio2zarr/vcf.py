@@ -64,7 +64,7 @@ class VcfFieldSummary:
     def update(self, other):
         self.num_chunks += other.num_chunks
         self.compressed_size += other.compressed_size
-        self.uncompressed_size = other.uncompressed_size
+        self.uncompressed_size += other.uncompressed_size
         self.max_number = max(self.max_number, other.max_number)
         self.min_value = min(self.min_value, other.min_value)
         self.max_value = max(self.max_value, other.max_value)
