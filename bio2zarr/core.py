@@ -53,7 +53,12 @@ def wait_on_futures(futures):
     for future in cf.as_completed(futures):
         exception = future.exception()
         if exception is not None:
-            raise exception
+            cancel_futures(futures)
+            if isinstance(exception, cf.process.BrokenProcessPool):
+                raise RuntimeError(
+                    "Worker process died: you may have run out of memory") from exception
+            else:
+                raise exception
 
 
 def cancel_futures(futures):
@@ -74,7 +79,10 @@ class BufferedArray:
         assert offset % array.chunks[0] == 0
         dims = list(array.shape)
         dims[0] = min(array.chunks[0], array.shape[0])
-        self.buff = np.zeros(dims, dtype=array.dtype)
+        self.buff = np.empty(dims, dtype=array.dtype)
+        # Explicitly Fill with zeros here to make any out-of-memory errors happen
+        # quickly.
+        self.buff[:] = 0
         self.buffer_row = 0
 
     @property

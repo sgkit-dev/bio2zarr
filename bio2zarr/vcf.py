@@ -1529,13 +1529,27 @@ class SgvcfZarr:
             )
             with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
                 if "call_genotype" in conversion_spec.columns:
-                    logger.info(f"Submit encode call_genotypes in {len(slices)} slices")
+                    arrays = [
+                        sgvcf.root["call_genotype"],
+                        sgvcf.root["call_genotype_phased"],
+                        sgvcf.root["call_genotype_mask"],
+                    ]
+                    min_mem = sum(array.blocks[0].nbytes for array in arrays)
+                    logger.info(
+                        f"Submit encode call_genotypes in {len(slices)} slices. "
+                        f"Min per-worker mem={display_size(min_mem)}"
+                    )
                     for start, stop in slices:
                         pwm.submit(sgvcf.encode_genotypes_slice, pcvcf, start, stop)
 
                 for col in chunked_2d:
                     if col.vcf_field is not None:
-                        logger.info(f"Submit encode {col.name} in {len(slices)} slices")
+                        array = sgvcf.root[col.name]
+                        min_mem = array.blocks[0].nbytes
+                        logger.info(
+                            f"Submit encode {col.name} in {len(slices)} slices. "
+                            f"Min per-worker mem={display_size(min_mem)}"
+                        )
                         for start, stop in slices:
                             pwm.submit(
                                 sgvcf.encode_column_slice, pcvcf, col, start, stop
