@@ -464,7 +464,6 @@ class IndexedVcf(contextlib.AbstractContextManager):
         elif target_part_size_bytes is not None:
             num_parts = ceildiv(file_length, target_part_size_bytes)
         part_lengths = np.array([i * target_part_size_bytes for i in range(num_parts)])
-
         file_offsets, region_contig_indexes, region_positions = self.index.offsets()
 
         # Search the file offsets to find which indexes the part lengths fall at

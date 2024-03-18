@@ -282,7 +282,7 @@ def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
     )
     with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
         for path in paths:
-            pwm.submit(scan_vcf, path, target_num_partitions)
+            pwm.submit(scan_vcf, path, target_num_partitions//len(paths))
         results = list(pwm.results_as_completed())
 
     # Sort to make the ordering deterministic
@@ -885,6 +885,10 @@ class PickleChunkedVcf(collections.abc.Mapping):
     def write_metadata(self):
         with open(self.path / "metadata.json", "w") as f:
             json.dump(self.metadata.asdict(), f, indent=4)
+        # Write number of partitions in a convenience file for
+        # workflows
+        with open(self.path / "num_partitions.txt", "w") as f:
+            f.write(str(self.num_partitions))
 
     def write_header(self):
         with open(self.path / "header.txt", "w") as f:
@@ -983,15 +987,14 @@ class PickleChunkedVcf(collections.abc.Mapping):
         )
 
     @staticmethod
-    def convert_init(vcfs, out_path, *, worker_processes=1, show_progress=False):
+    def convert_init(vcfs, out_path, *, num_partitions=1, worker_processes=1, show_progress=False):
         out_path = pathlib.Path(out_path)
         # TODO make scan work in parallel using general progress code too
-        target_num_partitions = max(1, worker_processes * 4)
         vcf_metadata, header = scan_vcfs(
             vcfs,
             worker_processes=worker_processes,
             show_progress=show_progress,
-            target_num_partitions=target_num_partitions,
+            target_num_partitions=num_partitions,
         )
         pcvcf = PickleChunkedVcf(out_path, vcf_metadata, header)
         pcvcf.mkdirs()
@@ -1075,6 +1078,29 @@ def explode(
     )
     return PickleChunkedVcf.load(out_path)
 
+def explode_init(vcfs, out_path, *, num_partitions=1, worker_processes=1, show_progress=False):
+    out_path = pathlib.Path(out_path)
+    if out_path.exists():
+        shutil.rmtree(out_path)
+    # Error if num_parts less than number of files
+    if num_partitions < len(vcfs):
+        raise ValueError("num_partitions must be greater than or equal to the number of input VCFs")
+    return PickleChunkedVcf.convert_init(
+        vcfs,
+        out_path,
+        num_partitions=num_partitions,
+        worker_processes=worker_processes,
+        show_progress=show_progress,
+    )
+
+
+def explode_slice(out_path, start, stop, *, worker_processes=1, show_progress=False, column_chunk_size=16):
+    pcvcf = PickleChunkedVcf.load(out_path)
+    pcvcf.convert_slice(start, stop, worker_processes=worker_processes, show_progress=show_progress, column_chunk_size=column_chunk_size)
+
+def explode_finalise(out_path):
+    pcvcf = PickleChunkedVcf.load(out_path)
+    pcvcf.convert_finalise()
 
 def inspect(path):
     path = pathlib.Path(path)

@@ -14,8 +14,17 @@ worker_processes = click.option(
     "-p", "--worker-processes", type=int, default=1, help="Number of worker processes"
 )
 
+column_chunk_size = click.option(
+    "-c",
+    "--column-chunk-size",
+    type=int,
+    default=64,
+    help="Chunk size in the columns dimension",
+)
+
 # Note: -l and -w were chosen when these were called "width" and "length".
 # possibly there are better letters now.
+# TODO help text
 variants_chunk_size = click.option(
     "-l",
     "--variants-chunk-size",
@@ -55,7 +64,7 @@ def setup_logging(verbosity):
 @click.argument("out_path", type=click.Path())
 @verbose
 @worker_processes
-@click.option("-c", "--column-chunk-size", type=int, default=64)
+@column_chunk_size
 def explode(vcfs, out_path, verbose, worker_processes, column_chunk_size):
     """
     Convert VCF(s) to columnar intermediate format
@@ -69,6 +78,53 @@ def explode(vcfs, out_path, verbose, worker_processes, column_chunk_size):
         show_progress=True,
     )
 
+@click.command
+@click.argument("vcfs", nargs=-1, required=True)
+@click.argument("out_path", type=click.Path())
+@verbose
+@worker_processes
+def explode_init(vcfs, out_path, verbose, worker_processes):
+    """
+    Initial step for parallel conversion of VCF(s) to columnar intermediate format
+    """
+    setup_logging(verbose)
+    vcf.explode_init(
+        vcfs,
+        out_path,
+        worker_processes=worker_processes,
+        show_progress=True,
+    )
+
+@click.command
+@click.argument("out_path", type=click.Path(), required=True)
+@click.argument("start", type=int, required=True)
+@click.argument("end", type=int, required=True)
+@verbose
+@worker_processes
+@column_chunk_size
+def explode_slice(out_path, start, end, verbose, worker_processes, column_chunk_size):
+    """
+    Convert VCF(s) to columnar intermediate format
+    """
+    setup_logging(verbose)
+    vcf.explode_slice(
+        out_path,
+        start,
+        end,
+        worker_processes=worker_processes,
+        column_chunk_size=column_chunk_size,
+        show_progress=True,
+    )
+
+@click.command
+@click.argument("out_path", type=click.Path(), required=True)
+@verbose
+def explode_finalise(out_path, verbose):
+    """
+    Final step for parallel conversion of VCF(s) to columnar intermediate format
+    """
+    setup_logging(verbose)
+    vcf.explode_finalise(out_path)
 
 @click.command
 @click.argument("if_path", type=click.Path())
@@ -189,6 +245,9 @@ def vcf2zarr():
 
 # TODO figure out how to get click to list these in the given order.
 vcf2zarr.add_command(explode)
+vcf2zarr.add_command(explode_init)
+vcf2zarr.add_command(explode_slice)
+vcf2zarr.add_command(explode_finalise)
 vcf2zarr.add_command(inspect)
 vcf2zarr.add_command(mkschema)
 vcf2zarr.add_command(encode)
