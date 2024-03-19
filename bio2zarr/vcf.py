@@ -896,12 +896,20 @@ class PickleChunkedVcf(collections.abc.Mapping):
 
     def load_partition_summaries(self):
         summaries = []
+        not_found = []
         for j in range(self.num_partitions):
-            with open(self.path / f"partition_{j}_metadata.json") as f:
-                summary = json.load(f)
-                for k, v in summary['field_summaries'].items():
-                    summary['field_summaries'][k] = VcfFieldSummary(**v)
-                summaries.append(summary)
+            try:
+                with open(self.path / f"partition_{j}_metadata.json") as f:
+                    summary = json.load(f)
+                    for k, v in summary['field_summaries'].items():
+                        summary['field_summaries'][k] = VcfFieldSummary(**v)
+                    summaries.append(summary)
+            except FileNotFoundError:
+                not_found.append(j)
+        if not_found:
+            raise FileNotFoundError(
+                f"Partition metadata not found for {len(not_found)} partitions: {not_found}"
+            )
         return summaries
 
 
@@ -1008,8 +1016,13 @@ class PickleChunkedVcf(collections.abc.Mapping):
             f"Exploding {self.num_columns} columns {self.metadata.num_records} variants "
             f"{self.num_samples} samples"
         )
+        if start < 0:
+            raise ValueError(f"start={start} must be non-negative")
+        if stop > self.num_partitions:
+            raise ValueError(f"stop={stop} must be less than the number of partitions")
+        num_records_to_progress = sum([partition.num_records for partition in self.metadata.partitions[start:stop]])
         progress_config = core.ProgressConfig(
-            total=self.metadata.num_records,
+            total=num_records_to_progress,
             units="vars",
             title="Explode",
             show=show_progress,
