@@ -84,7 +84,7 @@ def explode(vcfs, out_path, verbose, worker_processes, column_chunk_size):
 @click.option("-n", "--target_num_partitions", type=int, required=True)
 @verbose
 @worker_processes
-def explode_init(vcfs, out_path, num_partitions, verbose, worker_processes):
+def explode_init(vcfs, out_path, target_num_partitions, verbose, worker_processes):
     """
     Initial step for parallel conversion of VCF(s) to columnar intermediate format
     """
@@ -92,7 +92,7 @@ def explode_init(vcfs, out_path, num_partitions, verbose, worker_processes):
     vcf.explode_init(
         vcfs,
         out_path,
-        num_partitions=num_partitions,
+        target_num_partitions=target_num_partitions,
         worker_processes=worker_processes,
         show_progress=True,
     )

@@ -1108,17 +1108,17 @@ def explode(
     )
     return PickleChunkedVcf.load(out_path)
 
-def explode_init(vcfs, out_path, *, num_partitions=1, worker_processes=1, show_progress=False):
+def explode_init(vcfs, out_path, *, target_num_partitions=1, worker_processes=1, show_progress=False):
     out_path = pathlib.Path(out_path)
     if out_path.exists():
         shutil.rmtree(out_path)
     # Error if num_parts less than number of files
-    if num_partitions < len(vcfs):
+    if target_num_partitions < len(vcfs):
         raise ValueError("num_partitions must be greater than or equal to the number of input VCFs")
     return PickleChunkedVcf.convert_init(
         vcfs,
         out_path,
-        num_partitions=num_partitions,
+        num_partitions=target_num_partitions,
         worker_processes=worker_processes,
         show_progress=show_progress,
     )
