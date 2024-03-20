@@ -188,7 +188,7 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         self.progress_config = progress_config
         self.progress_bar = tqdm.tqdm(
             total=progress_config.total,
-            desc=f"{progress_config.title:>9}",
+            desc=f"{progress_config.title:>7}",
             unit_scale=True,
             unit=progress_config.units,
             smoothing=0.1,
