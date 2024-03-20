@@ -1289,6 +1289,7 @@ class EncodingWork:
     func: callable
     start: int
     stop: int
+    columns: list[str]
     memory: int = 0
 
 
@@ -1525,16 +1526,23 @@ class VcfZarrWriter:
                     f = functools.partial(self.encode_array_slice, col)
                     work.append(
                         EncodingWork(
-                            f, start, stop, encoding_memory_requirements[col.name]
+                            f,
+                            start,
+                            stop,
+                            [col.name],
+                            encoding_memory_requirements[col.name],
                         )
                     )
-            work.append(EncodingWork(self.encode_alleles_slice, start, stop))
-            work.append(EncodingWork(self.encode_id_slice, start, stop))
+            work.append(
+                EncodingWork(self.encode_alleles_slice, start, stop, ["variant_allele"])
+            )
+            work.append(EncodingWork(self.encode_id_slice, start, stop, ["variant_id"]))
             work.append(
                 EncodingWork(
                     functools.partial(self.encode_filters_slice, filter_id_map),
                     start,
                     stop,
+                    ["variant_filters"],
                 )
             )
             work.append(
@@ -1542,26 +1550,30 @@ class VcfZarrWriter:
                     functools.partial(self.encode_contig_slice, contig_id_map),
                     start,
                     stop,
+                    ["variant_contig_id"],
                 )
             )
             if "call_genotype" in self.schema.columns:
+                variables = [
+                    "call_genotype",
+                    "call_genotype_phased",
+                    "call_genotype_mask",
+                ]
                 gt_memory = sum(
-                    encoding_memory_requirements[name]
-                    for name in [
-                        "call_genotype",
-                        "call_genotype_phased",
-                        "call_genotype_mask",
-                    ]
+                    encoding_memory_requirements[name] for name in variables
                 )
                 work.append(
-                    EncodingWork(self.encode_genotypes_slice, start, stop, gt_memory)
+                    EncodingWork(
+                        self.encode_genotypes_slice, start, stop, variables, gt_memory
+                    )
                 )
         # Fail early if we can't fit a particular column into memory
         for wp in work:
             if wp.memory >= max_memory:
-                raise ValueError(f"Insufficient memory for {wp.func}: "
-                    f"{display_size(wp.memory)} > {display_size(max_memory)}")
-
+                raise ValueError(
+                    f"Insufficient memory for {wp.columns}: "
+                    f"{display_size(wp.memory)} > {display_size(max_memory)}"
+                )
 
         progress_config = core.ProgressConfig(
             total=total_bytes,
@@ -1569,6 +1581,10 @@ class VcfZarrWriter:
             units="B",
             show=show_progress,
         )
+        # TODO add a map of slices completed to column here, so that we can
+        # finalise the arrays as they get completed. We'll have to service
+        # the futures more, though, not just when we exceed the memory budget
+
         used_memory = 0
         with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
             future = pwm.submit(self.encode_samples)
