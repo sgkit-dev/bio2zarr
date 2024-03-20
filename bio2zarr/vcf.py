@@ -1123,6 +1123,10 @@ def explode_init(vcfs, out_path, *, num_partitions=1, worker_processes=1, show_p
         show_progress=show_progress,
     )
 
+def explode_partition_count(out_path):
+    pcvcf = PickleChunkedVcf.load(out_path)
+    return pcvcf.num_partitions
+
 
 def explode_slice(out_path, start, stop, *, worker_processes=1, show_progress=False, column_chunk_size=16):
     pcvcf = PickleChunkedVcf.load(out_path)

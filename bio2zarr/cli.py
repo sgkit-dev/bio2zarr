@@ -81,7 +81,7 @@ def explode(vcfs, out_path, verbose, worker_processes, column_chunk_size):
 @click.command
 @click.argument("vcfs", nargs=-1, required=True)
 @click.argument("out_path", type=click.Path())
-@click.argument("num_partitions", type=int, required=True)
+@click.option("-n", "--target_num_partitions", type=int, required=True)
 @verbose
 @worker_processes
 def explode_init(vcfs, out_path, num_partitions, verbose, worker_processes):
@@ -98,19 +98,27 @@ def explode_init(vcfs, out_path, num_partitions, verbose, worker_processes):
     )
 
 @click.command
-@click.argument("out_path", type=click.Path(), required=True)
-@click.argument("start", type=int, required=True)
-@click.argument("end", type=int, required=True)
+@click.argument("path", type=click.Path())
+def explode_partition_count(path):
+    """
+    Count the actual number of partitions in a parallel conversion of VCF(s) to columnar intermediate format
+    """
+    print(vcf.explode_partition_count(path))
+
+@click.command
+@click.argument("path", type=click.Path(), required=True)
+@click.option("-s", "--start", type=int, required=True)
+@click.option("-e", "--end", type=int, required=True)
 @verbose
 @worker_processes
 @column_chunk_size
-def explode_slice(out_path, start, end, verbose, worker_processes, column_chunk_size):
+def explode_slice(path, start, end, verbose, worker_processes, column_chunk_size):
     """
     Convert VCF(s) to columnar intermediate format
     """
     setup_logging(verbose)
     vcf.explode_slice(
-        out_path,
+        path,
         start,
         end,
         worker_processes=worker_processes,
@@ -119,14 +127,14 @@ def explode_slice(out_path, start, end, verbose, worker_processes, column_chunk_
     )
 
 @click.command
-@click.argument("out_path", type=click.Path(), required=True)
+@click.argument("path", type=click.Path(), required=True)
 @verbose
-def explode_finalise(out_path, verbose):
+def explode_finalise(path, verbose):
     """
     Final step for parallel conversion of VCF(s) to columnar intermediate format
     """
     setup_logging(verbose)
-    vcf.explode_finalise(out_path)
+    vcf.explode_finalise(path)
 
 @click.command
 @click.argument("if_path", type=click.Path())
@@ -248,6 +256,7 @@ def vcf2zarr():
 # TODO figure out how to get click to list these in the given order.
 vcf2zarr.add_command(explode)
 vcf2zarr.add_command(explode_init)
+vcf2zarr.add_command(explode_partition_count)
 vcf2zarr.add_command(explode_slice)
 vcf2zarr.add_command(explode_finalise)
 vcf2zarr.add_command(inspect)
