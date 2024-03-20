@@ -1284,11 +1284,11 @@ class VcfZarr:
         return data
 
 
-# TODO refactor this into a VcfZarrWriter class, and get rid of the
-# statis methods.
-class SgvcfZarr:
-    def __init__(self, path):
+class VcfZarrWriter:
+    def __init__(self, path, pcvcf, schema):
         self.path = pathlib.Path(path)
+        self.pcvcf = pcvcf
+        self.schema = schema
         self.root = None
 
     def create_array(self, variable):
@@ -1306,8 +1306,8 @@ class SgvcfZarr:
         )
         a.attrs["_ARRAY_DIMENSIONS"] = variable.dimensions
 
-    def encode_column_slice(self, pcvcf, column, start, stop):
-        source_col = pcvcf.columns[column.vcf_field]
+    def encode_column_slice(self, column, start, stop):
+        source_col = self.pcvcf.columns[column.vcf_field]
         array = self.root[column.name]
         ba = core.BufferedArray(array, start)
         sanitiser = source_col.sanitiser_factory(ba.buff.shape)
@@ -1320,8 +1320,8 @@ class SgvcfZarr:
         ba.flush()
         logger.debug(f"Encoded {column.name} slice {start}:{stop}")
 
-    def encode_genotypes_slice(self, pcvcf, start, stop):
-        source_col = pcvcf.columns["FORMAT/GT"]
+    def encode_genotypes_slice(self, start, stop):
+        source_col = self.pcvcf.columns["FORMAT/GT"]
         gt = core.BufferedArray(self.root["call_genotype"], start)
         gt_mask = core.BufferedArray(self.root["call_genotype_mask"], start)
         gt_phased = core.BufferedArray(self.root["call_genotype_phased"], start)
@@ -1340,9 +1340,9 @@ class SgvcfZarr:
         gt_mask.flush()
         logger.debug(f"Encoded GT slice {start}:{stop}")
 
-    def encode_alleles_slice(self, pcvcf, start, stop):
-        ref_col = pcvcf.columns["REF"]
-        alt_col = pcvcf.columns["ALT"]
+    def encode_alleles_slice(self, start, stop):
+        ref_col = self.pcvcf.columns["REF"]
+        alt_col = self.pcvcf.columns["ALT"]
         alleles = core.BufferedArray(self.root["variant_allele"], start)
 
         for ref, alt in zip(
@@ -1355,8 +1355,8 @@ class SgvcfZarr:
         alleles.flush()
         logger.debug(f"Encoded alleles slice {start}:{stop}")
 
-    def encode_id_slice(self, pcvcf, start, stop):
-        col = pcvcf.columns["ID"]
+    def encode_id_slice(self, start, stop):
+        col = self.pcvcf.columns["ID"]
         vid = core.BufferedArray(self.root["variant_id"], start)
         vid_mask = core.BufferedArray(self.root["variant_id_mask"], start)
 
@@ -1374,8 +1374,8 @@ class SgvcfZarr:
         vid_mask.flush()
         logger.debug(f"Encoded ID slice {start}:{stop}")
 
-    def encode_filters_slice(self, pcvcf, lookup, start, stop):
-        col = pcvcf.columns["FILTERS"]
+    def encode_filters_slice(self, lookup, start, stop):
+        col = self.pcvcf.columns["FILTERS"]
         var_filter = core.BufferedArray(self.root["variant_filter"], start)
 
         for value in col.iter_values(start, stop):
@@ -1389,8 +1389,8 @@ class SgvcfZarr:
         var_filter.flush()
         logger.debug(f"Encoded FILTERS slice {start}:{stop}")
 
-    def encode_contig_slice(self, pcvcf, lookup, start, stop):
-        col = pcvcf.columns["CHROM"]
+    def encode_contig_slice(self, lookup, start, stop):
+        col = self.pcvcf.columns["CHROM"]
         contig = core.BufferedArray(self.root["variant_contig"], start)
 
         for value in col.iter_values(start, stop):
@@ -1403,136 +1403,120 @@ class SgvcfZarr:
         contig.flush()
         logger.debug(f"Encoded CHROM slice {start}:{stop}")
 
-    def encode_samples(self, pcvcf, sample_id, chunk_width):
-        if not np.array_equal(sample_id, pcvcf.metadata.samples):
+    def encode_samples(self):
+        if not np.array_equal(self.schema.sample_id, self.pcvcf.metadata.samples):
             raise ValueError("Subsetting or reordering samples not supported currently")
         array = self.root.array(
             "sample_id",
-            sample_id,
+            self.schema.sample_id,
             dtype="str",
             compressor=core.default_compressor,
-            chunks=(chunk_width,),
+            chunks=(self.schema.chunk_width,),
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
         logger.debug("Samples done")
 
-    def encode_contig_id(self, pcvcf, contig_names, contig_lengths):
+    def encode_contig_id(self):
         array = self.root.array(
             "contig_id",
-            contig_names,
+            self.schema.contig_id,
             dtype="str",
             compressor=core.default_compressor,
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
-        if contig_lengths is not None:
+        if self.schema.contig_length is not None:
             array = self.root.array(
                 "contig_length",
-                contig_lengths,
+                self.schema.contig_length,
                 dtype=np.int64,
             )
             array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
-        return {v: j for j, v in enumerate(contig_names)}
+        return {v: j for j, v in enumerate(self.schema.contig_id)}
 
-    def encode_filter_id(self, pcvcf, filter_names):
+    def encode_filter_id(self):
         array = self.root.array(
             "filter_id",
-            filter_names,
+            self.schema.filter_id,
             dtype="str",
             compressor=core.default_compressor,
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["filters"]
-        return {v: j for j, v in enumerate(filter_names)}
+        return {v: j for j, v in enumerate(self.schema.filter_id)}
 
-    @staticmethod
     def encode(
-        pcvcf,
-        path,
-        conversion_spec,
-        *,
+        self,
         worker_processes=1,
         max_v_chunks=None,
         show_progress=False,
     ):
-        path = pathlib.Path(path)
         # TODO: we should do this as a future to avoid blocking
-        if path.exists():
+        if self.path.exists():
             logger.warning(f"Deleting existing {path}")
-            shutil.rmtree(path)
-        write_path = path.with_suffix(path.suffix + f".{os.getpid()}.build")
+            shutil.rmtree(self.path)
+        write_path = self.path.with_suffix(self.path.suffix + f".{os.getpid()}.build")
         store = zarr.DirectoryStore(write_path)
-        # FIXME, duplicating logic about the store
         logger.info(f"Create zarr at {write_path}")
-        sgvcf = SgvcfZarr(write_path)
-        sgvcf.root = zarr.group(store=store, overwrite=True)
-        for column in conversion_spec.columns.values():
-            sgvcf.create_array(column)
+        self.root = zarr.group(store=store, overwrite=True)
+        for column in self.schema.columns.values():
+            self.create_array(column)
 
-        sgvcf.root.attrs["vcf_zarr_version"] = "0.2"
-        sgvcf.root.attrs["vcf_header"] = pcvcf.vcf_header
-        sgvcf.root.attrs["source"] = f"bio2zarr-{provenance.__version__}"
+        self.root.attrs["vcf_zarr_version"] = "0.2"
+        self.root.attrs["vcf_header"] = self.pcvcf.vcf_header
+        self.root.attrs["source"] = f"bio2zarr-{provenance.__version__}"
 
         num_slices = max(1, worker_processes * 4)
         # Using POS arbitrarily to get the array slices
         slices = core.chunk_aligned_slices(
-            sgvcf.root["variant_position"], num_slices, max_chunks=max_v_chunks
+            self.root["variant_position"], num_slices, max_chunks=max_v_chunks
         )
         truncated = slices[-1][-1]
-        for array in sgvcf.root.values():
+        for array in self.root.values():
             if array.attrs["_ARRAY_DIMENSIONS"][0] == "variants":
                 shape = list(array.shape)
                 shape[0] = truncated
                 array.resize(shape)
 
         chunked_1d = [
-            col for col in conversion_spec.columns.values() if len(col.chunks) <= 1
+            col for col in self.schema.columns.values() if len(col.chunks) <= 1
         ]
         progress_config = core.ProgressConfig(
-            total=sum(sgvcf.root[col.name].nchunks for col in chunked_1d),
+            total=sum(self.root[col.name].nchunks for col in chunked_1d),
             title="Encode 1D",
             units="chunks",
             show=show_progress,
         )
 
         # Do these syncronously for simplicity so we have the mapping
-        filter_id_map = sgvcf.encode_filter_id(pcvcf, conversion_spec.filter_id)
-        contig_id_map = sgvcf.encode_contig_id(
-            pcvcf, conversion_spec.contig_id, conversion_spec.contig_length
-        )
+        filter_id_map = self.encode_filter_id()
+        contig_id_map = self.encode_contig_id()
 
         with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
-            pwm.submit(
-                sgvcf.encode_samples,
-                pcvcf,
-                conversion_spec.sample_id,
-                conversion_spec.chunk_width,
-            )
+            pwm.submit(self.encode_samples)
             for start, stop in slices:
-                pwm.submit(sgvcf.encode_alleles_slice, pcvcf, start, stop)
-                pwm.submit(sgvcf.encode_id_slice, pcvcf, start, stop)
-                pwm.submit(
-                    sgvcf.encode_filters_slice, pcvcf, filter_id_map, start, stop
-                )
-                pwm.submit(sgvcf.encode_contig_slice, pcvcf, contig_id_map, start, stop)
+                pwm.submit(self.encode_alleles_slice, start, stop)
+                pwm.submit(self.encode_id_slice, start, stop)
+                pwm.submit(self.encode_filters_slice, filter_id_map, start, stop)
+                pwm.submit(self.encode_contig_slice, contig_id_map, start, stop)
                 for col in chunked_1d:
                     if col.vcf_field is not None:
-                        pwm.submit(sgvcf.encode_column_slice, pcvcf, col, start, stop)
+                        pwm.submit(self.encode_column_slice, col, start, stop)
 
         chunked_2d = [
-            col for col in conversion_spec.columns.values() if len(col.chunks) >= 2
+            col for col in self.schema.columns.values() if len(col.chunks) >= 2
         ]
         if len(chunked_2d) > 0:
             progress_config = core.ProgressConfig(
-                total=sum(sgvcf.root[col.name].nchunks for col in chunked_2d),
+                total=sum(self.root[col.name].nchunks for col in chunked_2d),
                 title="Encode 2D",
                 units="chunks",
                 show=show_progress,
             )
             with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
-                if "call_genotype" in conversion_spec.columns:
+                if "call_genotype" in self.schema.columns:
                     arrays = [
-                        sgvcf.root["call_genotype"],
-                        sgvcf.root["call_genotype_phased"],
-                        sgvcf.root["call_genotype_mask"],
+                        self.root["call_genotype"],
+                        self.root["call_genotype_phased"],
+                        self.root["call_genotype_mask"],
                     ]
                     min_mem = sum(array.blocks[0].nbytes for array in arrays)
                     logger.info(
@@ -1540,25 +1524,23 @@ class SgvcfZarr:
                         f"Min per-worker mem={display_size(min_mem)}"
                     )
                     for start, stop in slices:
-                        pwm.submit(sgvcf.encode_genotypes_slice, pcvcf, start, stop)
+                        pwm.submit(self.encode_genotypes_slice, start, stop)
 
                 for col in chunked_2d:
                     if col.vcf_field is not None:
-                        array = sgvcf.root[col.name]
+                        array = self.root[col.name]
                         min_mem = array.blocks[0].nbytes
                         logger.info(
                             f"Submit encode {col.name} in {len(slices)} slices. "
                             f"Min per-worker mem={display_size(min_mem)}"
                         )
                         for start, stop in slices:
-                            pwm.submit(
-                                sgvcf.encode_column_slice, pcvcf, col, start, stop
-                            )
+                            pwm.submit(self.encode_column_slice, col, start, stop)
 
         zarr.consolidate_metadata(write_path)
         # Atomic swap, now we've completely finished.
-        logger.info(f"Moving to final path {path}")
-        os.rename(write_path, path)
+        logger.info(f"Moving to final path {self.path}")
+        os.rename(write_path, self.path)
 
 
 def mkschema(if_path, out):
@@ -1590,11 +1572,8 @@ def encode(
             raise ValueError("Cannot specify schema along with chunk sizes")
         with open(schema_path, "r") as f:
             schema = ZarrConversionSpec.fromjson(f.read())
-
-    SgvcfZarr.encode(
-        pcvcf,
-        zarr_path,
-        conversion_spec=schema,
+    vzw = VcfZarrWriter(zarr_path, pcvcf, schema)
+    vzw.encode(
         max_v_chunks=max_v_chunks,
         worker_processes=worker_processes,
         show_progress=show_progress,
