@@ -68,6 +68,7 @@ class TestWithMocks:
                 chunk_width=None,
                 max_v_chunks=None,
                 worker_processes=1,
+                max_memory=None,
                 show_progress=True,
             )
 

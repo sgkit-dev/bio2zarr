@@ -180,7 +180,7 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
             self.executor = cf.ProcessPoolExecutor(
                 max_workers=worker_processes,
             )
-        self.futures = []
+        self.futures = set()
 
         set_progress(0)
         if progress_config is None:
@@ -219,7 +219,19 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         logger.debug("Exit progress thread")
 
     def submit(self, *args, **kwargs):
-        self.futures.append(self.executor.submit(*args, **kwargs))
+        future = self.executor.submit(*args, **kwargs)
+        self.futures.add(future)
+        return future
+
+    def wait_for_completed(self, timeout):
+        done, not_done = cf.wait(self.futures, timeout, cf.FIRST_COMPLETED)
+        for future in done:
+            exception = future.exception()
+            # TODO do the check for BrokenProcessPool here
+            if exception is not None:
+                raise exception
+        self.futures = not_done
+        return done
 
     def results_as_completed(self):
         for future in cf.as_completed(self.futures):

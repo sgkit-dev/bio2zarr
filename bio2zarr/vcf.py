@@ -48,7 +48,7 @@ def display_number(x):
 
 
 def display_size(n):
-    return humanfriendly.format_size(n)
+    return humanfriendly.format_size(n, binary=True)
 
 
 @dataclasses.dataclass
@@ -1289,6 +1289,7 @@ class EncodingWork:
     func: callable
     start: int
     stop: int
+    memory: int = 0
 
 
 class VcfZarrWriter:
@@ -1478,7 +1479,17 @@ class VcfZarrWriter:
         worker_processes=1,
         max_v_chunks=None,
         show_progress=False,
+        max_memory=None,
     ):
+        if max_memory is None:
+            # Unbounded
+            max_memory = 2**63
+        else:
+            # Value is specified in Mibibytes
+            max_memory *= 2**20
+
+        # TODO this will move into the setup logic later when we're making it possible
+        # to split the work by slice
         num_slices = max(1, worker_processes * 4)
         # Using POS arbitrarily to get the array slices
         slices = core.chunk_aligned_slices(
@@ -1492,8 +1503,16 @@ class VcfZarrWriter:
                 array.resize(shape)
 
         total_bytes = 0
+        encoding_memory_requirements = {}
         for col in self.schema.columns.values():
             array = self.get_array(col.name)
+            # NOTE!! this is bad, we're potentially creating quite a large
+            # numpy array for basically nothing. We can compute this.
+            variant_chunk_size = array.blocks[0].nbytes
+            encoding_memory_requirements[col.name] = variant_chunk_size
+            logger.debug(
+                f"{col.name} requires at least {display_size(variant_chunk_size)} per worker"
+            )
             total_bytes += array.nbytes
 
         filter_id_map = self.encode_filter_id()
@@ -1504,7 +1523,11 @@ class VcfZarrWriter:
             for col in self.schema.columns.values():
                 if col.vcf_field is not None:
                     f = functools.partial(self.encode_array_slice, col)
-                    work.append(EncodingWork(f, start, stop))
+                    work.append(
+                        EncodingWork(
+                            f, start, stop, encoding_memory_requirements[col.name]
+                        )
+                    )
             work.append(EncodingWork(self.encode_alleles_slice, start, stop))
             work.append(EncodingWork(self.encode_id_slice, start, stop))
             work.append(
@@ -1522,7 +1545,23 @@ class VcfZarrWriter:
                 )
             )
             if "call_genotype" in self.schema.columns:
-                work.append(EncodingWork(self.encode_genotypes_slice, start, stop))
+                gt_memory = sum(
+                    encoding_memory_requirements[name]
+                    for name in [
+                        "call_genotype",
+                        "call_genotype_phased",
+                        "call_genotype_mask",
+                    ]
+                )
+                work.append(
+                    EncodingWork(self.encode_genotypes_slice, start, stop, gt_memory)
+                )
+        # Fail early if we can't fit a particular column into memory
+        for wp in work:
+            if wp.memory >= max_memory:
+                raise ValueError(f"Insufficient memory for {wp.func}: "
+                    f"{display_size(wp.memory)} > {display_size(max_memory)}")
+
 
         progress_config = core.ProgressConfig(
             total=total_bytes,
@@ -1530,10 +1569,27 @@ class VcfZarrWriter:
             units="B",
             show=show_progress,
         )
+        used_memory = 0
         with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
-            pwm.submit(self.encode_samples)
+            future = pwm.submit(self.encode_samples)
+            future_to_memory_use = {future: 0}
             for wp in work:
-                pwm.submit(wp.func, wp.start, wp.stop)
+                while used_memory + wp.memory >= max_memory:
+                    logger.info(
+                        f"Memory budget {display_size(max_memory)} exceeded: "
+                        f"used={display_size(used_memory)} needed={display_size(wp.memory)}"
+                    )
+                    futures = pwm.wait_for_completed(timeout=5)
+                    released_mem = sum(
+                        future_to_memory_use.pop(future) for future in futures
+                    )
+                    logger.info(
+                        f"{len(futures)} completed, released {display_size(released_mem)}"
+                    )
+                    used_memory -= released_mem
+                future = pwm.submit(wp.func, wp.start, wp.stop)
+                used_memory += wp.memory
+                future_to_memory_use[future] = wp.memory
 
 
 def mkschema(if_path, out):
@@ -1549,6 +1605,7 @@ def encode(
     chunk_length=None,
     chunk_width=None,
     max_v_chunks=None,
+    max_memory=None,
     worker_processes=1,
     show_progress=False,
 ):
@@ -1574,6 +1631,7 @@ def encode(
     vzw.encode(
         max_v_chunks=max_v_chunks,
         worker_processes=worker_processes,
+        max_memory=max_memory,
         show_progress=show_progress,
     )
     vzw.finalise()

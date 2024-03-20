@@ -109,6 +109,13 @@ def mkschema(if_path):
         "schema tuning."
     ),
 )
+@click.option(
+    "-M",
+    "--max-memory",
+    type=int,
+    default=None,
+    help="An approximate bound on overall memory usage in megabytes",
+)
 @worker_processes
 def encode(
     if_path,
@@ -118,6 +125,7 @@ def encode(
     chunk_length,
     chunk_width,
     max_variant_chunks,
+    max_memory,
     worker_processes,
 ):
     """
@@ -132,6 +140,7 @@ def encode(
         chunk_width=chunk_width,
         max_v_chunks=max_variant_chunks,
         worker_processes=worker_processes,
+        max_memory=max_memory,
         show_progress=True,
     )
 
