@@ -1289,15 +1289,16 @@ class VcfZarrWriter:
         self.path = pathlib.Path(path)
         self.pcvcf = pcvcf
         self.schema = schema
-        self.root = None
+        store = zarr.DirectoryStore(self.path)
+        self.root = zarr.group(store=store)
 
-    def create_array(self, variable):
+    def init_array(self, variable):
         # print("CREATE", variable)
         object_codec = None
         if variable.dtype == "O":
             object_codec = numcodecs.VLenUTF8()
         a = self.root.empty(
-            variable.name,
+            "wip_" + variable.name,
             shape=variable.shape,
             chunks=variable.chunks,
             dtype=variable.dtype,
@@ -1306,9 +1307,19 @@ class VcfZarrWriter:
         )
         a.attrs["_ARRAY_DIMENSIONS"] = variable.dimensions
 
-    def encode_column_slice(self, column, start, stop):
+    def get_array(self, name):
+        return self.root["wip_" + name]
+
+    def finalise_array(self, variable):
+        source = self.path / ("wip_" + variable.name)
+        dest = self.path / variable.name
+        # Atomic swap
+        os.rename(source, dest)
+        logger.debug(f"Finalised {variable.name}")
+
+    def encode_array_slice(self, column, start, stop):
         source_col = self.pcvcf.columns[column.vcf_field]
-        array = self.root[column.name]
+        array = self.get_array(column.name)
         ba = core.BufferedArray(array, start)
         sanitiser = source_col.sanitiser_factory(ba.buff.shape)
 
@@ -1322,9 +1333,9 @@ class VcfZarrWriter:
 
     def encode_genotypes_slice(self, start, stop):
         source_col = self.pcvcf.columns["FORMAT/GT"]
-        gt = core.BufferedArray(self.root["call_genotype"], start)
-        gt_mask = core.BufferedArray(self.root["call_genotype_mask"], start)
-        gt_phased = core.BufferedArray(self.root["call_genotype_phased"], start)
+        gt = core.BufferedArray(self.get_array("call_genotype"), start)
+        gt_mask = core.BufferedArray(self.get_array("call_genotype_mask"), start)
+        gt_phased = core.BufferedArray(self.get_array("call_genotype_phased"), start)
 
         for value in source_col.iter_values(start, stop):
             j = gt.next_buffer_row()
@@ -1343,7 +1354,7 @@ class VcfZarrWriter:
     def encode_alleles_slice(self, start, stop):
         ref_col = self.pcvcf.columns["REF"]
         alt_col = self.pcvcf.columns["ALT"]
-        alleles = core.BufferedArray(self.root["variant_allele"], start)
+        alleles = core.BufferedArray(self.get_array("variant_allele"), start)
 
         for ref, alt in zip(
             ref_col.iter_values(start, stop), alt_col.iter_values(start, stop)
@@ -1357,8 +1368,8 @@ class VcfZarrWriter:
 
     def encode_id_slice(self, start, stop):
         col = self.pcvcf.columns["ID"]
-        vid = core.BufferedArray(self.root["variant_id"], start)
-        vid_mask = core.BufferedArray(self.root["variant_id_mask"], start)
+        vid = core.BufferedArray(self.get_array("variant_id"), start)
+        vid_mask = core.BufferedArray(self.get_array("variant_id_mask"), start)
 
         for value in col.iter_values(start, stop):
             j = vid.next_buffer_row()
@@ -1376,7 +1387,7 @@ class VcfZarrWriter:
 
     def encode_filters_slice(self, lookup, start, stop):
         col = self.pcvcf.columns["FILTERS"]
-        var_filter = core.BufferedArray(self.root["variant_filter"], start)
+        var_filter = core.BufferedArray(self.get_array("variant_filter"), start)
 
         for value in col.iter_values(start, stop):
             j = var_filter.next_buffer_row()
@@ -1391,7 +1402,7 @@ class VcfZarrWriter:
 
     def encode_contig_slice(self, lookup, start, stop):
         col = self.pcvcf.columns["CHROM"]
-        contig = core.BufferedArray(self.root["variant_contig"], start)
+        contig = core.BufferedArray(self.get_array("variant_contig"), start)
 
         for value in col.iter_values(start, stop):
             j = contig.next_buffer_row()
@@ -1443,31 +1454,28 @@ class VcfZarrWriter:
         array.attrs["_ARRAY_DIMENSIONS"] = ["filters"]
         return {v: j for j, v in enumerate(self.schema.filter_id)}
 
+    def init(self):
+        self.root.attrs["vcf_zarr_version"] = "0.2"
+        self.root.attrs["vcf_header"] = self.pcvcf.vcf_header
+        self.root.attrs["source"] = f"bio2zarr-{provenance.__version__}"
+        for column in self.schema.columns.values():
+            self.init_array(column)
+
+    def finalise(self):
+        for column in self.schema.columns.values():
+            self.finalise_array(column)
+        zarr.consolidate_metadata(self.path)
+
     def encode(
         self,
         worker_processes=1,
         max_v_chunks=None,
         show_progress=False,
     ):
-        # TODO: we should do this as a future to avoid blocking
-        if self.path.exists():
-            logger.warning(f"Deleting existing {path}")
-            shutil.rmtree(self.path)
-        write_path = self.path.with_suffix(self.path.suffix + f".{os.getpid()}.build")
-        store = zarr.DirectoryStore(write_path)
-        logger.info(f"Create zarr at {write_path}")
-        self.root = zarr.group(store=store, overwrite=True)
-        for column in self.schema.columns.values():
-            self.create_array(column)
-
-        self.root.attrs["vcf_zarr_version"] = "0.2"
-        self.root.attrs["vcf_header"] = self.pcvcf.vcf_header
-        self.root.attrs["source"] = f"bio2zarr-{provenance.__version__}"
-
         num_slices = max(1, worker_processes * 4)
         # Using POS arbitrarily to get the array slices
         slices = core.chunk_aligned_slices(
-            self.root["variant_position"], num_slices, max_chunks=max_v_chunks
+            self.get_array("variant_position"), num_slices, max_chunks=max_v_chunks
         )
         truncated = slices[-1][-1]
         for array in self.root.values():
@@ -1480,7 +1488,7 @@ class VcfZarrWriter:
             col for col in self.schema.columns.values() if len(col.chunks) <= 1
         ]
         progress_config = core.ProgressConfig(
-            total=sum(self.root[col.name].nchunks for col in chunked_1d),
+            total=sum(self.get_array(col.name).nchunks for col in chunked_1d),
             title="Encode 1D",
             units="chunks",
             show=show_progress,
@@ -1499,14 +1507,14 @@ class VcfZarrWriter:
                 pwm.submit(self.encode_contig_slice, contig_id_map, start, stop)
                 for col in chunked_1d:
                     if col.vcf_field is not None:
-                        pwm.submit(self.encode_column_slice, col, start, stop)
+                        pwm.submit(self.encode_array_slice, col, start, stop)
 
         chunked_2d = [
             col for col in self.schema.columns.values() if len(col.chunks) >= 2
         ]
         if len(chunked_2d) > 0:
             progress_config = core.ProgressConfig(
-                total=sum(self.root[col.name].nchunks for col in chunked_2d),
+                total=sum(self.get_array(col.name).nchunks for col in chunked_2d),
                 title="Encode 2D",
                 units="chunks",
                 show=show_progress,
@@ -1514,9 +1522,9 @@ class VcfZarrWriter:
             with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
                 if "call_genotype" in self.schema.columns:
                     arrays = [
-                        self.root["call_genotype"],
-                        self.root["call_genotype_phased"],
-                        self.root["call_genotype_mask"],
+                        self.get_array("call_genotype"),
+                        self.get_array("call_genotype_phased"),
+                        self.get_array("call_genotype_mask"),
                     ]
                     min_mem = sum(array.blocks[0].nbytes for array in arrays)
                     logger.info(
@@ -1528,19 +1536,14 @@ class VcfZarrWriter:
 
                 for col in chunked_2d:
                     if col.vcf_field is not None:
-                        array = self.root[col.name]
+                        array = self.get_array(col.name)
                         min_mem = array.blocks[0].nbytes
                         logger.info(
                             f"Submit encode {col.name} in {len(slices)} slices. "
                             f"Min per-worker mem={display_size(min_mem)}"
                         )
                         for start, stop in slices:
-                            pwm.submit(self.encode_column_slice, col, start, stop)
-
-        zarr.consolidate_metadata(write_path)
-        # Atomic swap, now we've completely finished.
-        logger.info(f"Moving to final path {self.path}")
-        os.rename(write_path, self.path)
+                            pwm.submit(self.encode_array_slice, col, start, stop)
 
 
 def mkschema(if_path, out):
@@ -1572,12 +1575,18 @@ def encode(
             raise ValueError("Cannot specify schema along with chunk sizes")
         with open(schema_path, "r") as f:
             schema = ZarrConversionSpec.fromjson(f.read())
+    zarr_path = pathlib.Path(zarr_path)
+    if zarr_path.exists():
+        logger.warning(f"Deleting existing {zarr_path}")
+        shutil.rmtree(zarr_path)
     vzw = VcfZarrWriter(zarr_path, pcvcf, schema)
+    vzw.init()
     vzw.encode(
         max_v_chunks=max_v_chunks,
         worker_processes=worker_processes,
         show_progress=show_progress,
     )
+    vzw.finalise()
 
 
 def convert(
