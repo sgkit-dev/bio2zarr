@@ -118,7 +118,7 @@ class BufferedArray:
 
 def sync_flush_1d_array(np_buffer, zarr_array, offset):
     zarr_array[offset : offset + np_buffer.shape[0]] = np_buffer
-    update_progress(1)
+    update_progress(np_buffer.nbytes)
 
 
 def sync_flush_2d_array(np_buffer, zarr_array, offset):
@@ -127,12 +127,15 @@ def sync_flush_2d_array(np_buffer, zarr_array, offset):
     # encoder implementations.
     s = slice(offset, offset + np_buffer.shape[0])
     chunk_width = zarr_array.chunks[1]
+    # TODO use zarr chunks here to support non-uniform chunking later
+    # and for simplicity
     zarr_array_width = zarr_array.shape[1]
     start = 0
     while start < zarr_array_width:
         stop = min(start + chunk_width, zarr_array_width)
-        zarr_array[s, start:stop] = np_buffer[:, start:stop]
-        update_progress(1)
+        chunk_buffer = np_buffer[:, start:stop]
+        zarr_array[s, start:stop] = chunk_buffer
+        update_progress(chunk_buffer.nbytes)
         start = stop
 
 

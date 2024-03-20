@@ -1284,6 +1284,13 @@ class VcfZarr:
         return data
 
 
+@dataclasses.dataclass
+class EncodingWork:
+    func: callable
+    start: int
+    stop: int
+
+
 class VcfZarrWriter:
     def __init__(self, path, pcvcf, schema):
         self.path = pathlib.Path(path)
@@ -1484,66 +1491,49 @@ class VcfZarrWriter:
                 shape[0] = truncated
                 array.resize(shape)
 
-        chunked_1d = [
-            col for col in self.schema.columns.values() if len(col.chunks) <= 1
-        ]
-        progress_config = core.ProgressConfig(
-            total=sum(self.get_array(col.name).nchunks for col in chunked_1d),
-            title="Encode 1D",
-            units="chunks",
-            show=show_progress,
-        )
+        total_bytes = 0
+        for col in self.schema.columns.values():
+            array = self.get_array(col.name)
+            total_bytes += array.nbytes
 
-        # Do these syncronously for simplicity so we have the mapping
         filter_id_map = self.encode_filter_id()
         contig_id_map = self.encode_contig_id()
 
+        work = []
+        for start, stop in slices:
+            for col in self.schema.columns.values():
+                if col.vcf_field is not None:
+                    f = functools.partial(self.encode_array_slice, col)
+                    work.append(EncodingWork(f, start, stop))
+            work.append(EncodingWork(self.encode_alleles_slice, start, stop))
+            work.append(EncodingWork(self.encode_id_slice, start, stop))
+            work.append(
+                EncodingWork(
+                    functools.partial(self.encode_filters_slice, filter_id_map),
+                    start,
+                    stop,
+                )
+            )
+            work.append(
+                EncodingWork(
+                    functools.partial(self.encode_contig_slice, contig_id_map),
+                    start,
+                    stop,
+                )
+            )
+            if "call_genotype" in self.schema.columns:
+                work.append(EncodingWork(self.encode_genotypes_slice, start, stop))
+
+        progress_config = core.ProgressConfig(
+            total=total_bytes,
+            title="Encode",
+            units="B",
+            show=show_progress,
+        )
         with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
             pwm.submit(self.encode_samples)
-            for start, stop in slices:
-                pwm.submit(self.encode_alleles_slice, start, stop)
-                pwm.submit(self.encode_id_slice, start, stop)
-                pwm.submit(self.encode_filters_slice, filter_id_map, start, stop)
-                pwm.submit(self.encode_contig_slice, contig_id_map, start, stop)
-                for col in chunked_1d:
-                    if col.vcf_field is not None:
-                        pwm.submit(self.encode_array_slice, col, start, stop)
-
-        chunked_2d = [
-            col for col in self.schema.columns.values() if len(col.chunks) >= 2
-        ]
-        if len(chunked_2d) > 0:
-            progress_config = core.ProgressConfig(
-                total=sum(self.get_array(col.name).nchunks for col in chunked_2d),
-                title="Encode 2D",
-                units="chunks",
-                show=show_progress,
-            )
-            with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
-                if "call_genotype" in self.schema.columns:
-                    arrays = [
-                        self.get_array("call_genotype"),
-                        self.get_array("call_genotype_phased"),
-                        self.get_array("call_genotype_mask"),
-                    ]
-                    min_mem = sum(array.blocks[0].nbytes for array in arrays)
-                    logger.info(
-                        f"Submit encode call_genotypes in {len(slices)} slices. "
-                        f"Min per-worker mem={display_size(min_mem)}"
-                    )
-                    for start, stop in slices:
-                        pwm.submit(self.encode_genotypes_slice, start, stop)
-
-                for col in chunked_2d:
-                    if col.vcf_field is not None:
-                        array = self.get_array(col.name)
-                        min_mem = array.blocks[0].nbytes
-                        logger.info(
-                            f"Submit encode {col.name} in {len(slices)} slices. "
-                            f"Min per-worker mem={display_size(min_mem)}"
-                        )
-                        for start, stop in slices:
-                            pwm.submit(self.encode_array_slice, col, start, stop)
+            for wp in work:
+                pwm.submit(wp.func, wp.start, wp.stop)
 
 
 def mkschema(if_path, out):
