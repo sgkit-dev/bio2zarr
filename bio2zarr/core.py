@@ -118,7 +118,7 @@ class BufferedArray:
 
 def sync_flush_1d_array(np_buffer, zarr_array, offset):
     zarr_array[offset : offset + np_buffer.shape[0]] = np_buffer
-    update_progress(1)
+    update_progress(np_buffer.nbytes)
 
 
 def sync_flush_2d_array(np_buffer, zarr_array, offset):
@@ -127,12 +127,15 @@ def sync_flush_2d_array(np_buffer, zarr_array, offset):
     # encoder implementations.
     s = slice(offset, offset + np_buffer.shape[0])
     chunk_width = zarr_array.chunks[1]
+    # TODO use zarr chunks here to support non-uniform chunking later
+    # and for simplicity
     zarr_array_width = zarr_array.shape[1]
     start = 0
     while start < zarr_array_width:
         stop = min(start + chunk_width, zarr_array_width)
-        zarr_array[s, start:stop] = np_buffer[:, start:stop]
-        update_progress(1)
+        chunk_buffer = np_buffer[:, start:stop]
+        zarr_array[s, start:stop] = chunk_buffer
+        update_progress(chunk_buffer.nbytes)
         start = stop
 
 
@@ -177,7 +180,7 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
             self.executor = cf.ProcessPoolExecutor(
                 max_workers=worker_processes,
             )
-        self.futures = []
+        self.futures = set()
 
         set_progress(0)
         if progress_config is None:
@@ -185,7 +188,7 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         self.progress_config = progress_config
         self.progress_bar = tqdm.tqdm(
             total=progress_config.total,
-            desc=f"{progress_config.title:>9}",
+            desc=f"{progress_config.title:>7}",
             unit_scale=True,
             unit=progress_config.units,
             smoothing=0.1,
@@ -216,7 +219,19 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         logger.debug("Exit progress thread")
 
     def submit(self, *args, **kwargs):
-        self.futures.append(self.executor.submit(*args, **kwargs))
+        future = self.executor.submit(*args, **kwargs)
+        self.futures.add(future)
+        return future
+
+    def wait_for_completed(self, timeout=None):
+        done, not_done = cf.wait(self.futures, timeout, cf.FIRST_COMPLETED)
+        for future in done:
+            exception = future.exception()
+            # TODO do the check for BrokenProcessPool here
+            if exception is not None:
+                raise exception
+        self.futures = not_done
+        return done
 
     def results_as_completed(self):
         for future in cf.as_completed(self.futures):
