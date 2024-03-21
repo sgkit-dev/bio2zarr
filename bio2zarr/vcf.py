@@ -1595,7 +1595,7 @@ class VcfZarrWriter:
                         f"Memory budget {display_size(max_memory)} exceeded: "
                         f"used={display_size(used_memory)} needed={display_size(wp.memory)}"
                     )
-                    futures = pwm.wait_for_completed(timeout=5)
+                    futures = pwm.wait_for_completed()
                     released_mem = sum(
                         future_to_memory_use.pop(future) for future in futures
                     )

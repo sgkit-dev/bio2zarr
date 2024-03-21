@@ -223,7 +223,7 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         self.futures.add(future)
         return future
 
-    def wait_for_completed(self, timeout):
+    def wait_for_completed(self, timeout=None):
         done, not_done = cf.wait(self.futures, timeout, cf.FIRST_COMPLETED)
         for future in done:
             exception = future.exception()
