@@ -4,6 +4,7 @@ import humanfriendly
 import numpy as np
 import zarr
 import bed_reader
+import numcodecs
 
 from . import core
 
@@ -82,11 +83,16 @@ def convert(
     chunks = [variants_chunk_size, samples_chunk_size]
     dimensions = ["variants", "samples"]
 
+    # TODO we should be reusing some logic from vcfzarr here on laying
+    # out the basic dataset, and using the schema generator. Currently
+    # we're not using the best Blosc settings for genotypes here.
+    default_compressor = numcodecs.Blosc(cname="zstd", clevel=7)
+
     a = root.array(
         "sample_id",
         bed.iid,
         dtype="str",
-        compressor=core.default_compressor,
+        compressor=default_compressor,
         chunks=(samples_chunk_size,),
     )
     a.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
@@ -98,7 +104,7 @@ def convert(
         "variant_position",
         bed.bp_position,
         dtype=np.int32,
-        compressor=core.default_compressor,
+        compressor=default_compressor,
         chunks=(variants_chunk_size,),
     )
     a.attrs["_ARRAY_DIMENSIONS"] = ["variants"]
@@ -109,7 +115,7 @@ def convert(
         "variant_allele",
         alleles,
         dtype="str",
-        compressor=core.default_compressor,
+        compressor=default_compressor,
         chunks=(variants_chunk_size,),
     )
     a.attrs["_ARRAY_DIMENSIONS"] = ["variants", "alleles"]
@@ -121,7 +127,7 @@ def convert(
         dtype="bool",
         shape=list(shape),
         chunks=list(chunks),
-        compressor=core.default_compressor,
+        compressor=default_compressor,
     )
     a.attrs["_ARRAY_DIMENSIONS"] = list(dimensions)
 
@@ -132,7 +138,7 @@ def convert(
         dtype="i1",
         shape=list(shape),
         chunks=list(chunks),
-        compressor=core.default_compressor,
+        compressor=default_compressor,
     )
     a.attrs["_ARRAY_DIMENSIONS"] = list(dimensions)
 
@@ -141,7 +147,7 @@ def convert(
         dtype="bool",
         shape=list(shape),
         chunks=list(chunks),
-        compressor=core.default_compressor,
+        compressor=default_compressor,
     )
     a.attrs["_ARRAY_DIMENSIONS"] = list(dimensions)
 
