@@ -1049,6 +1049,9 @@ def inspect(path):
     return obj.summary_table()
 
 
+DEFAULT_ZARR_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7)
+
+
 @dataclasses.dataclass
 class ZarrColumnSpec:
     name: str
@@ -1058,16 +1061,44 @@ class ZarrColumnSpec:
     dimensions: list
     description: str
     vcf_field: str
-    compressor: dict
+    compressor: dict = None
+    filters: list = None
     # TODO add filters
 
     def __post_init__(self):
         self.shape = tuple(self.shape)
         self.chunks = tuple(self.chunks)
         self.dimensions = tuple(self.dimensions)
+        self.compressor = DEFAULT_ZARR_COMPRESSOR.get_config()
+        self.filters = []
+        self._choose_compressor_settings()
+
+    def _choose_compressor_settings(self):
+        """
+        Choose compressor and filter settings based on the size and
+        type of the array, plus some hueristics from observed properties
+        of VCFs.
+
+        See https://github.com/pystatgen/bio2zarr/discussions/74
+        """
+        dt = np.dtype(self.dtype)
+        # Default is to not shuffle, because autoshuffle isn't recognised
+        # by many Zarr implementations, and shuffling can lead to worse
+        # performance in some cases anyway. Turning on shuffle should be a
+        # deliberate choice.
+        shuffle = numcodecs.Blosc.NOSHUFFLE
+        if dt.itemsize == 1:
+            # Any 1 byte field gets BITSHUFFLE by default
+            shuffle = numcodecs.Blosc.BITSHUFFLE
+        self.compressor["shuffle"] = shuffle
+
+        if dt.name == "bool":
+            self.filters.append(numcodecs.PackBits().get_config())
 
 
 ZARR_SCHEMA_FORMAT_VERSION = "0.2"
+
+# RENAME to ZarrSchema
 
 
 @dataclasses.dataclass
@@ -1117,7 +1148,6 @@ class ZarrConversionSpec:
         logger.info(
             f"Generating schema with chunks={variants_chunk_size, samples_chunk_size}"
         )
-        compressor = core.default_compressor.get_config()
 
         def fixed_field_spec(
             name, dtype, vcf_field=None, shape=(m,), dimensions=("variants",)
@@ -1130,7 +1160,6 @@ class ZarrConversionSpec:
                 description="",
                 dimensions=dimensions,
                 chunks=[variants_chunk_size],
-                compressor=compressor,
             )
 
         alt_col = pcvcf.columns["ALT"]
@@ -1206,7 +1235,6 @@ class ZarrConversionSpec:
                 chunks=chunks,
                 dimensions=dimensions,
                 description=field.description,
-                compressor=compressor,
             )
             colspecs.append(colspec)
 
@@ -1225,7 +1253,6 @@ class ZarrConversionSpec:
                     chunks=list(chunks),
                     dimensions=list(dimensions),
                     description="",
-                    compressor=compressor,
                 )
             )
             shape += [ploidy]
@@ -1239,7 +1266,6 @@ class ZarrConversionSpec:
                     chunks=list(chunks),
                     dimensions=list(dimensions),
                     description="",
-                    compressor=compressor,
                 )
             )
             colspecs.append(
@@ -1251,7 +1277,6 @@ class ZarrConversionSpec:
                     chunks=list(chunks),
                     dimensions=list(dimensions),
                     description="",
-                    compressor=compressor,
                 )
             )
 
@@ -1328,6 +1353,7 @@ class VcfZarrWriter:
             chunks=variable.chunks,
             dtype=variable.dtype,
             compressor=numcodecs.get_codec(variable.compressor),
+            filters=[numcodecs.get_codec(filt) for filt in variable.filters],
             object_codec=object_codec,
         )
         a.attrs["_ARRAY_DIMENSIONS"] = variable.dimensions
@@ -1446,7 +1472,7 @@ class VcfZarrWriter:
             "sample_id",
             self.schema.sample_id,
             dtype="str",
-            compressor=core.default_compressor,
+            compressor=DEFAULT_ZARR_COMPRESSOR,
             chunks=(self.schema.samples_chunk_size,),
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
@@ -1457,7 +1483,7 @@ class VcfZarrWriter:
             "contig_id",
             self.schema.contig_id,
             dtype="str",
-            compressor=core.default_compressor,
+            compressor=DEFAULT_ZARR_COMPRESSOR,
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
         if self.schema.contig_length is not None:
@@ -1474,7 +1500,7 @@ class VcfZarrWriter:
             "filter_id",
             self.schema.filter_id,
             dtype="str",
-            compressor=core.default_compressor,
+            compressor=DEFAULT_ZARR_COMPRESSOR,
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["filters"]
         return {v: j for j, v in enumerate(self.schema.filter_id)}
