@@ -19,7 +19,7 @@ column_chunk_size = click.option(
     "--column-chunk-size",
     type=int,
     default=64,
-    help="Chunk size in the columns dimension",
+    help="Size of exploded column chunks",
 )
 
 # Note: -l and -w were chosen when these were called "width" and "length".
@@ -81,7 +81,7 @@ def explode(vcfs, out_path, verbose, worker_processes, column_chunk_size):
 @click.command
 @click.argument("vcfs", nargs=-1, required=True)
 @click.argument("out_path", type=click.Path())
-@click.option("-n", "--target_num_partitions", type=int, required=True)
+@click.option("-n", "--target-num-partitions", type=int, required=True)
 @verbose
 @worker_processes
 def explode_init(vcfs, out_path, target_num_partitions, verbose, worker_processes):

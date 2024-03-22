@@ -159,7 +159,6 @@ class VcfMetadata:
     fields: list
     partitions: list = None
     contig_lengths: list = None
-    finalised: bool = False
 
     @property
     def info_fields(self):
@@ -884,10 +883,15 @@ class PickleChunkedVcf(collections.abc.Mapping):
                 part_path = col.path / f"p{j}"
                 part_path.mkdir()
 
-    def write_metadata(self):
-        logger.info(f"Writing metadata")
-        with open(self.path / "metadata.json", "w") as f:
+    def write_metadata(self, final=False):
+        logger.info(f"Writing metadata ({'final' if final else 'initial'})")
+        with open(self.path / f"metadata.{'wip.' if not final else ''}json", "w") as f:
             json.dump(self.metadata.asdict(), f, indent=4)
+        if final:
+            try:
+                os.remove(self.path / "metadata.wip.json")
+            except FileNotFoundError:
+                pass
 
     def write_header(self):
         logger.info(f"Writing header")
@@ -899,7 +903,7 @@ class PickleChunkedVcf(collections.abc.Mapping):
         not_found = []
         for j in range(self.num_partitions):
             try:
-                with open(self.path / f"partition_{j}_metadata.json") as f:
+                with open(self.path / f"p{j}_metadata.json") as f:
                     summary = json.load(f)
                     for k, v in summary['field_summaries'].items():
                         summary['field_summaries'][k] = VcfFieldSummary(**v)
@@ -916,14 +920,20 @@ class PickleChunkedVcf(collections.abc.Mapping):
     @staticmethod
     def load(path):
         path = pathlib.Path(path)
-        with open(path / "metadata.json") as f:
-            metadata = VcfMetadata.fromdict(json.load(f))
+        final = True
+        try:
+            with open(path / "metadata.json") as f:
+                metadata = VcfMetadata.fromdict(json.load(f))
+        except FileNotFoundError:
+            with open(path / "metadata.wip.json") as f:
+                metadata = VcfMetadata.fromdict(json.load(f))
+            final = False
         with open(path / "header.txt") as f:
             header = f.read()
         pcvcf = PickleChunkedVcf(path, metadata, header)
         logger.info(
             f"Loaded PickleChunkedVcf(partitions={pcvcf.num_partitions}, "
-            f"records={pcvcf.num_records}, columns={pcvcf.num_columns})"
+            f"records={pcvcf.num_records}, columns={pcvcf.num_columns}), final={final}"
         )
         return pcvcf
 
@@ -987,7 +997,7 @@ class PickleChunkedVcf(collections.abc.Mapping):
             "num_records": num_records,
             "field_summaries": {k:v.asdict() for k,v in tcw.field_summaries.items()}
         }
-        with open(out_path / f"partition_{partition_index}_metadata.json", "w") as f:
+        with open(out_path / f"p{partition_index}_metadata.json", "w") as f:
             json.dump(partition_metadata, f, indent=4)
         logger.info(
             f"Finish p{partition_index} {partition.vcf_path}__{partition.region}="
@@ -1007,7 +1017,7 @@ class PickleChunkedVcf(collections.abc.Mapping):
         pcvcf = PickleChunkedVcf(out_path, vcf_metadata, header)
         pcvcf.mkdirs()
 
-        pcvcf.write_metadata()
+        pcvcf.write_metadata(final=False)
         pcvcf.write_header()
         return pcvcf
 
@@ -1035,30 +1045,19 @@ class PickleChunkedVcf(collections.abc.Mapping):
             title="Explode",
             show=show_progress,
         )
-        if stop-start == 1:
-            PickleChunkedVcf.convert_partition(
-                self.metadata,
-                start,
-                self.path,
-                column_chunk_size=column_chunk_size,
-            )
-        else:
-            with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
-                for j in range(start, stop):
-                    pwm.submit(
-                        PickleChunkedVcf.convert_partition,
-                        self.metadata,
-                        j,
-                        self.path,
-                        column_chunk_size=column_chunk_size,
-                    )
-                for _ in pwm.results_as_completed():
-                    pass
+        with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
+            for j in range(start, stop):
+                pwm.submit(
+                    PickleChunkedVcf.convert_partition,
+                    self.metadata,
+                    j,
+                    self.path,
+                    column_chunk_size=column_chunk_size,
+                )
+            for _ in pwm.results_as_completed():
+                pass
 
     def convert_finalise(self):
-        if self.metadata.finalised:
-            raise ValueError("Already finalised")
-
         partition_summaries = self.load_partition_summaries()
         for index, summary in enumerate(partition_summaries):
             self.metadata.partitions[index].num_records = summary['num_records']
@@ -1074,14 +1073,13 @@ class PickleChunkedVcf(collections.abc.Mapping):
             for summary in partition_summaries:
                 field.summary.update(summary["field_summaries"][field.full_name])
 
-        self.metadata.finalised = True
-        self.write_metadata()
+        self.write_metadata(final=True)
 
     @staticmethod
     def convert(
         vcfs, out_path, *, column_chunk_size=16, worker_processes=1, show_progress=False
     ):
-        pcvcf = PickleChunkedVcf.convert_init(vcfs, out_path, num_partitions=max(1, worker_processes * 40), worker_processes=worker_processes, show_progress=show_progress)
+        pcvcf = PickleChunkedVcf.convert_init(vcfs, out_path, num_partitions=max(1, worker_processes * 4), worker_processes=worker_processes, show_progress=show_progress)
         pcvcf.convert_slice(0, len(pcvcf.metadata.partitions), worker_processes=worker_processes, show_progress=show_progress, column_chunk_size=column_chunk_size)
         pcvcf.convert_finalise()
 
