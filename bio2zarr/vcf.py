@@ -983,12 +983,12 @@ class PickleChunkedVcf(collections.abc.Mapping):
                     # is that we get a significant pause at the end of the counter while
                     # all the "small" fields get flushed. Possibly not much to be done about it.
                     core.update_progress(1)
-                partition_metadata = {
-                    "num_records": num_records,
-                    "field_summaries": {k:v.asdict() for k,v in tcw.field_summaries.items()}
-                }
-                with open(out_path / f"partition_{partition_index}_metadata.json", "w") as f:
-                    json.dump(partition_metadata, f, indent=4)
+        partition_metadata = {
+            "num_records": num_records,
+            "field_summaries": {k:v.asdict() for k,v in tcw.field_summaries.items()}
+        }
+        with open(out_path / f"partition_{partition_index}_metadata.json", "w") as f:
+            json.dump(partition_metadata, f, indent=4)
         logger.info(
             f"Finish p{partition_index} {partition.vcf_path}__{partition.region}="
             f"{num_records} records"
@@ -1081,7 +1081,7 @@ class PickleChunkedVcf(collections.abc.Mapping):
     def convert(
         vcfs, out_path, *, column_chunk_size=16, worker_processes=1, show_progress=False
     ):
-        pcvcf = PickleChunkedVcf.convert_init(vcfs, out_path, worker_processes=worker_processes, show_progress=show_progress)
+        pcvcf = PickleChunkedVcf.convert_init(vcfs, out_path, num_partitions=max(1, worker_processes * 40), worker_processes=worker_processes, show_progress=show_progress)
         pcvcf.convert_slice(0, len(pcvcf.metadata.partitions), worker_processes=worker_processes, show_progress=show_progress, column_chunk_size=column_chunk_size)
         pcvcf.convert_finalise()
 
