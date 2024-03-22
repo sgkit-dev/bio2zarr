@@ -14,7 +14,8 @@ worker_processes = click.option(
     "-p", "--worker-processes", type=int, default=1, help="Number of worker processes"
 )
 
-# TODO help text
+# Note: -l and -w were chosen when these were called "width" and "length".
+# possibly there are better letters now.
 variants_chunk_size = click.option(
     "-l",
     "--variants-chunk-size",
