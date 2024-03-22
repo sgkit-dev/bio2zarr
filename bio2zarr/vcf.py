@@ -142,6 +142,9 @@ class VcfPartition:
     num_records: int = -1
 
 
+VCF_METADATA_FORMAT_VERSION = "0.1"
+
+
 @dataclasses.dataclass
 class VcfMetadata:
     format_version: str
@@ -175,6 +178,11 @@ class VcfMetadata:
 
     @staticmethod
     def fromdict(d):
+        if d["format_version"] != VCF_METADATA_FORMAT_VERSION:
+            raise ValueError(
+                "Exploded metadata format version mismatch: "
+                f"{d['format_version']} != {VCF_METADATA_FORMAT_VERSION}"
+            )
         fields = [VcfField.fromdict(fd) for fd in d["fields"]]
         partitions = [VcfPartition(**pd) for pd in d["partitions"]]
         d = d.copy()
@@ -239,8 +247,7 @@ def scan_vcf(path, target_num_partitions):
             # TODO use the mapping dictionary
             fields=fields,
             partitions=[],
-            # FIXME do something systematic with this
-            format_version="0.1",
+            format_version=VCF_METADATA_FORMAT_VERSION,
         )
         try:
             metadata.contig_lengths = vcf.seqlens
@@ -1060,6 +1067,9 @@ class ZarrColumnSpec:
         self.dimensions = tuple(self.dimensions)
 
 
+ZARR_SCHEMA_FORMAT_VERSION = "0.2"
+
+
 @dataclasses.dataclass
 class ZarrConversionSpec:
     format_version: str
@@ -1080,6 +1090,11 @@ class ZarrConversionSpec:
 
     @staticmethod
     def fromdict(d):
+        if d["format_version"] != ZARR_SCHEMA_FORMAT_VERSION:
+            raise ValueError(
+                "Zarr schema format version mismatch: "
+                f"{d['format_version']} != {ZARR_SCHEMA_FORMAT_VERSION}"
+            )
         ret = ZarrConversionSpec(**d)
         ret.columns = {
             key: ZarrColumnSpec(**value) for key, value in d["columns"].items()
@@ -1241,8 +1256,7 @@ class ZarrConversionSpec:
             )
 
         return ZarrConversionSpec(
-            # TODO do something systematic
-            format_version="0.1",
+            format_version=ZARR_SCHEMA_FORMAT_VERSION,
             samples_chunk_size=samples_chunk_size,
             variants_chunk_size=variants_chunk_size,
             columns={col.name: col for col in colspecs},
