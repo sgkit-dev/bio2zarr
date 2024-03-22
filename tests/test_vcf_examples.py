@@ -244,7 +244,7 @@ class TestSmallExample:
                 xt.assert_equal(ds[col], ds2[col])
 
     @pytest.mark.parametrize(
-        ["chunk_length", "chunk_width", "y_chunks", "x_chunks"],
+        ["variants_chunk_size", "samples_chunk_size", "y_chunks", "x_chunks"],
         [
             (1, 1, (1, 1, 1, 1, 1, 1, 1, 1, 1), (1, 1, 1)),
             (2, 2, (2, 2, 2, 2, 1), (2, 1)),
@@ -253,11 +253,14 @@ class TestSmallExample:
         ],
     )
     def test_chunk_size(
-        self, ds, tmp_path, chunk_length, chunk_width, y_chunks, x_chunks
+        self, ds, tmp_path, variants_chunk_size, samples_chunk_size, y_chunks, x_chunks
     ):
         out = tmp_path / "example.vcf.zarr"
         vcf.convert(
-            [self.data_path], out, chunk_length=chunk_length, chunk_width=chunk_width
+            [self.data_path],
+            out,
+            variants_chunk_size=variants_chunk_size,
+            samples_chunk_size=samples_chunk_size,
         )
         ds2 = sg.load_dataset(out)
         # print(ds2.call_genotype.values)
@@ -316,20 +319,30 @@ class TestSmallExample:
         xt.assert_equal(ds, ds2)
 
     @pytest.mark.parametrize("max_v_chunks", [1, 2, 3])
-    @pytest.mark.parametrize("chunk_length", [1, 2, 3])
-    def test_max_v_chunks(self, ds, tmp_path, max_v_chunks, chunk_length):
+    @pytest.mark.parametrize("variants_chunk_size", [1, 2, 3])
+    def test_max_v_chunks(self, ds, tmp_path, max_v_chunks, variants_chunk_size):
         exploded = tmp_path / "example.exploded"
         vcf.explode([self.data_path], exploded)
         out = tmp_path / "example.zarr"
-        vcf.encode(exploded, out, chunk_length=chunk_length, max_v_chunks=max_v_chunks)
+        vcf.encode(
+            exploded,
+            out,
+            variants_chunk_size=variants_chunk_size,
+            max_v_chunks=max_v_chunks,
+        )
         ds2 = sg.load_dataset(out)
-        xt.assert_equal(ds.isel(variants=slice(None, chunk_length * max_v_chunks)), ds2)
+        xt.assert_equal(
+            ds.isel(variants=slice(None, variants_chunk_size * max_v_chunks)), ds2
+        )
 
     @pytest.mark.parametrize("worker_processes", [0, 1, 2])
     def test_worker_processes(self, ds, tmp_path, worker_processes):
         out = tmp_path / "example.vcf.zarr"
         vcf.convert(
-            [self.data_path], out, chunk_length=3, worker_processes=worker_processes
+            [self.data_path],
+            out,
+            variants_chunk_size=3,
+            worker_processes=worker_processes,
         )
         ds2 = sg.load_dataset(out)
         xt.assert_equal(ds, ds2)
@@ -340,7 +353,7 @@ class TestSmallExample:
         vcf.convert(
             [self.data_path],
             out,
-            chunk_length=3,
+            variants_chunk_size=3,
         )
         data = vcf.inspect(out)
         assert len(data) > 0

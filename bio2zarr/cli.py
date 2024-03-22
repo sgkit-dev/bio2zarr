@@ -14,18 +14,19 @@ worker_processes = click.option(
     "-p", "--worker-processes", type=int, default=1, help="Number of worker processes"
 )
 
-# TODO help text
-chunk_length = click.option(
+# Note: -l and -w were chosen when these were called "width" and "length".
+# possibly there are better letters now.
+variants_chunk_size = click.option(
     "-l",
-    "--chunk-length",
+    "--variants-chunk-size",
     type=int,
     default=None,
     help="Chunk size in the variants dimension",
 )
 
-chunk_width = click.option(
+samples_chunk_size = click.option(
     "-w",
-    "--chunk-width",
+    "--samples-chunk-size",
     type=int,
     default=None,
     help="Chunk size in the samples dimension",
@@ -96,8 +97,8 @@ def mkschema(if_path):
 @click.argument("zarr_path", type=click.Path())
 @verbose
 @click.option("-s", "--schema", default=None, type=click.Path(exists=True))
-@chunk_length
-@chunk_width
+@variants_chunk_size
+@samples_chunk_size
 @click.option(
     "-V",
     "--max-variant-chunks",
@@ -122,8 +123,8 @@ def encode(
     zarr_path,
     verbose,
     schema,
-    chunk_length,
-    chunk_width,
+    variants_chunk_size,
+    samples_chunk_size,
     max_variant_chunks,
     max_memory,
     worker_processes,
@@ -136,8 +137,8 @@ def encode(
         if_path,
         zarr_path,
         schema,
-        chunk_length=chunk_length,
-        chunk_width=chunk_width,
+        variants_chunk_size=variants_chunk_size,
+        samples_chunk_size=samples_chunk_size,
         max_v_chunks=max_variant_chunks,
         worker_processes=worker_processes,
         max_memory=max_memory,
@@ -148,11 +149,13 @@ def encode(
 @click.command(name="convert")
 @click.argument("vcfs", nargs=-1, required=True)
 @click.argument("out_path", type=click.Path())
-@chunk_length
-@chunk_width
+@variants_chunk_size
+@samples_chunk_size
 @verbose
 @worker_processes
-def convert_vcf(vcfs, out_path, chunk_length, chunk_width, verbose, worker_processes):
+def convert_vcf(
+    vcfs, out_path, variants_chunk_size, samples_chunk_size, verbose, worker_processes
+):
     """
     Convert input VCF(s) directly to vcfzarr (not recommended for large files)
     """
@@ -160,8 +163,8 @@ def convert_vcf(vcfs, out_path, chunk_length, chunk_width, verbose, worker_proce
     vcf.convert(
         vcfs,
         out_path,
-        chunk_length=chunk_length,
-        chunk_width=chunk_width,
+        variants_chunk_size=variants_chunk_size,
+        samples_chunk_size=samples_chunk_size,
         show_progress=True,
         worker_processes=worker_processes,
     )
@@ -198,10 +201,15 @@ vcf2zarr.add_command(validate)
 @click.argument("out_path", type=click.Path())
 @worker_processes
 @verbose
-@chunk_length
-@chunk_width
+@variants_chunk_size
+@samples_chunk_size
 def convert_plink(
-    in_path, out_path, verbose, worker_processes, chunk_length, chunk_width
+    in_path,
+    out_path,
+    verbose,
+    worker_processes,
+    variants_chunk_size,
+    samples_chunk_size,
 ):
     """
     In development; DO NOT USE!
@@ -212,8 +220,8 @@ def convert_plink(
         out_path,
         show_progress=True,
         worker_processes=worker_processes,
-        chunk_width=chunk_width,
-        chunk_length=chunk_length,
+        samples_chunk_size=samples_chunk_size,
+        variants_chunk_size=variants_chunk_size,
     )
 
 

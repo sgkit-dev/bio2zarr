@@ -1063,8 +1063,8 @@ class ZarrColumnSpec:
 @dataclasses.dataclass
 class ZarrConversionSpec:
     format_version: str
-    chunk_width: int
-    chunk_length: int
+    samples_chunk_size: int
+    variants_chunk_size: int
     dimensions: list
     sample_id: list
     contig_id: list
@@ -1091,15 +1091,17 @@ class ZarrConversionSpec:
         return ZarrConversionSpec.fromdict(json.loads(s))
 
     @staticmethod
-    def generate(pcvcf, chunk_length=None, chunk_width=None):
+    def generate(pcvcf, variants_chunk_size=None, samples_chunk_size=None):
         m = pcvcf.num_records
         n = pcvcf.num_samples
         # FIXME
-        if chunk_width is None:
-            chunk_width = 1000
-        if chunk_length is None:
-            chunk_length = 10_000
-        logger.info(f"Generating schema with chunks={chunk_length, chunk_width}")
+        if samples_chunk_size is None:
+            samples_chunk_size = 1000
+        if variants_chunk_size is None:
+            variants_chunk_size = 10_000
+        logger.info(
+            f"Generating schema with chunks={variants_chunk_size, samples_chunk_size}"
+        )
         compressor = core.default_compressor.get_config()
 
         def fixed_field_spec(
@@ -1112,7 +1114,7 @@ class ZarrConversionSpec:
                 shape=shape,
                 description="",
                 dimensions=dimensions,
-                chunks=[chunk_length],
+                chunks=[variants_chunk_size],
                 compressor=compressor,
             )
 
@@ -1170,11 +1172,11 @@ class ZarrConversionSpec:
             shape = [m]
             prefix = "variant_"
             dimensions = ["variants"]
-            chunks = [chunk_length]
+            chunks = [variants_chunk_size]
             if field.category == "FORMAT":
                 prefix = "call_"
                 shape.append(n)
-                chunks.append(chunk_width),
+                chunks.append(samples_chunk_size),
                 dimensions.append("samples")
             # TODO make an option to add in the empty extra dimension
             if field.summary.max_number > 1:
@@ -1196,7 +1198,7 @@ class ZarrConversionSpec:
         if gt_field is not None:
             ploidy = gt_field.summary.max_number - 1
             shape = [m, n]
-            chunks = [chunk_length, chunk_width]
+            chunks = [variants_chunk_size, samples_chunk_size]
             dimensions = ["variants", "samples"]
 
             colspecs.append(
@@ -1241,8 +1243,8 @@ class ZarrConversionSpec:
         return ZarrConversionSpec(
             # TODO do something systematic
             format_version="0.1",
-            chunk_width=chunk_width,
-            chunk_length=chunk_length,
+            samples_chunk_size=samples_chunk_size,
+            variants_chunk_size=variants_chunk_size,
             columns={col.name: col for col in colspecs},
             dimensions=["variants", "samples", "ploidy", "alleles", "filters"],
             sample_id=pcvcf.metadata.samples,
@@ -1431,7 +1433,7 @@ class VcfZarrWriter:
             self.schema.sample_id,
             dtype="str",
             compressor=core.default_compressor,
-            chunks=(self.schema.chunk_width,),
+            chunks=(self.schema.samples_chunk_size,),
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
         logger.debug("Samples done")
@@ -1639,8 +1641,8 @@ def encode(
     if_path,
     zarr_path,
     schema_path=None,
-    chunk_length=None,
-    chunk_width=None,
+    variants_chunk_size=None,
+    samples_chunk_size=None,
     max_v_chunks=None,
     max_memory=None,
     worker_processes=1,
@@ -1650,12 +1652,12 @@ def encode(
     if schema_path is None:
         schema = ZarrConversionSpec.generate(
             pcvcf,
-            chunk_length=chunk_length,
-            chunk_width=chunk_width,
+            variants_chunk_size=variants_chunk_size,
+            samples_chunk_size=samples_chunk_size,
         )
     else:
         logger.info(f"Reading schema from {schema_path}")
-        if chunk_length is not None or chunk_width is not None:
+        if variants_chunk_size is not None or samples_chunk_size is not None:
             raise ValueError("Cannot specify schema along with chunk sizes")
         with open(schema_path, "r") as f:
             schema = ZarrConversionSpec.fromjson(f.read())
@@ -1678,8 +1680,8 @@ def convert(
     vcfs,
     out_path,
     *,
-    chunk_length=None,
-    chunk_width=None,
+    variants_chunk_size=None,
+    samples_chunk_size=None,
     worker_processes=1,
     show_progress=False,
     # TODO add arguments to control location of tmpdir
@@ -1694,8 +1696,8 @@ def convert(
         encode(
             if_dir,
             out_path,
-            chunk_length=chunk_length,
-            chunk_width=chunk_width,
+            variants_chunk_size=variants_chunk_size,
+            samples_chunk_size=samples_chunk_size,
             worker_processes=worker_processes,
             show_progress=show_progress,
         )

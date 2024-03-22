@@ -22,14 +22,14 @@ def encode_genotypes_slice(bed_path, zarr_path, start, stop):
     gt = core.BufferedArray(root["call_genotype"], start)
     gt_mask = core.BufferedArray(root["call_genotype_mask"], start)
     gt_phased = core.BufferedArray(root["call_genotype_phased"], start)
-    chunk_length = gt.array.chunks[0]
+    variants_chunk_size = gt.array.chunks[0]
     n = gt.array.shape[1]
-    assert start % chunk_length == 0
+    assert start % variants_chunk_size == 0
 
     logger.debug(f"Reading slice {start}:{stop}")
     chunk_start = start
     while chunk_start < stop:
-        chunk_stop = min(chunk_start + chunk_length, stop)
+        chunk_stop = min(chunk_start + variants_chunk_size, stop)
         logger.debug(f"Reading bed slice {chunk_start}:{chunk_stop}")
         bed_chunk = bed.read(slice(chunk_start, chunk_stop), dtype=np.int8).T
         logger.debug(f"Got bed slice {humanfriendly.format_size(bed_chunk.nbytes)}")
@@ -60,8 +60,8 @@ def convert(
     *,
     show_progress=False,
     worker_processes=1,
-    chunk_length=None,
-    chunk_width=None,
+    variants_chunk_size=None,
+    samples_chunk_size=None,
 ):
     bed = bed_reader.open_bed(bed_path, num_threads=1)
     n = bed.iid_count
@@ -69,17 +69,17 @@ def convert(
     logging.info(f"Scanned plink with {n} samples and {m} variants")
 
     # FIXME
-    if chunk_width is None:
-        chunk_width = 1000
-    if chunk_length is None:
-        chunk_length = 10_000
+    if samples_chunk_size is None:
+        samples_chunk_size = 1000
+    if variants_chunk_size is None:
+        variants_chunk_size = 10_000
 
     store = zarr.DirectoryStore(zarr_path)
     root = zarr.group(store=store, overwrite=True)
 
     ploidy = 2
     shape = [m, n]
-    chunks = [chunk_length, chunk_width]
+    chunks = [variants_chunk_size, samples_chunk_size]
     dimensions = ["variants", "samples"]
 
     a = root.array(
@@ -87,7 +87,7 @@ def convert(
         bed.iid,
         dtype="str",
         compressor=core.default_compressor,
-        chunks=(chunk_width,),
+        chunks=(samples_chunk_size,),
     )
     a.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
     logger.debug(f"Encoded samples")
@@ -99,7 +99,7 @@ def convert(
         bed.bp_position,
         dtype=np.int32,
         compressor=core.default_compressor,
-        chunks=(chunk_length,),
+        chunks=(variants_chunk_size,),
     )
     a.attrs["_ARRAY_DIMENSIONS"] = ["variants"]
     logger.debug(f"encoded variant_position")
@@ -110,7 +110,7 @@ def convert(
         alleles,
         dtype="str",
         compressor=core.default_compressor,
-        chunks=(chunk_length,),
+        chunks=(variants_chunk_size,),
     )
     a.attrs["_ARRAY_DIMENSIONS"] = ["variants", "alleles"]
     logger.debug(f"encoded variant_allele")

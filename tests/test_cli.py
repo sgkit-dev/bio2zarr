@@ -9,124 +9,123 @@ from bio2zarr import provenance
 
 
 class TestWithMocks:
-    def test_vcf_explode(self):
+    @mock.patch("bio2zarr.vcf.explode")
+    def test_vcf_explode(self, mocked):
         runner = ct.CliRunner(mix_stderr=False)
-        with mock.patch("bio2zarr.vcf.explode") as mocked:
-            result = runner.invoke(
-                cli.vcf2zarr, ["explode", "source", "dest"], catch_exceptions=False
-            )
-            assert result.exit_code == 0
-            assert len(result.stdout) == 0
-            assert len(result.stderr) == 0
-            mocked.assert_called_once_with(
-                ("source",),
-                "dest",
-                column_chunk_size=64,
-                worker_processes=1,
-                show_progress=True,
-            )
+        result = runner.invoke(
+            cli.vcf2zarr, ["explode", "source", "dest"], catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        assert len(result.stdout) == 0
+        assert len(result.stderr) == 0
+        mocked.assert_called_once_with(
+            ("source",),
+            "dest",
+            column_chunk_size=64,
+            worker_processes=1,
+            show_progress=True,
+        )
 
-    def test_inspect(self):
+    @mock.patch("bio2zarr.vcf.inspect")
+    def test_inspect(self, mocked):
         runner = ct.CliRunner(mix_stderr=False)
-        with mock.patch("bio2zarr.vcf.inspect", return_value={}) as mocked:
-            result = runner.invoke(
-                cli.vcf2zarr, ["inspect", "path"], catch_exceptions=False
-            )
-            assert result.exit_code == 0
-            assert result.stdout == "\n"
-            assert len(result.stderr) == 0
-            mocked.assert_called_once_with("path")
+        result = runner.invoke(
+            cli.vcf2zarr, ["inspect", "path"], catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        assert result.stdout == "\n"
+        assert len(result.stderr) == 0
+        mocked.assert_called_once_with("path")
 
-    def test_mkschema(self):
+    @mock.patch("bio2zarr.vcf.mkschema")
+    def test_mkschema(self, mocked):
         runner = ct.CliRunner(mix_stderr=False)
-        with mock.patch("bio2zarr.vcf.mkschema") as mocked:
-            result = runner.invoke(
-                cli.vcf2zarr, ["mkschema", "path"], catch_exceptions=False
-            )
-            assert result.exit_code == 0
-            assert len(result.stdout) == 0
-            assert len(result.stderr) == 0
-            # TODO figure out how to test that we call it with stdout from
-            # the CliRunner
-            # mocked.assert_called_once_with("path", stdout)
-            mocked.assert_called_once()
+        result = runner.invoke(
+            cli.vcf2zarr, ["mkschema", "path"], catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        assert len(result.stdout) == 0
+        assert len(result.stderr) == 0
+        # TODO figure out how to test that we call it with stdout from
+        # the CliRunner
+        # mocked.assert_called_once_with("path", stdout)
+        mocked.assert_called_once()
 
-    def test_encode(self):
+    @mock.patch("bio2zarr.vcf.encode")
+    def test_encode(self, mocked):
         runner = ct.CliRunner(mix_stderr=False)
-        with mock.patch("bio2zarr.vcf.encode") as mocked:
-            result = runner.invoke(
-                cli.vcf2zarr, ["encode", "if_path", "zarr_path"], catch_exceptions=False
-            )
-            assert result.exit_code == 0
-            assert len(result.stdout) == 0
-            assert len(result.stderr) == 0
-            mocked.assert_called_once_with(
-                "if_path",
-                "zarr_path",
-                None,
-                chunk_length=None,
-                chunk_width=None,
-                max_v_chunks=None,
-                worker_processes=1,
-                max_memory=None,
-                show_progress=True,
-            )
+        result = runner.invoke(
+            cli.vcf2zarr, ["encode", "if_path", "zarr_path"], catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        assert len(result.stdout) == 0
+        assert len(result.stderr) == 0
+        mocked.assert_called_once_with(
+            "if_path",
+            "zarr_path",
+            None,
+            variants_chunk_size=None,
+            samples_chunk_size=None,
+            max_v_chunks=None,
+            worker_processes=1,
+            max_memory=None,
+            show_progress=True,
+        )
 
-    def test_convert_vcf(self):
+    @mock.patch("bio2zarr.vcf.convert")
+    def test_convert_vcf(self, mocked):
         runner = ct.CliRunner(mix_stderr=False)
-        with mock.patch("bio2zarr.vcf.convert") as mocked:
-            result = runner.invoke(
-                cli.vcf2zarr,
-                ["convert", "vcf_path", "zarr_path"],
-                catch_exceptions=False,
-            )
-            assert result.exit_code == 0
-            assert len(result.stdout) == 0
-            assert len(result.stderr) == 0
-            mocked.assert_called_once_with(
-                ("vcf_path",),
-                "zarr_path",
-                chunk_length=None,
-                chunk_width=None,
-                worker_processes=1,
-                show_progress=True,
-            )
+        result = runner.invoke(
+            cli.vcf2zarr,
+            ["convert", "vcf_path", "zarr_path"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert len(result.stdout) == 0
+        assert len(result.stderr) == 0
+        mocked.assert_called_once_with(
+            ("vcf_path",),
+            "zarr_path",
+            variants_chunk_size=None,
+            samples_chunk_size=None,
+            worker_processes=1,
+            show_progress=True,
+        )
 
-    def test_validate(self):
+    @mock.patch("bio2zarr.vcf.validate")
+    def test_validate(self, mocked):
         runner = ct.CliRunner(mix_stderr=False)
-        with mock.patch("bio2zarr.vcf.validate") as mocked:
-            result = runner.invoke(
-                cli.vcf2zarr,
-                ["validate", "vcf_path", "zarr_path"],
-                catch_exceptions=False,
-            )
-            assert result.exit_code == 0
-            assert len(result.stdout) == 0
-            assert len(result.stderr) == 0
-            mocked.assert_called_once_with(
-                "vcf_path",
-                "zarr_path",
-                show_progress=True,
-            )
+        result = runner.invoke(
+            cli.vcf2zarr,
+            ["validate", "vcf_path", "zarr_path"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert len(result.stdout) == 0
+        assert len(result.stderr) == 0
+        mocked.assert_called_once_with(
+            "vcf_path",
+            "zarr_path",
+            show_progress=True,
+        )
 
-    def test_convert_plink(self):
+    @mock.patch("bio2zarr.plink.convert")
+    def test_convert_plink(self, mocked):
         runner = ct.CliRunner(mix_stderr=False)
-        with mock.patch("bio2zarr.plink.convert") as mocked:
-            result = runner.invoke(
-                cli.plink2zarr, ["convert", "in", "out"], catch_exceptions=False
-            )
-            assert result.exit_code == 0
-            assert len(result.stdout) == 0
-            assert len(result.stderr) == 0
-            mocked.assert_called_once_with(
-                "in",
-                "out",
-                worker_processes=1,
-                chunk_width=None,
-                chunk_length=None,
-                show_progress=True,
-            )
-
+        result = runner.invoke(
+            cli.plink2zarr, ["convert", "in", "out"], catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        assert len(result.stdout) == 0
+        assert len(result.stderr) == 0
+        mocked.assert_called_once_with(
+            "in",
+            "out",
+            worker_processes=1,
+            samples_chunk_size=None,
+            variants_chunk_size=None,
+            show_progress=True,
+        )
 
 
 class TestVcfPartition:
