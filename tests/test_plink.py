@@ -199,7 +199,7 @@ class TestSimulatedExample:
 
     # @pytest.mark.xfail
     @pytest.mark.parametrize(
-        ["chunk_length", "chunk_width"],
+        ["variants_chunk_size", "samples_chunk_size"],
         [
             (10, 1),
             (10, 10),
@@ -210,15 +210,15 @@ class TestSimulatedExample:
     )
     @pytest.mark.parametrize("worker_processes", [0, 1, 2])
     def test_chunk_size(
-        self, ds, tmp_path, chunk_length, chunk_width, worker_processes
+        self, ds, tmp_path, variants_chunk_size, samples_chunk_size, worker_processes
     ):
         path = "tests/data/plink/plink_sim_10s_100v_10pmiss.bed"
         out = tmp_path / "example.zarr"
         plink.convert(
             path,
             out,
-            chunk_length=chunk_length,
-            chunk_width=chunk_width,
+            variants_chunk_size=variants_chunk_size,
+            samples_chunk_size=samples_chunk_size,
             worker_processes=worker_processes,
         )
         ds2 = sg.load_dataset(out)
@@ -227,7 +227,7 @@ class TestSimulatedExample:
 
 
 @pytest.mark.parametrize(
-    ["chunk_length", "chunk_width"],
+    ["variants_chunk_size", "samples_chunk_size"],
     [
         (10, 1),
         (10, 10),
@@ -237,14 +237,14 @@ class TestSimulatedExample:
     ],
 )
 @pytest.mark.parametrize("worker_processes", [0])
-def test_by_validating(tmp_path, chunk_length, chunk_width, worker_processes):
+def test_by_validating(tmp_path, variants_chunk_size, samples_chunk_size, worker_processes):
     path = "tests/data/plink/plink_sim_10s_100v_10pmiss.bed"
     out = tmp_path / "example.zarr"
     plink.convert(
         path,
         out,
-        chunk_length=chunk_length,
-        chunk_width=chunk_width,
+        variants_chunk_size=variants_chunk_size,
+        samples_chunk_size=samples_chunk_size,
         worker_processes=worker_processes,
     )
     plink.validate(path, out)

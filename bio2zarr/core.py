@@ -86,11 +86,11 @@ class BufferedArray:
         self.buffer_row = 0
 
     @property
-    def chunk_length(self):
+    def variants_chunk_size(self):
         return self.buff.shape[0]
 
     def next_buffer_row(self):
-        if self.buffer_row == self.chunk_length:
+        if self.buffer_row == self.variants_chunk_size:
             self.flush()
         row = self.buffer_row
         self.buffer_row += 1
@@ -112,7 +112,7 @@ class BufferedArray:
                 f"{self.array_offset}:{self.array_offset + self.buffer_row}"
                 f"{self.buff.nbytes / 2**20: .2f}Mb"
             )
-            self.array_offset += self.chunk_length
+            self.array_offset += self.variants_chunk_size
             self.buffer_row = 0
 
 
@@ -126,13 +126,13 @@ def sync_flush_2d_array(np_buffer, zarr_array, offset):
     # incremental, and to avoid large memcopies in the underlying
     # encoder implementations.
     s = slice(offset, offset + np_buffer.shape[0])
-    chunk_width = zarr_array.chunks[1]
+    samples_chunk_size = zarr_array.chunks[1]
     # TODO use zarr chunks here to support non-uniform chunking later
     # and for simplicity
     zarr_array_width = zarr_array.shape[1]
     start = 0
     while start < zarr_array_width:
-        stop = min(start + chunk_width, zarr_array_width)
+        stop = min(start + samples_chunk_size, zarr_array_width)
         chunk_buffer = np_buffer[:, start:stop]
         zarr_array[s, start:stop] = chunk_buffer
         update_progress(chunk_buffer.nbytes)
