@@ -1098,11 +1098,9 @@ class ZarrColumnSpec:
 
 ZARR_SCHEMA_FORMAT_VERSION = "0.2"
 
-# RENAME to ZarrSchema
-
 
 @dataclasses.dataclass
-class ZarrConversionSpec:
+class VcfZarrSchema:
     format_version: str
     samples_chunk_size: int
     variants_chunk_size: int
@@ -1126,7 +1124,7 @@ class ZarrConversionSpec:
                 "Zarr schema format version mismatch: "
                 f"{d['format_version']} != {ZARR_SCHEMA_FORMAT_VERSION}"
             )
-        ret = ZarrConversionSpec(**d)
+        ret = VcfZarrSchema(**d)
         ret.columns = {
             key: ZarrColumnSpec(**value) for key, value in d["columns"].items()
         }
@@ -1134,7 +1132,7 @@ class ZarrConversionSpec:
 
     @staticmethod
     def fromjson(s):
-        return ZarrConversionSpec.fromdict(json.loads(s))
+        return VcfZarrSchema.fromdict(json.loads(s))
 
     @staticmethod
     def generate(pcvcf, variants_chunk_size=None, samples_chunk_size=None):
@@ -1280,7 +1278,7 @@ class ZarrConversionSpec:
                 )
             )
 
-        return ZarrConversionSpec(
+        return VcfZarrSchema(
             format_version=ZARR_SCHEMA_FORMAT_VERSION,
             samples_chunk_size=samples_chunk_size,
             variants_chunk_size=variants_chunk_size,
@@ -1673,7 +1671,7 @@ class VcfZarrWriter:
 
 def mkschema(if_path, out):
     pcvcf = PickleChunkedVcf.load(if_path)
-    spec = ZarrConversionSpec.generate(pcvcf)
+    spec = VcfZarrSchema.generate(pcvcf)
     out.write(spec.asjson())
 
 
@@ -1690,7 +1688,7 @@ def encode(
 ):
     pcvcf = PickleChunkedVcf.load(if_path)
     if schema_path is None:
-        schema = ZarrConversionSpec.generate(
+        schema = VcfZarrSchema.generate(
             pcvcf,
             variants_chunk_size=variants_chunk_size,
             samples_chunk_size=samples_chunk_size,
@@ -1700,7 +1698,7 @@ def encode(
         if variants_chunk_size is not None or samples_chunk_size is not None:
             raise ValueError("Cannot specify schema along with chunk sizes")
         with open(schema_path, "r") as f:
-            schema = ZarrConversionSpec.fromjson(f.read())
+            schema = VcfZarrSchema.fromjson(f.read())
     zarr_path = pathlib.Path(zarr_path)
     if zarr_path.exists():
         logger.warning(f"Deleting existing {zarr_path}")

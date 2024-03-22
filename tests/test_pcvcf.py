@@ -27,8 +27,8 @@ class TestSmallExample:
         with open(schema_file, "w") as f:
             vcf.mkschema(pcvcf.path, f)
         with open(schema_file, "r") as f:
-            schema1 = vcf.ZarrConversionSpec.fromjson(f.read())
-        schema2 = vcf.ZarrConversionSpec.generate(pcvcf)
+            schema1 = vcf.VcfZarrSchema.fromjson(f.read())
+        schema2 = vcf.VcfZarrSchema.generate(pcvcf)
         assert schema1 == schema2
 
     def test_summary_table(self, pcvcf):
@@ -95,7 +95,7 @@ class TestGeneratedFieldsExample:
 
     @pytest.fixture(scope="class")
     def schema(self, pcvcf):
-        return vcf.ZarrConversionSpec.generate(pcvcf)
+        return vcf.VcfZarrSchema.generate(pcvcf)
 
     @pytest.mark.parametrize(
         ("name", "dtype", "shape"),
@@ -165,8 +165,8 @@ class TestSlicing:
 
     def test_pos_repr(self, pcvcf):
         assert repr(pcvcf["POS"]).startswith(
-            "PickleChunkedVcfField(name=POS, partition_chunks=[8, 8, 8, 8, 8], path=")
-
+            "PickleChunkedVcfField(name=POS, partition_chunks=[8, 8, 8, 8, 8], path="
+        )
 
     def test_partition_record_index(self, pcvcf):
         nt.assert_array_equal(

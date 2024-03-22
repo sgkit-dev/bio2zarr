@@ -45,7 +45,7 @@ class TestJsonVersions:
         d = dict(schema)
         d["format_version"] = version
         with pytest.raises(ValueError, match="Zarr schema format version mismatch"):
-            vcf.ZarrConversionSpec.fromdict(d)
+            vcf.VcfZarrSchema.fromdict(d)
 
     @pytest.mark.parametrize("version", ["0.0", "1.0", "xxxxx", 0.1])
     def test_exploded_metadata_mismatch(self, tmpdir, exploded_path, version):
