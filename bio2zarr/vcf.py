@@ -281,7 +281,7 @@ def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
     )
     with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
         for path in paths:
-            pwm.submit(scan_vcf, path, target_num_partitions//len(paths))
+            pwm.submit(scan_vcf, path, max(1, target_num_partitions//len(paths)))
         results = list(pwm.results_as_completed())
 
     # Sort to make the ordering deterministic
@@ -1068,7 +1068,7 @@ class PickleChunkedVcf(collections.abc.Mapping):
 
         for field in self.metadata.fields:
             # Clear the summary to avoid problems when running in debug
-            # syncronous mode
+            # synchronous mode
             field.summary = VcfFieldSummary()
             for summary in partition_summaries:
                 field.summary.update(summary["field_summaries"][field.full_name])
