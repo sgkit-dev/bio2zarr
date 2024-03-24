@@ -794,7 +794,8 @@ def test_split_explode(tmp_path):
     num_partitions = vcf.explode_init(paths, out, target_num_partitions=15)
     assert num_partitions == 3
 
-    pcvcf = vcf.PickleChunkedVcf.load(out)
+    with pytest.raises(FileNotFoundError):
+        pcvcf = vcf.PickleChunkedVcf(out)
 
     with pytest.raises(ValueError):
         vcf.explode_slice(out, -1, 3)
@@ -803,7 +804,7 @@ def test_split_explode(tmp_path):
 
     vcf.explode_slice(out, 0, 3)
     vcf.explode_finalise(out)
-    pcvcf = vcf.PickleChunkedVcf.load(out)
+    pcvcf = vcf.PickleChunkedVcf(out)
     assert pcvcf.columns['POS'].vcf_field.summary.asdict() == {
         'num_chunks': 3,
         'compressed_size': 587,

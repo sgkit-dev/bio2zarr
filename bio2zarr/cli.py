@@ -108,8 +108,8 @@ def dexplode_init(vcfs, icf_path, num_partitions, verbose, worker_processes):
 
 @click.command
 @click.argument("path", type=click.Path(), required=True)
-@click.option("-s", "--start", type=int, required=True)
-@click.option("-e", "--end", type=int, required=True)
+@click.argument("start", type=int)
+@click.argument("end", type=int)
 @verbose
 @worker_processes
 @column_chunk_size
