@@ -791,9 +791,10 @@ def test_split_explode(tmp_path):
         "tests/data/vcf/sample.vcf.gz.3.split/X.vcf.gz",
     ]
     out = tmp_path / "test.explode"
-    pcvcf = vcf.explode_init(paths, out, target_num_partitions=15)
-    assert pcvcf.num_partitions == 3
-    assert vcf.explode_partition_count(out) == 3
+    num_partitions = vcf.explode_init(paths, out, target_num_partitions=15)
+    assert num_partitions == 3
+
+    pcvcf = vcf.PickleChunkedVcf.load(out)
 
     with pytest.raises(ValueError):
         vcf.explode_slice(out, -1, 3)

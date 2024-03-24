@@ -7,6 +7,7 @@ from . import vcf_utils
 from . import plink
 from . import provenance
 
+
 class NaturalOrderGroup(click.Group):
     """
     List commands in the order they are provided in the help text.
@@ -65,18 +66,18 @@ def setup_logging(verbosity):
 
 @click.command
 @click.argument("vcfs", nargs=-1, required=True)
-@click.argument("out_path", type=click.Path())
+@click.argument("zarr_path", type=click.Path())
 @verbose
 @worker_processes
 @column_chunk_size
-def explode(vcfs, out_path, verbose, worker_processes, column_chunk_size):
+def explode(vcfs, zarr_path, verbose, worker_processes, column_chunk_size):
     """
     Convert VCF(s) to columnar intermediate format
     """
     setup_logging(verbose)
     vcf.explode(
         vcfs,
-        out_path,
+        zarr_path,
         worker_processes=worker_processes,
         column_chunk_size=column_chunk_size,
         show_progress=True,
@@ -85,31 +86,24 @@ def explode(vcfs, out_path, verbose, worker_processes, column_chunk_size):
 
 @click.command
 @click.argument("vcfs", nargs=-1, required=True)
-@click.argument("out_path", type=click.Path())
-@click.option("-n", "--target-num-partitions", type=int, required=True)
+@click.argument("icf_path", type=click.Path())
+@click.argument("num_partitions", type=int)
 @verbose
 @worker_processes
-def dexplode_init(vcfs, out_path, target_num_partitions, verbose, worker_processes):
+def dexplode_init(vcfs, icf_path, num_partitions, verbose, worker_processes):
     """
     Initial step for parallel conversion of VCF(s) to columnar intermediate format
+    over the requested number of paritions.
     """
     setup_logging(verbose)
-    vcf.explode_init(
+    num_partitions = vcf.explode_init(
         vcfs,
-        out_path,
-        target_num_partitions=target_num_partitions,
+        icf_path,
+        target_num_partitions=num_partitions,
         worker_processes=worker_processes,
         show_progress=True,
     )
-
-
-@click.command
-@click.argument("path", type=click.Path())
-def dexplode_partition_count(path):
-    """
-    Count the actual number of partitions in a parallel conversion of VCF(s) to columnar intermediate format
-    """
-    click.echo(vcf.explode_partition_count(path))
+    click.echo(num_partitions)
 
 
 @click.command
@@ -146,29 +140,29 @@ def dexplode_finalise(path, verbose):
 
 
 @click.command
-@click.argument("if_path", type=click.Path())
+@click.argument("icf_path", type=click.Path())
 @verbose
-def inspect(if_path, verbose):
+def inspect(icf_path, verbose):
     """
     Inspect an intermediate format or Zarr path.
     """
     setup_logging(verbose)
-    data = vcf.inspect(if_path)
+    data = vcf.inspect(icf_path)
     click.echo(tabulate.tabulate(data, headers="keys"))
 
 
 @click.command
-@click.argument("if_path", type=click.Path())
-def mkschema(if_path):
+@click.argument("icf_path", type=click.Path())
+def mkschema(icf_path):
     """
     Generate a schema for zarr encoding
     """
     stream = click.get_text_stream("stdout")
-    vcf.mkschema(if_path, stream)
+    vcf.mkschema(icf_path, stream)
 
 
 @click.command
-@click.argument("if_path", type=click.Path())
+@click.argument("icf_path", type=click.Path())
 @click.argument("zarr_path", type=click.Path())
 @verbose
 @click.option("-s", "--schema", default=None, type=click.Path(exists=True))
@@ -194,7 +188,7 @@ def mkschema(if_path):
 )
 @worker_processes
 def encode(
-    if_path,
+    icf_path,
     zarr_path,
     verbose,
     schema,
@@ -205,11 +199,11 @@ def encode(
     worker_processes,
 ):
     """
-    Encode intermediate format (see explode) to vcfzarr
+    Encode intermediate columnar format (see explode) to vcfzarr.
     """
     setup_logging(verbose)
     vcf.encode(
-        if_path,
+        icf_path,
         zarr_path,
         schema,
         variants_chunk_size=variants_chunk_size,
@@ -223,21 +217,21 @@ def encode(
 
 @click.command(name="convert")
 @click.argument("vcfs", nargs=-1, required=True)
-@click.argument("out_path", type=click.Path())
+@click.argument("zarr_path", type=click.Path())
 @variants_chunk_size
 @samples_chunk_size
 @verbose
 @worker_processes
 def convert_vcf(
-    vcfs, out_path, variants_chunk_size, samples_chunk_size, verbose, worker_processes
+    vcfs, zarr_path, variants_chunk_size, samples_chunk_size, verbose, worker_processes
 ):
     """
-    Convert input VCF(s) directly to vcfzarr (not recommended for large files)
+    Convert input VCF(s) directly to vcfzarr (not recommended for large files).
     """
     setup_logging(verbose)
     vcf.convert(
         vcfs,
-        out_path,
+        zarr_path,
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
         show_progress=True,
@@ -247,29 +241,76 @@ def convert_vcf(
 
 @click.command
 @click.argument("vcfs", nargs=-1, required=True)
-@click.argument("out_path", type=click.Path())
-def validate(vcfs, out_path):
+@click.argument("zarr_path", type=click.Path())
+def validate(vcfs, zarr_path):
     """
     Development only, do not use. Will be removed before release.
     """
     # FIXME! Will silently not look at remaining VCFs
-    vcf.validate(vcfs[0], out_path, show_progress=True)
+    vcf.validate(vcfs[0], zarr_path, show_progress=True)
 
 
 @version
 @click.group(cls=NaturalOrderGroup)
 def vcf2zarr():
-    pass
+    """
+    Convert VCF file(s) to the vcfzarr format.
+
+    The simplest usage is:
+
+    $ vcf2zarr convert [VCF_FILE] [ZARR_PATH]
+
+    This will convert the indexed VCF (or BCF) into the vcfzarr format in a single
+    step. As this writes the intermediate columnar format to a temporary directory,
+    we only recommend this approach for small files (< 1GB, say).
+
+    The recommended approach is to run the conversion in two passes, and
+    to keep the intermediate columnar format ("exploded") around to facilitate
+    experimentation with chunk sizes and compression settings:
+
+    \b
+    $ vcf2zarr explode [VCF_FILE_1] ... [VCF_FILE_N] [ICF_PATH]
+    $ vcf2zarr encode [ICF_PATH] [ZARR_PATH]
+
+    The inspect command provides a way to view contents of an exploded ICF
+    or Zarr:
+
+    $ vcf2zarr inspect [PATH]
+
+    This is useful when tweaking chunk sizes and compression settings to suit
+    your dataset, using the mkschema command and --schema option to encode:
+
+    \b
+    $ vcf2zarr mkschema [ICF_PATH] > schema.json
+    $ vcf2zarr encode [ICF_PATH] [ZARR_PATH] --schema schema.json
+
+    By editing the schema.json file you can drop columns that are not of interest
+    and edit column specific compression settings. The --max-variant-chunks option
+    to encode allows you to try out these options on small subsets, hopefully
+    arriving at settings with the desired balance of compression and query
+    performance.
+
+    ADVANCED USAGE
+
+    For very large datasets (terabyte scale) it may be necessary to distribute the
+    explode and encode steps across a cluster:
+
+    \b
+    $ vcf2zarr dexplode-init [VCF_FILE_1] ... [VCF_FILE_N] [ICF_PATH] [NUM_PARTITIONS]
+    $ vcf2zarr dexplode-slice [ICF_PATH] [START] [STOP]
+    $ vcf2zarr dexplode-finalise [ICF_PATH]
+
+    See the online documentation at [FIXME] for more details on distributed explode.
+    """
 
 
 # TODO figure out how to get click to list these in the given order.
 vcf2zarr.add_command(convert_vcf)
-vcf2zarr.add_command(explode)
 vcf2zarr.add_command(inspect)
+vcf2zarr.add_command(explode)
 vcf2zarr.add_command(mkschema)
 vcf2zarr.add_command(encode)
 vcf2zarr.add_command(dexplode_init)
-vcf2zarr.add_command(dexplode_partition_count)
 vcf2zarr.add_command(dexplode_slice)
 vcf2zarr.add_command(dexplode_finalise)
 vcf2zarr.add_command(validate)
@@ -277,14 +318,14 @@ vcf2zarr.add_command(validate)
 
 @click.command(name="convert")
 @click.argument("in_path", type=click.Path())
-@click.argument("out_path", type=click.Path())
+@click.argument("zarr_path", type=click.Path())
 @worker_processes
 @verbose
 @variants_chunk_size
 @samples_chunk_size
 def convert_plink(
     in_path,
-    out_path,
+    zarr_path,
     verbose,
     worker_processes,
     variants_chunk_size,
@@ -296,7 +337,7 @@ def convert_plink(
     setup_logging(verbose)
     plink.convert(
         in_path,
-        out_path,
+        zarr_path,
         show_progress=True,
         worker_processes=worker_processes,
         samples_chunk_size=samples_chunk_size,
