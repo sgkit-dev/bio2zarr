@@ -7,8 +7,19 @@ from . import vcf_utils
 from . import plink
 from . import provenance
 
+class NaturalOrderGroup(click.Group):
+    """
+    List commands in the order they are provided in the help text.
+    """
+
+    def list_commands(self, ctx):
+        return self.commands.keys()
+
+
 # Common arguments/options
 verbose = click.option("-v", "--verbose", count=True, help="Increase verbosity")
+
+version = click.version_option(version=f"{provenance.__version__}")
 
 worker_processes = click.option(
     "-p", "--worker-processes", type=int, default=1, help="Number of worker processes"
@@ -19,12 +30,11 @@ column_chunk_size = click.option(
     "--column-chunk-size",
     type=int,
     default=64,
-    help="Size of exploded column chunks",
+    help="Approximate uncompressed size of exploded column chunks in MiB",
 )
 
 # Note: -l and -w were chosen when these were called "width" and "length".
 # possibly there are better letters now.
-# TODO help text
 variants_chunk_size = click.option(
     "-l",
     "--variants-chunk-size",
@@ -41,11 +51,7 @@ samples_chunk_size = click.option(
     help="Chunk size in the samples dimension",
 )
 
-version = click.version_option(version=f"{provenance.__version__}")
 
-
-# Note: logging hasn't been implemented in the code at all, this is just
-# a first pass to try out some ways of doing things to see what works.
 def setup_logging(verbosity):
     level = "WARNING"
     if verbosity == 1:
@@ -53,9 +59,7 @@ def setup_logging(verbosity):
     elif verbosity >= 2:
         level = "DEBUG"
     # NOTE: I'm not that excited about coloredlogs, just trying it out
-    # as it is installed by cyvcf2 anyway. We will have some complicated
-    # stuff doing on with threads and processes, to logs might not work
-    # so well anyway.
+    # as it is installed by cyvcf2 anyway.
     coloredlogs.install(level=level)
 
 
@@ -78,13 +82,14 @@ def explode(vcfs, out_path, verbose, worker_processes, column_chunk_size):
         show_progress=True,
     )
 
+
 @click.command
 @click.argument("vcfs", nargs=-1, required=True)
 @click.argument("out_path", type=click.Path())
 @click.option("-n", "--target-num-partitions", type=int, required=True)
 @verbose
 @worker_processes
-def explode_init(vcfs, out_path, target_num_partitions, verbose, worker_processes):
+def dexplode_init(vcfs, out_path, target_num_partitions, verbose, worker_processes):
     """
     Initial step for parallel conversion of VCF(s) to columnar intermediate format
     """
@@ -97,13 +102,15 @@ def explode_init(vcfs, out_path, target_num_partitions, verbose, worker_processe
         show_progress=True,
     )
 
+
 @click.command
 @click.argument("path", type=click.Path())
-def explode_partition_count(path):
+def dexplode_partition_count(path):
     """
     Count the actual number of partitions in a parallel conversion of VCF(s) to columnar intermediate format
     """
-    print(vcf.explode_partition_count(path))
+    click.echo(vcf.explode_partition_count(path))
+
 
 @click.command
 @click.argument("path", type=click.Path(), required=True)
@@ -112,7 +119,7 @@ def explode_partition_count(path):
 @verbose
 @worker_processes
 @column_chunk_size
-def explode_slice(path, start, end, verbose, worker_processes, column_chunk_size):
+def dexplode_slice(path, start, end, verbose, worker_processes, column_chunk_size):
     """
     Convert VCF(s) to columnar intermediate format
     """
@@ -126,22 +133,24 @@ def explode_slice(path, start, end, verbose, worker_processes, column_chunk_size
         show_progress=True,
     )
 
+
 @click.command
 @click.argument("path", type=click.Path(), required=True)
 @verbose
-def explode_finalise(path, verbose):
+def dexplode_finalise(path, verbose):
     """
     Final step for parallel conversion of VCF(s) to columnar intermediate format
     """
     setup_logging(verbose)
     vcf.explode_finalise(path)
 
+
 @click.command
 @click.argument("if_path", type=click.Path())
 @verbose
 def inspect(if_path, verbose):
     """
-    Inspect an intermediate format file
+    Inspect an intermediate format or Zarr path.
     """
     setup_logging(verbose)
     data = vcf.inspect(if_path)
@@ -248,21 +257,21 @@ def validate(vcfs, out_path):
 
 
 @version
-@click.group()
+@click.group(cls=NaturalOrderGroup)
 def vcf2zarr():
     pass
 
 
 # TODO figure out how to get click to list these in the given order.
+vcf2zarr.add_command(convert_vcf)
 vcf2zarr.add_command(explode)
-vcf2zarr.add_command(explode_init)
-vcf2zarr.add_command(explode_partition_count)
-vcf2zarr.add_command(explode_slice)
-vcf2zarr.add_command(explode_finalise)
 vcf2zarr.add_command(inspect)
 vcf2zarr.add_command(mkschema)
 vcf2zarr.add_command(encode)
-vcf2zarr.add_command(convert_vcf)
+vcf2zarr.add_command(dexplode_init)
+vcf2zarr.add_command(dexplode_partition_count)
+vcf2zarr.add_command(dexplode_slice)
+vcf2zarr.add_command(dexplode_finalise)
 vcf2zarr.add_command(validate)
 
 
