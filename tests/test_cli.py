@@ -26,6 +26,63 @@ class TestWithMocks:
             show_progress=True,
         )
 
+    def test_vcf_explode_init(self):
+        runner = ct.CliRunner(mix_stderr=False)
+        with mock.patch("bio2zarr.vcf.explode_init") as mocked:
+            result = runner.invoke(
+                cli.vcf2zarr, ["explode-init", "source", "dest", "-n", "5"], catch_exceptions=False
+            )
+            assert result.exit_code == 0
+            assert len(result.stdout) == 0
+            assert len(result.stderr) == 0
+            mocked.assert_called_once_with(
+                ("source",),
+                "dest",
+                target_num_partitions=5,
+                worker_processes=1,
+                show_progress=True,
+            )
+
+    def test_vcf_explode_partition_count(self):
+        runner = ct.CliRunner(mix_stderr=False)
+        with mock.patch("bio2zarr.vcf.explode_partition_count", return_value=5) as mocked:
+            result = runner.invoke(
+                cli.vcf2zarr, ["explode-partition-count", "path"], catch_exceptions=False
+            )
+            assert result.exit_code == 0
+            assert result.stdout == "5\n"
+            assert len(result.stderr) == 0
+            mocked.assert_called_once_with("path")
+
+    def test_vcf_explode_slice(self):
+        runner = ct.CliRunner(mix_stderr=False)
+        with mock.patch("bio2zarr.vcf.explode_slice") as mocked:
+            result = runner.invoke(
+                cli.vcf2zarr, ["explode-slice", "path", "-s", "1", "-e", "2"], catch_exceptions=False
+            )
+            assert result.exit_code == 0
+            assert len(result.stdout) == 0
+            assert len(result.stderr) == 0
+            mocked.assert_called_once_with(
+                "path",
+                1,
+                2,
+                column_chunk_size=64,
+                worker_processes=1,
+                show_progress=True,
+            )
+
+    def test_vcf_explode_finalise(self):
+        runner = ct.CliRunner(mix_stderr=False)
+        with mock.patch("bio2zarr.vcf.explode_finalise") as mocked:
+            result = runner.invoke(
+                cli.vcf2zarr, ["explode-finalise", "path"], catch_exceptions=False
+            )
+            assert result.exit_code == 0
+            assert len(result.stdout) == 0
+            assert len(result.stderr) == 0
+            mocked.assert_called_once_with("path")
+
     @mock.patch("bio2zarr.vcf.inspect")
     def test_inspect(self, mocked):
         runner = ct.CliRunner(mix_stderr=False)

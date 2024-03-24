@@ -782,3 +782,34 @@ def test_by_validating_split(source, suffix, files, tmp_path):
     out = tmp_path / "test.zarr"
     vcf.convert(split_files, out, worker_processes=0)
     vcf.validate(source_path, out)
+
+
+def test_split_explode(tmp_path):
+    paths = [
+        "tests/data/vcf/sample.vcf.gz.3.split/19:1-.vcf.gz",
+        "tests/data/vcf/sample.vcf.gz.3.split/20.vcf.gz",
+        "tests/data/vcf/sample.vcf.gz.3.split/X.vcf.gz",
+    ]
+    out = tmp_path / "test.explode"
+    pcvcf = vcf.explode_init(paths, out, target_num_partitions=15)
+    assert pcvcf.num_partitions == 3
+    assert vcf.explode_partition_count(out) == 3
+
+    with pytest.raises(ValueError):
+        vcf.explode_slice(out, -1, 3)
+    with pytest.raises(ValueError):
+        vcf.explode_slice(out, 0, 42)
+
+    vcf.explode_slice(out, 0, 3)
+    vcf.explode_finalise(out)
+    pcvcf = vcf.PickleChunkedVcf.load(out)
+    assert pcvcf.columns['POS'].vcf_field.summary.asdict() == {
+        'num_chunks': 3,
+        'compressed_size': 587,
+        'uncompressed_size': 1008,
+        'max_number': 1,
+        'max_value': 1235237,
+        'min_value': 10
+    }
+    vcf.encode(out, tmp_path / "test.zarr")
+    vcf.validate("tests/data/vcf/sample.vcf.gz", tmp_path / "test.zarr")
