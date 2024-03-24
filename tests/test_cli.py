@@ -47,7 +47,7 @@ class TestWithMocks:
         runner = ct.CliRunner(mix_stderr=False)
         with mock.patch("bio2zarr.vcf.explode_slice") as mocked:
             result = runner.invoke(
-                cli.vcf2zarr, ["dexplode-slice", "path", "-s", "1", "-e", "2"], catch_exceptions=False
+                cli.vcf2zarr, ["dexplode-slice", "path", "1", "2"], catch_exceptions=False
             )
             assert result.exit_code == 0
             assert len(result.stdout) == 0
