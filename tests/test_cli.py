@@ -26,15 +26,15 @@ class TestWithMocks:
             show_progress=True,
         )
 
-    def test_vcf_explode_init(self):
+    def test_vcf_dexplode_init(self):
         runner = ct.CliRunner(mix_stderr=False)
-        with mock.patch("bio2zarr.vcf.explode_init") as mocked:
+        with mock.patch("bio2zarr.vcf.explode_init", return_value=5) as mocked:
             result = runner.invoke(
-                cli.vcf2zarr, ["explode-init", "source", "dest", "-n", "5"], catch_exceptions=False
+                cli.vcf2zarr, ["dexplode-init", "source", "dest", "5"], catch_exceptions=False
             )
             assert result.exit_code == 0
-            assert len(result.stdout) == 0
             assert len(result.stderr) == 0
+            assert result.stdout == "5\n"
             mocked.assert_called_once_with(
                 ("source",),
                 "dest",
@@ -43,22 +43,11 @@ class TestWithMocks:
                 show_progress=True,
             )
 
-    def test_vcf_explode_partition_count(self):
-        runner = ct.CliRunner(mix_stderr=False)
-        with mock.patch("bio2zarr.vcf.explode_partition_count", return_value=5) as mocked:
-            result = runner.invoke(
-                cli.vcf2zarr, ["explode-partition-count", "path"], catch_exceptions=False
-            )
-            assert result.exit_code == 0
-            assert result.stdout == "5\n"
-            assert len(result.stderr) == 0
-            mocked.assert_called_once_with("path")
-
-    def test_vcf_explode_slice(self):
+    def test_vcf_dexplode_slice(self):
         runner = ct.CliRunner(mix_stderr=False)
         with mock.patch("bio2zarr.vcf.explode_slice") as mocked:
             result = runner.invoke(
-                cli.vcf2zarr, ["explode-slice", "path", "-s", "1", "-e", "2"], catch_exceptions=False
+                cli.vcf2zarr, ["dexplode-slice", "path", "-s", "1", "-e", "2"], catch_exceptions=False
             )
             assert result.exit_code == 0
             assert len(result.stdout) == 0
@@ -72,11 +61,11 @@ class TestWithMocks:
                 show_progress=True,
             )
 
-    def test_vcf_explode_finalise(self):
+    def test_vcf_dexplode_finalise(self):
         runner = ct.CliRunner(mix_stderr=False)
         with mock.patch("bio2zarr.vcf.explode_finalise") as mocked:
             result = runner.invoke(
-                cli.vcf2zarr, ["explode-finalise", "path"], catch_exceptions=False
+                cli.vcf2zarr, ["dexplode-finalise", "path"], catch_exceptions=False
             )
             assert result.exit_code == 0
             assert len(result.stdout) == 0
