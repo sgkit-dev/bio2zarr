@@ -1231,8 +1231,6 @@ class ZarrColumnSpec:
             shuffle = numcodecs.Blosc.BITSHUFFLE
         self.compressor["shuffle"] = shuffle
 
-        if dt.name == "bool":
-            self.filters.append(numcodecs.PackBits().get_config())
 
 
 ZARR_SCHEMA_FORMAT_VERSION = "0.2"
