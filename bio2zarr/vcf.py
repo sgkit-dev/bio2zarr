@@ -149,13 +149,12 @@ class VcfPartition:
     num_records: int = -1
 
 
-VCF_METADATA_FORMAT_VERSION = "0.2"
+ICF_METADATA_FORMAT_VERSION = "0.2"
 ICF_DEFAULT_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7).get_config()
 
 
-# TODO Rename this class to "FormatMetadata" or something, it's a misnomer here now.
 @dataclasses.dataclass
-class VcfMetadata:
+class IcfMetadata:
     samples: list
     contig_names: list
     contig_record_counts: dict
@@ -189,10 +188,10 @@ class VcfMetadata:
 
     @staticmethod
     def fromdict(d):
-        if d["format_version"] != VCF_METADATA_FORMAT_VERSION:
+        if d["format_version"] != ICF_METADATA_FORMAT_VERSION:
             raise ValueError(
-                "Exploded metadata format version mismatch: "
-                f"{d['format_version']} != {VCF_METADATA_FORMAT_VERSION}"
+                "Intermediate columnar metadata format version mismatch: "
+                f"{d['format_version']} != {ICF_METADATA_FORMAT_VERSION}"
             )
         fields = [VcfField.fromdict(fd) for fd in d["fields"]]
         partitions = [VcfPartition(**pd) for pd in d["partitions"]]
@@ -201,7 +200,7 @@ class VcfMetadata:
         d = d.copy()
         d["fields"] = fields
         d["partitions"] = partitions
-        return VcfMetadata(**d)
+        return IcfMetadata(**d)
 
     def asdict(self):
         return dataclasses.asdict(self)
@@ -252,7 +251,7 @@ def scan_vcf(path, target_num_partitions):
                     field.vcf_number = "."
                 fields.append(field)
 
-        metadata = VcfMetadata(
+        metadata = IcfMetadata(
             samples=vcf.samples,
             contig_names=vcf.seqnames,
             contig_record_counts=indexed_vcf.contig_record_counts(),
@@ -272,6 +271,8 @@ def scan_vcf(path, target_num_partitions):
         for region in regions:
             metadata.partitions.append(
                 VcfPartition(
+                    # TODO should this be fully resolving the path? Otherwise it's all
+                    # relative to the original WD
                     vcf_path=str(path),
                     region=region,
                 )
@@ -309,12 +310,12 @@ def scan_vcfs(
         contig_record_counts += metadata.contig_record_counts
         metadata.contig_record_counts.clear()
 
-    vcf_metadata, header = results[0]
+    icf_metadata, header = results[0]
     for metadata, _ in results[1:]:
-        if metadata != vcf_metadata:
+        if metadata != icf_metadata:
             raise ValueError("Incompatible VCF chunks")
 
-    vcf_metadata.contig_record_counts = dict(contig_record_counts)
+    icf_metadata.contig_record_counts = dict(contig_record_counts)
 
     # Sort by contig (in the order they appear in the header) first,
     # then by start coordinate
@@ -322,12 +323,12 @@ def scan_vcfs(
     all_partitions.sort(
         key=lambda x: (contig_index_map[x.region.contig], x.region.start)
     )
-    vcf_metadata.partitions = all_partitions
-    vcf_metadata.format_version = VCF_METADATA_FORMAT_VERSION
-    vcf_metadata.compressor = ICF_DEFAULT_COMPRESSOR
-    vcf_metadata.column_chunk_size = column_chunk_size
+    icf_metadata.partitions = all_partitions
+    icf_metadata.format_version = ICF_METADATA_FORMAT_VERSION
+    icf_metadata.compressor = ICF_DEFAULT_COMPRESSOR
+    icf_metadata.column_chunk_size = column_chunk_size
     logger.info(f"Scan complete, resulting in {len(all_partitions)} partitions.")
-    return vcf_metadata, header
+    return icf_metadata, header
 
 
 def sanitise_value_bool(buff, j, value):
@@ -772,19 +773,19 @@ class PcvcfPartitionWriter(contextlib.AbstractContextManager):
 
     def __init__(
         self,
-        vcf_metadata,
+        icf_metadata,
         out_path,
         partition_index,
     ):
         self.partition_index = partition_index
         # chunk_size is in megabytes
-        max_buffered_bytes = vcf_metadata.column_chunk_size * 2**20
+        max_buffered_bytes = icf_metadata.column_chunk_size * 2**20
         assert max_buffered_bytes > 0
-        compressor = numcodecs.get_codec(vcf_metadata.compressor)
+        compressor = numcodecs.get_codec(icf_metadata.compressor)
 
         self.field_writers = {}
-        num_samples = len(vcf_metadata.samples)
-        for vcf_field in vcf_metadata.fields:
+        num_samples = len(icf_metadata.samples)
+        for vcf_field in icf_metadata.fields:
             field_path = get_vcf_field_path(out_path, vcf_field)
             field_partition_path = field_path / f"p{partition_index}"
             transformer = VcfValueTransformer.factory(vcf_field, num_samples)
@@ -824,7 +825,7 @@ class PickleChunkedVcf(collections.abc.Mapping):
         # TODO raise a more informative error here telling people this
         # directory is either a WIP or the wrong format.
         with open(self.path / "metadata.json") as f:
-            self.metadata = VcfMetadata.fromdict(json.load(f))
+            self.metadata = IcfMetadata.fromdict(json.load(f))
         with open(self.path / "header.txt") as f:
             self.vcf_header = f.read()
 
@@ -924,20 +925,21 @@ class PickleChunkedVcfWriter:
         target_num_partitions = max(target_num_partitions, len(vcfs))
 
         # TODO move scan_vcfs into this class
-        vcf_metadata, header = scan_vcfs(
+        icf_metadata, header = scan_vcfs(
             vcfs,
             worker_processes=worker_processes,
             show_progress=show_progress,
             target_num_partitions=target_num_partitions,
             column_chunk_size=column_chunk_size,
         )
-        self.metadata = vcf_metadata
+        self.metadata = icf_metadata
 
         self.mkdirs()
 
         # Note: this is needed for the current version of the vcfzarr spec, but it's
         # probably goint to be dropped.
         # https://github.com/pystatgen/vcf-zarr-spec/issues/15
+        # May be useful to keep lying around still though?
         logger.info(f"Writing VCF header")
         with open(self.path / "header.txt", "w") as f:
             f.write(header)
@@ -982,7 +984,7 @@ class PickleChunkedVcfWriter:
 
     def load_metadata(self):
         with open(self.wip_path / f"metadata.json") as f:
-            self.metadata = VcfMetadata.fromdict(json.load(f))
+            self.metadata = IcfMetadata.fromdict(json.load(f))
 
     def process_partition(self, partition_index):
         self.load_metadata()
