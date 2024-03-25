@@ -160,12 +160,12 @@ class TestSlicing:
 
     def test_repr(self, pcvcf):
         assert repr(pcvcf).startswith(
-            "PickleChunkedVcf(fields=7, partitions=5, records=4665, path="
+            "IntermediateColumnarFormat(fields=7, partitions=5, records=4665, path="
         )
 
     def test_pos_repr(self, pcvcf):
         assert repr(pcvcf["POS"]).startswith(
-            "PickleChunkedVcfField(name=POS, partition_chunks=[8, 8, 8, 8, 8], path="
+            "IntermediateColumnarFormatField(name=POS, partition_chunks=[8, 8, 8, 8, 8], path="
         )
 
     def test_partition_record_index(self, pcvcf):
