@@ -150,7 +150,7 @@ class VcfPartition:
 
 
 ICF_METADATA_FORMAT_VERSION = "0.2"
-ICF_DEFAULT_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7).get_config()
+ICF_DEFAULT_COMPRESSOR = numcodecs.Blosc(cname="lz4", clevel=7).get_config()
 
 
 @dataclasses.dataclass
