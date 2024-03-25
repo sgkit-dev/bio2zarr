@@ -72,7 +72,7 @@ def setup_logging(verbosity):
 @column_chunk_size
 def explode(vcfs, zarr_path, verbose, worker_processes, column_chunk_size):
     """
-    Convert VCF(s) to columnar intermediate format
+    Convert VCF(s) to intermediate columnar format
     """
     setup_logging(verbose)
     vcf.explode(
@@ -92,7 +92,7 @@ def explode(vcfs, zarr_path, verbose, worker_processes, column_chunk_size):
 @worker_processes
 def dexplode_init(vcfs, icf_path, num_partitions, verbose, worker_processes):
     """
-    Initial step for parallel conversion of VCF(s) to columnar intermediate format
+    Initial step for parallel conversion of VCF(s) to intermediate columnar format
     over the requested number of paritions.
     """
     setup_logging(verbose)
@@ -115,7 +115,7 @@ def dexplode_init(vcfs, icf_path, num_partitions, verbose, worker_processes):
 @column_chunk_size
 def dexplode_slice(path, start, end, verbose, worker_processes, column_chunk_size):
     """
-    Convert VCF(s) to columnar intermediate format
+    Convert VCF(s) to intermediate columnar format
     """
     setup_logging(verbose)
     vcf.explode_slice(
@@ -133,7 +133,7 @@ def dexplode_slice(path, start, end, verbose, worker_processes, column_chunk_siz
 @verbose
 def dexplode_finalise(path, verbose):
     """
-    Final step for parallel conversion of VCF(s) to columnar intermediate format
+    Final step for parallel conversion of VCF(s) to intermediate columnar format
     """
     setup_logging(verbose)
     vcf.explode_finalise(path)

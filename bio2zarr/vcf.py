@@ -149,16 +149,13 @@ class VcfPartition:
     num_records: int = -1
 
 
-VCF_METADATA_FORMAT_VERSION = "0.1"
+VCF_METADATA_FORMAT_VERSION = "0.2"
+ICF_DEFAULT_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7).get_config()
 
 
 # TODO Rename this class to "FormatMetadata" or something, it's a misnomer here now.
 @dataclasses.dataclass
 class VcfMetadata:
-    format_version: str
-    # TODO add
-    # compressor: dict (numcodecs setup)
-    # column_chunk_size: int (MiB)
     samples: list
     contig_names: list
     contig_record_counts: dict
@@ -166,6 +163,9 @@ class VcfMetadata:
     fields: list
     partitions: list = None
     contig_lengths: list = None
+    format_version: str = None
+    compressor: dict = None
+    column_chunk_size: int = None
 
     @property
     def info_fields(self):
@@ -257,10 +257,8 @@ def scan_vcf(path, target_num_partitions):
             contig_names=vcf.seqnames,
             contig_record_counts=indexed_vcf.contig_record_counts(),
             filters=filters,
-            # TODO use the mapping dictionary
             fields=fields,
             partitions=[],
-            format_version=VCF_METADATA_FORMAT_VERSION,
         )
         try:
             metadata.contig_lengths = vcf.seqlens
@@ -282,7 +280,9 @@ def scan_vcf(path, target_num_partitions):
         return metadata, vcf.raw_header
 
 
-def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
+def scan_vcfs(
+    paths, show_progress, target_num_partitions, column_chunk_size, worker_processes=1
+):
     logger.info(
         f"Scanning {len(paths)} VCFs attempting to split into {target_num_partitions} partitions."
     )
@@ -323,6 +323,9 @@ def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
         key=lambda x: (contig_index_map[x.region.contig], x.region.start)
     )
     vcf_metadata.partitions = all_partitions
+    vcf_metadata.format_version = VCF_METADATA_FORMAT_VERSION
+    vcf_metadata.compressor = ICF_DEFAULT_COMPRESSOR
+    vcf_metadata.column_chunk_size = column_chunk_size
     logger.info(f"Scan complete, resulting in {len(all_partitions)} partitions.")
     return vcf_metadata, header
 
@@ -772,14 +775,12 @@ class PcvcfPartitionWriter(contextlib.AbstractContextManager):
         vcf_metadata,
         out_path,
         partition_index,
-        compressor,
-        *,
-        chunk_size=1,
     ):
         self.partition_index = partition_index
         # chunk_size is in megabytes
-        max_buffered_bytes = chunk_size * 2**20
+        max_buffered_bytes = vcf_metadata.column_chunk_size * 2**20
         assert max_buffered_bytes > 0
+        compressor = numcodecs.get_codec(vcf_metadata.compressor)
 
         self.field_writers = {}
         num_samples = len(vcf_metadata.samples)
@@ -811,13 +812,12 @@ class PcvcfPartitionWriter(contextlib.AbstractContextManager):
         return False
 
 
-# TODO rename to ColumnarIntermediateFormat and move to cif.py
+# TODO rename to IntermediateColumnarFormat and move to icf.py
 
 
 class PickleChunkedVcf(collections.abc.Mapping):
     # TODO Check if other compressors would give reasonable compression
     # with significantly faster times
-    DEFAULT_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7)
 
     def __init__(self, path):
         self.path = pathlib.Path(path)
@@ -828,7 +828,7 @@ class PickleChunkedVcf(collections.abc.Mapping):
         with open(self.path / "header.txt") as f:
             self.vcf_header = f.read()
 
-        self.compressor = self.DEFAULT_COMPRESSOR
+        self.compressor = numcodecs.get_codec(self.metadata.compressor)
         self.columns = {}
         partition_num_records = [
             partition.num_records for partition in self.metadata.partitions
@@ -911,11 +911,17 @@ class PickleChunkedVcfWriter:
         return len(self.metadata.partitions)
 
     def init(
-        self, vcfs, worker_processes=1, target_num_partitions=None, show_progress=False
+        self,
+        vcfs,
+        *,
+        column_chunk_size=16,
+        worker_processes=1,
+        target_num_partitions=None,
+        show_progress=False,
     ):
         if target_num_partitions is None:
             target_num_partitions = len(vcfs)
-        target_num_partitions = min(target_num_partitions, len(vcfs))
+        target_num_partitions = max(target_num_partitions, len(vcfs))
 
         # TODO move scan_vcfs into this class
         vcf_metadata, header = scan_vcfs(
@@ -923,6 +929,7 @@ class PickleChunkedVcfWriter:
             worker_processes=worker_processes,
             show_progress=show_progress,
             target_num_partitions=target_num_partitions,
+            column_chunk_size=column_chunk_size,
         )
         self.metadata = vcf_metadata
 
@@ -977,7 +984,7 @@ class PickleChunkedVcfWriter:
         with open(self.wip_path / f"metadata.json") as f:
             self.metadata = VcfMetadata.fromdict(json.load(f))
 
-    def process_partition(self, partition_index, *, column_chunk_size=16):
+    def process_partition(self, partition_index):
         self.load_metadata()
         partition = self.metadata.partitions[partition_index]
         logger.info(
@@ -996,8 +1003,6 @@ class PickleChunkedVcfWriter:
             self.metadata,
             self.path,
             partition_index,
-            PickleChunkedVcf.DEFAULT_COMPRESSOR,
-            chunk_size=column_chunk_size,
         ) as tcw:
             with vcf_utils.IndexedVcf(partition.vcf_path) as ivcf:
                 num_records = 0
@@ -1044,7 +1049,6 @@ class PickleChunkedVcfWriter:
         *,
         worker_processes=1,
         show_progress=False,
-        column_chunk_size=16,
     ):
         self.load_metadata()
         # TODO also need to catch start >= stop
@@ -1074,11 +1078,7 @@ class PickleChunkedVcfWriter:
         )
         with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
             for j in range(start, stop):
-                pwm.submit(
-                    self.process_partition,
-                    j,
-                    column_chunk_size=column_chunk_size,
-                )
+                pwm.submit(self.process_partition, j)
 
     def finalise(self):
         self.load_metadata()
@@ -1116,13 +1116,13 @@ def explode(
         cif_path,
         worker_processes=worker_processes,
         target_num_partitions=target_num_partitions,
+        column_chunk_size=column_chunk_size,
         show_progress=show_progress,
     )
     explode_slice(
         cif_path,
         0,
         num_partitions,
-        column_chunk_size=column_chunk_size,
         worker_processes=worker_processes,
         show_progress=show_progress,
     )
@@ -1131,7 +1131,13 @@ def explode(
 
 
 def explode_init(
-    vcfs, cif_path, *, target_num_partitions=1, worker_processes=1, show_progress=False
+    vcfs,
+    cif_path,
+    *,
+    column_chunk_size=16,
+    target_num_partitions=1,
+    worker_processes=1,
+    show_progress=False,
 ):
     cif_path = pathlib.Path(cif_path)
     if cif_path.exists():
@@ -1142,6 +1148,7 @@ def explode_init(
         target_num_partitions=target_num_partitions,
         worker_processes=worker_processes,
         show_progress=show_progress,
+        column_chunk_size=column_chunk_size,
     )
 
 
@@ -1152,7 +1159,6 @@ def explode_slice(
     *,
     worker_processes=1,
     show_progress=False,
-    column_chunk_size=16,
 ):
     writer = PickleChunkedVcfWriter(cif_path)
     writer.process_partition_slice(
@@ -1160,7 +1166,6 @@ def explode_slice(
         stop,
         worker_processes=worker_processes,
         show_progress=show_progress,
-        column_chunk_size=column_chunk_size,
     )
 
 
