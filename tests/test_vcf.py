@@ -54,9 +54,9 @@ class TestJsonVersions:
 
         d["format_version"] = version
         with pytest.raises(
-            ValueError, match="Exploded metadata format version mismatch"
+            ValueError, match="Intermediate columnar metadata format version mismatch"
         ):
-            vcf.VcfMetadata.fromdict(d)
+            vcf.IcfMetadata.fromdict(d)
 
 
 class TestDefaultSchema:

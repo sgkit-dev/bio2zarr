@@ -466,7 +466,7 @@ missing_value_map = {
 class VcfValueTransformer:
     """
     Transform VCF values into the stored intermediate format used
-    in the PickleChunkedVcf, and update field summaries.
+    in the IntermediateColumnarFormat, and update field summaries.
     """
 
     def __init__(self, field, num_samples):
@@ -565,14 +565,14 @@ def get_vcf_field_path(base_path, vcf_field):
     return base_path / vcf_field.category / vcf_field.name
 
 
-class PickleChunkedVcfField:
-    def __init__(self, pcvcf, vcf_field):
+class IntermediateColumnarFormatField:
+    def __init__(self, icf, vcf_field):
         self.vcf_field = vcf_field
-        self.path = get_vcf_field_path(pcvcf.path, vcf_field)
-        self.compressor = pcvcf.compressor
-        self.num_partitions = pcvcf.num_partitions
-        self.num_records = pcvcf.num_records
-        self.partition_record_index = pcvcf.partition_record_index
+        self.path = get_vcf_field_path(icf.path, vcf_field)
+        self.compressor = icf.compressor
+        self.num_partitions = icf.num_partitions
+        self.num_records = icf.num_records
+        self.partition_record_index = icf.partition_record_index
         # A map of partition id to the cumulative number of records
         # in chunks within that partition
         self._chunk_record_index = {}
@@ -587,7 +587,7 @@ class PickleChunkedVcfField:
     def __repr__(self):
         partition_chunks = [self.num_chunks(j) for j in range(self.num_partitions)]
         return (
-            f"PickleChunkedVcfField(name={self.name}, "
+            f"IntermediateColumnarFormatField(name={self.name}, "
             f"partition_chunks={partition_chunks}, "
             f"path={self.path})"
         )
@@ -712,7 +712,7 @@ class PickleChunkedVcfField:
 
 
 @dataclasses.dataclass
-class PcvcfFieldWriter:
+class IcfFieldWriter:
     vcf_field: VcfField
     path: pathlib.Path
     transformer: VcfValueTransformer
@@ -766,9 +766,9 @@ class PcvcfFieldWriter:
             pickle.dump(a, f)
 
 
-class PcvcfPartitionWriter(contextlib.AbstractContextManager):
+class IcfPartitionWriter(contextlib.AbstractContextManager):
     """
-    Writes the data for a PickleChunkedVcf partition.
+    Writes the data for a IntermediateColumnarFormat partition.
     """
 
     def __init__(
@@ -789,7 +789,7 @@ class PcvcfPartitionWriter(contextlib.AbstractContextManager):
             field_path = get_vcf_field_path(out_path, vcf_field)
             field_partition_path = field_path / f"p{partition_index}"
             transformer = VcfValueTransformer.factory(vcf_field, num_samples)
-            self.field_writers[vcf_field.full_name] = PcvcfFieldWriter(
+            self.field_writers[vcf_field.full_name] = IcfFieldWriter(
                 vcf_field,
                 field_partition_path,
                 transformer,
@@ -816,7 +816,7 @@ class PcvcfPartitionWriter(contextlib.AbstractContextManager):
 # TODO rename to IntermediateColumnarFormat and move to icf.py
 
 
-class PickleChunkedVcf(collections.abc.Mapping):
+class IntermediateColumnarFormat(collections.abc.Mapping):
     # TODO Check if other compressors would give reasonable compression
     # with significantly faster times
 
@@ -837,15 +837,15 @@ class PickleChunkedVcf(collections.abc.Mapping):
         # Allow us to find which partition a given record is in
         self.partition_record_index = np.cumsum([0] + partition_num_records)
         for field in self.metadata.fields:
-            self.columns[field.full_name] = PickleChunkedVcfField(self, field)
+            self.columns[field.full_name] = IntermediateColumnarFormatField(self, field)
         logger.info(
-            f"Loaded PickleChunkedVcf(partitions={self.num_partitions}, "
+            f"Loaded IntermediateColumnarFormat(partitions={self.num_partitions}, "
             f"records={self.num_records}, columns={self.num_columns})"
         )
 
     def __repr__(self):
         return (
-            f"PickleChunkedVcf(fields={len(self)}, partitions={self.num_partitions}, "
+            f"IntermediateColumnarFormat(fields={len(self)}, partitions={self.num_partitions}, "
             f"records={self.num_records}, path={self.path})"
         )
 
@@ -901,7 +901,7 @@ class PickleChunkedVcf(collections.abc.Mapping):
         return len(self.columns)
 
 
-class PickleChunkedVcfWriter:
+class IntermediateColumnarFormatWriter:
     def __init__(self, path):
         self.path = pathlib.Path(path)
         self.wip_path = self.path / "wip"
@@ -1001,7 +1001,7 @@ class PickleChunkedVcfWriter:
             else:
                 format_fields.append(field)
 
-        with PcvcfPartitionWriter(
+        with IcfPartitionWriter(
             self.metadata,
             self.path,
             partition_index,
@@ -1129,7 +1129,7 @@ def explode(
         show_progress=show_progress,
     )
     explode_finalise(cif_path)
-    return PickleChunkedVcf(cif_path)
+    return IntermediateColumnarFormat(cif_path)
 
 
 def explode_init(
@@ -1144,7 +1144,7 @@ def explode_init(
     cif_path = pathlib.Path(cif_path)
     if cif_path.exists():
         shutil.rmtree(cif_path)
-    writer = PickleChunkedVcfWriter(cif_path)
+    writer = IntermediateColumnarFormatWriter(cif_path)
     return writer.init(
         vcfs,
         target_num_partitions=target_num_partitions,
@@ -1162,7 +1162,7 @@ def explode_slice(
     worker_processes=1,
     show_progress=False,
 ):
-    writer = PickleChunkedVcfWriter(cif_path)
+    writer = IntermediateColumnarFormatWriter(cif_path)
     writer.process_partition_slice(
         start,
         stop,
@@ -1172,7 +1172,7 @@ def explode_slice(
 
 
 def explode_finalise(cif_path):
-    writer = PickleChunkedVcfWriter(cif_path)
+    writer = IntermediateColumnarFormatWriter(cif_path)
     writer.finalise()
 
 
@@ -1180,7 +1180,7 @@ def inspect(path):
     path = pathlib.Path(path)
     # TODO add support for the Zarr format also
     if (path / "metadata.json").exists():
-        obj = PickleChunkedVcf(path)
+        obj = IntermediateColumnarFormat(path)
     elif (path / ".zmetadata").exists():
         obj = VcfZarr(path)
     else:
@@ -1274,9 +1274,9 @@ class VcfZarrSchema:
         return VcfZarrSchema.fromdict(json.loads(s))
 
     @staticmethod
-    def generate(pcvcf, variants_chunk_size=None, samples_chunk_size=None):
-        m = pcvcf.num_records
-        n = pcvcf.num_samples
+    def generate(icf, variants_chunk_size=None, samples_chunk_size=None):
+        m = icf.num_records
+        n = icf.num_samples
         # FIXME
         if samples_chunk_size is None:
             samples_chunk_size = 1000
@@ -1299,9 +1299,9 @@ class VcfZarrSchema:
                 chunks=[variants_chunk_size],
             )
 
-        alt_col = pcvcf.columns["ALT"]
+        alt_col = icf.columns["ALT"]
         max_alleles = alt_col.vcf_field.summary.max_number + 1
-        num_filters = len(pcvcf.metadata.filters)
+        num_filters = len(icf.metadata.filters)
 
         # # FIXME get dtype from lookup table
         colspecs = [
@@ -1344,7 +1344,7 @@ class VcfZarrSchema:
         ]
 
         gt_field = None
-        for field in pcvcf.metadata.fields:
+        for field in icf.metadata.fields:
             if field.category == "fixed":
                 continue
             if field.name == "GT":
@@ -1423,10 +1423,10 @@ class VcfZarrSchema:
             variants_chunk_size=variants_chunk_size,
             columns={col.name: col for col in colspecs},
             dimensions=["variants", "samples", "ploidy", "alleles", "filters"],
-            sample_id=pcvcf.metadata.samples,
-            contig_id=pcvcf.metadata.contig_names,
-            contig_length=pcvcf.metadata.contig_lengths,
-            filter_id=pcvcf.metadata.filters,
+            sample_id=icf.metadata.samples,
+            contig_id=icf.metadata.contig_names,
+            contig_length=icf.metadata.contig_lengths,
+            filter_id=icf.metadata.filters,
         )
 
 
@@ -1472,9 +1472,9 @@ class EncodingWork:
 
 
 class VcfZarrWriter:
-    def __init__(self, path, pcvcf, schema):
+    def __init__(self, path, icf, schema):
         self.path = pathlib.Path(path)
-        self.pcvcf = pcvcf
+        self.icf = icf
         self.schema = schema
         store = zarr.DirectoryStore(self.path)
         self.root = zarr.group(store=store)
@@ -1506,7 +1506,7 @@ class VcfZarrWriter:
         logger.info(f"Finalised {variable_name}")
 
     def encode_array_slice(self, column, start, stop):
-        source_col = self.pcvcf.columns[column.vcf_field]
+        source_col = self.icf.columns[column.vcf_field]
         array = self.get_array(column.name)
         ba = core.BufferedArray(array, start)
         sanitiser = source_col.sanitiser_factory(ba.buff.shape)
@@ -1520,7 +1520,7 @@ class VcfZarrWriter:
         logger.debug(f"Encoded {column.name} slice {start}:{stop}")
 
     def encode_genotypes_slice(self, start, stop):
-        source_col = self.pcvcf.columns["FORMAT/GT"]
+        source_col = self.icf.columns["FORMAT/GT"]
         gt = core.BufferedArray(self.get_array("call_genotype"), start)
         gt_mask = core.BufferedArray(self.get_array("call_genotype_mask"), start)
         gt_phased = core.BufferedArray(self.get_array("call_genotype_phased"), start)
@@ -1540,8 +1540,8 @@ class VcfZarrWriter:
         logger.debug(f"Encoded GT slice {start}:{stop}")
 
     def encode_alleles_slice(self, start, stop):
-        ref_col = self.pcvcf.columns["REF"]
-        alt_col = self.pcvcf.columns["ALT"]
+        ref_col = self.icf.columns["REF"]
+        alt_col = self.icf.columns["ALT"]
         alleles = core.BufferedArray(self.get_array("variant_allele"), start)
 
         for ref, alt in zip(
@@ -1555,7 +1555,7 @@ class VcfZarrWriter:
         logger.debug(f"Encoded alleles slice {start}:{stop}")
 
     def encode_id_slice(self, start, stop):
-        col = self.pcvcf.columns["ID"]
+        col = self.icf.columns["ID"]
         vid = core.BufferedArray(self.get_array("variant_id"), start)
         vid_mask = core.BufferedArray(self.get_array("variant_id_mask"), start)
 
@@ -1574,7 +1574,7 @@ class VcfZarrWriter:
         logger.debug(f"Encoded ID slice {start}:{stop}")
 
     def encode_filters_slice(self, lookup, start, stop):
-        col = self.pcvcf.columns["FILTERS"]
+        col = self.icf.columns["FILTERS"]
         var_filter = core.BufferedArray(self.get_array("variant_filter"), start)
 
         for value in col.iter_values(start, stop):
@@ -1589,7 +1589,7 @@ class VcfZarrWriter:
         logger.debug(f"Encoded FILTERS slice {start}:{stop}")
 
     def encode_contig_slice(self, lookup, start, stop):
-        col = self.pcvcf.columns["CHROM"]
+        col = self.icf.columns["CHROM"]
         contig = core.BufferedArray(self.get_array("variant_contig"), start)
 
         for value in col.iter_values(start, stop):
@@ -1603,7 +1603,7 @@ class VcfZarrWriter:
         logger.debug(f"Encoded CHROM slice {start}:{stop}")
 
     def encode_samples(self):
-        if not np.array_equal(self.schema.sample_id, self.pcvcf.metadata.samples):
+        if not np.array_equal(self.schema.sample_id, self.icf.metadata.samples):
             raise ValueError("Subsetting or reordering samples not supported currently")
         array = self.root.array(
             "sample_id",
@@ -1644,7 +1644,7 @@ class VcfZarrWriter:
 
     def init(self):
         self.root.attrs["vcf_zarr_version"] = "0.2"
-        self.root.attrs["vcf_header"] = self.pcvcf.vcf_header
+        self.root.attrs["vcf_header"] = self.icf.vcf_header
         self.root.attrs["source"] = f"bio2zarr-{provenance.__version__}"
         for column in self.schema.columns.values():
             self.init_array(column)
@@ -1809,8 +1809,8 @@ class VcfZarrWriter:
 
 
 def mkschema(if_path, out):
-    pcvcf = PickleChunkedVcf(if_path)
-    spec = VcfZarrSchema.generate(pcvcf)
+    icf = IntermediateColumnarFormat(if_path)
+    spec = VcfZarrSchema.generate(icf)
     out.write(spec.asjson())
 
 
@@ -1825,10 +1825,10 @@ def encode(
     worker_processes=1,
     show_progress=False,
 ):
-    pcvcf = PickleChunkedVcf(if_path)
+    icf = IntermediateColumnarFormat(if_path)
     if schema_path is None:
         schema = VcfZarrSchema.generate(
-            pcvcf,
+            icf,
             variants_chunk_size=variants_chunk_size,
             samples_chunk_size=samples_chunk_size,
         )
@@ -1842,7 +1842,7 @@ def encode(
     if zarr_path.exists():
         logger.warning(f"Deleting existing {zarr_path}")
         shutil.rmtree(zarr_path)
-    vzw = VcfZarrWriter(zarr_path, pcvcf, schema)
+    vzw = VcfZarrWriter(zarr_path, icf, schema)
     vzw.init()
     vzw.encode(
         max_v_chunks=max_v_chunks,
