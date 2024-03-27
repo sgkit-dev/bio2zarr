@@ -150,7 +150,9 @@ class VcfPartition:
 
 
 ICF_METADATA_FORMAT_VERSION = "0.2"
-ICF_DEFAULT_COMPRESSOR = numcodecs.Blosc(cname="lz4", clevel=7).get_config()
+ICF_DEFAULT_COMPRESSOR = numcodecs.Blosc(
+    cname="lz4", clevel=7, shuffle=numcodecs.Blosc.NOSHUFFLE
+).get_config()
 
 
 @dataclasses.dataclass
@@ -165,6 +167,7 @@ class IcfMetadata:
     format_version: str = None
     compressor: dict = None
     column_chunk_size: int = None
+    provenance: dict = None
 
     @property
     def info_fields(self):
@@ -334,6 +337,9 @@ def scan_vcfs(
     icf_metadata.format_version = ICF_METADATA_FORMAT_VERSION
     icf_metadata.compressor = ICF_DEFAULT_COMPRESSOR
     icf_metadata.column_chunk_size = column_chunk_size
+    # Bare minimum here for provenance - would be nice to include versions of key
+    # dependencies as well.
+    icf_metadata.provenance = {"source": f"bio2zarr-{provenance.__version__}"}
     logger.info(f"Scan complete, resulting in {len(all_partitions)} partitions.")
     return icf_metadata, header
 
@@ -677,8 +683,6 @@ class IntermediateColumnarFormatField:
         j = 0
         for partition_id in range(self.num_partitions):
             for chunk in self.chunks(partition_id):
-                # for chunk_path in self.chunk_files(partition_id):
-                # chunk = self.read_chunk(chunk_path)
                 for record in chunk:
                     ret[j] = record
                     j += 1
@@ -995,7 +999,7 @@ class IntermediateColumnarFormatWriter:
         # NOTE to do this properly we probably need to take a lock on this file - but
         # this simple approach will catch the vast majority of problems.
         if summary_path.exists():
-            summary_path.unlink()  # NEEDS TEST
+            summary_path.unlink()
 
         partition = self.metadata.partitions[partition_index]
         logger.info(
