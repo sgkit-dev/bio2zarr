@@ -150,7 +150,9 @@ class VcfPartition:
 
 
 ICF_METADATA_FORMAT_VERSION = "0.2"
-ICF_DEFAULT_COMPRESSOR = numcodecs.Blosc(cname="lz4", clevel=7).get_config()
+ICF_DEFAULT_COMPRESSOR = numcodecs.Blosc(
+    cname="lz4", clevel=7, shuffle=numcodecs.Blosc.NOSHUFFLE
+).get_config()
 
 
 @dataclasses.dataclass
@@ -165,6 +167,7 @@ class IcfMetadata:
     format_version: str = None
     compressor: dict = None
     column_chunk_size: int = None
+    provenance: dict = None
 
     @property
     def info_fields(self):
@@ -287,6 +290,13 @@ def scan_vcfs(
     logger.info(
         f"Scanning {len(paths)} VCFs attempting to split into {target_num_partitions} partitions."
     )
+    # An easy mistake to make is to pass the same file twice. Check this early on.
+    for path, count in collections.Counter(paths).items():
+        if not path.exists():  # NEEDS TEST
+            raise FileNotFoundError(path)
+        if count > 1:
+            raise ValueError(f"Duplicate path provided: {path}")
+
     progress_config = core.ProgressConfig(
         total=len(paths),
         units="files",
@@ -327,6 +337,9 @@ def scan_vcfs(
     icf_metadata.format_version = ICF_METADATA_FORMAT_VERSION
     icf_metadata.compressor = ICF_DEFAULT_COMPRESSOR
     icf_metadata.column_chunk_size = column_chunk_size
+    # Bare minimum here for provenance - would be nice to include versions of key
+    # dependencies as well.
+    icf_metadata.provenance = {"source": f"bio2zarr-{provenance.__version__}"}
     logger.info(f"Scan complete, resulting in {len(all_partitions)} partitions.")
     return icf_metadata, header
 
@@ -423,7 +436,7 @@ def sanitise_value_float_2d(buff, j, value):
 
 def sanitise_int_array(value, ndmin, dtype):
     if isinstance(value, tuple):
-        value = [VCF_INT_MISSING if x is None else x for x in value]
+        value = [VCF_INT_MISSING if x is None else x for x in value]  #  NEEDS TEST
     value = np.array(value, ndmin=ndmin, copy=False)
     value[value == VCF_INT_MISSING] = -1
     value[value == VCF_INT_FILL] = -2
@@ -554,7 +567,7 @@ class StringValueTransformer(VcfValueTransformer):
 class SplitStringValueTransformer(StringValueTransformer):
     def transform(self, vcf_value):
         if vcf_value is None:
-            return self.missing_value
+            return self.missing_value  # NEEDS TEST
         assert self.dimension == 1
         return np.array(vcf_value, ndmin=1, dtype="str")
 
@@ -593,11 +606,11 @@ class IntermediateColumnarFormatField:
         )
 
     def num_chunks(self, partition_id):
-        return len(self.chunk_cumulative_records(partition_id))
+        return len(self.chunk_record_index(partition_id)) - 1
 
     def chunk_record_index(self, partition_id):
         if partition_id not in self._chunk_record_index:
-            index_path = self.partition_path(partition_id) / "chunk_index.pkl"
+            index_path = self.partition_path(partition_id) / "chunk_index"
             with open(index_path, "rb") as f:
                 a = pickle.load(f)
             assert len(a) > 1
@@ -605,21 +618,26 @@ class IntermediateColumnarFormatField:
             self._chunk_record_index[partition_id] = a
         return self._chunk_record_index[partition_id]
 
-    def chunk_cumulative_records(self, partition_id):
-        return self.chunk_record_index(partition_id)[1:]
-
-    def chunk_num_records(self, partition_id):
-        return np.diff(self.chunk_cumulative_records(partition_id))
-
-    def chunk_files(self, partition_id, start=0):
-        partition_path = self.partition_path(partition_id)
-        for n in self.chunk_cumulative_records(partition_id)[start:]:
-            yield partition_path / f"{n}.pkl"
-
     def read_chunk(self, path):
         with open(path, "rb") as f:
             pkl = self.compressor.decode(f.read())
         return pickle.loads(pkl)
+
+    def chunk_num_records(self, partition_id):
+        return np.diff(self.chunk_record_index(partition_id))
+
+    def chunks(self, partition_id, start_chunk=0):
+        partition_path = self.partition_path(partition_id)
+        chunk_cumulative_records = self.chunk_record_index(partition_id)
+        chunk_num_records = np.diff(chunk_cumulative_records)
+        for count, cumulative in zip(
+            chunk_num_records[start_chunk:], chunk_cumulative_records[start_chunk + 1 :]
+        ):
+            path = partition_path / f"{cumulative}"
+            chunk = self.read_chunk(path)
+            if len(chunk) != count:
+                raise ValueError(f"Corruption detected in chunk: {path}")
+            yield chunk
 
     def iter_values(self, start=None, stop=None):
         start = 0 if start is None else start
@@ -641,9 +659,7 @@ class IntermediateColumnarFormatField:
             f"Read {self.vcf_field.full_name} slice [{start}:{stop}]:"
             f"p_start={start_partition}, c_start={start_chunk}, r_start={record_id}"
         )
-
-        for chunk_path in self.chunk_files(start_partition, start_chunk):
-            chunk = self.read_chunk(chunk_path)
+        for chunk in self.chunks(start_partition, start_chunk):
             for record in chunk:
                 if record_id == stop:
                     return
@@ -652,8 +668,7 @@ class IntermediateColumnarFormatField:
                 record_id += 1
         assert record_id > start
         for partition_id in range(start_partition + 1, self.num_partitions):
-            for chunk_path in self.chunk_files(partition_id):
-                chunk = self.read_chunk(chunk_path)
+            for chunk in self.chunks(partition_id):
                 for record in chunk:
                     if record_id == stop:
                         return
@@ -667,15 +682,11 @@ class IntermediateColumnarFormatField:
         ret = [None] * self.num_records
         j = 0
         for partition_id in range(self.num_partitions):
-            for chunk_path in self.chunk_files(partition_id):
-                chunk = self.read_chunk(chunk_path)
+            for chunk in self.chunks(partition_id):
                 for record in chunk:
                     ret[j] = record
                     j += 1
-        if j != self.num_records:
-            raise ValueError(
-                f"Corruption detected: incorrect number of records in {str(self.path)}."
-            )
+        assert j == self.num_records
         return ret
 
     def sanitiser_factory(self, shape):
@@ -742,7 +753,7 @@ class IcfFieldWriter:
     def write_chunk(self):
         # Update index
         self.chunk_index.append(self.num_records)
-        path = self.path / f"{self.num_records}.pkl"
+        path = self.path / f"{self.num_records}"
         logger.debug(f"Start write: {path}")
         pkl = pickle.dumps(self.buff)
         compressed = self.compressor.encode(pkl)
@@ -761,7 +772,7 @@ class IcfFieldWriter:
         )
         if len(self.buff) > 0:
             self.write_chunk()
-        with open(self.path / "chunk_index.pkl", "wb") as f:
+        with open(self.path / "chunk_index", "wb") as f:
             a = np.array(self.chunk_index, dtype=int)
             pickle.dump(a, f)
 
@@ -877,14 +888,6 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
         return data
 
     @functools.cached_property
-    def total_uncompressed_bytes(self):
-        total = 0
-        for col in self.columns.values():
-            summary = col.vcf_field.summary
-            total += summary.uncompressed_size
-        return total
-
-    @functools.cached_property
     def num_records(self):
         return sum(self.metadata.contig_record_counts.values())
 
@@ -920,8 +923,9 @@ class IntermediateColumnarFormatWriter:
         target_num_partitions=None,
         show_progress=False,
     ):
-        if target_num_partitions is None:
-            target_num_partitions = len(vcfs)
+        if self.path.exists():
+            shutil.rmtree(self.path)
+        vcfs = [pathlib.Path(vcf) for vcf in vcfs]
         target_num_partitions = max(target_num_partitions, len(vcfs))
 
         # TODO move scan_vcfs into this class
@@ -972,7 +976,7 @@ class IntermediateColumnarFormatWriter:
                 with open(self.wip_path / f"p{j}_summary.json") as f:
                     summary = json.load(f)
                     for k, v in summary["field_summaries"].items():
-                        summary["field_summaries"][k] = VcfFieldSummary(**v)
+                        summary["field_summaries"][k] = VcfFieldSummary.fromdict(v)
                     summaries.append(summary)
             except FileNotFoundError:
                 not_found.append(j)
@@ -983,11 +987,20 @@ class IntermediateColumnarFormatWriter:
         return summaries
 
     def load_metadata(self):
-        with open(self.wip_path / f"metadata.json") as f:
-            self.metadata = IcfMetadata.fromdict(json.load(f))
+        if self.metadata is None:
+            with open(self.wip_path / f"metadata.json") as f:
+                self.metadata = IcfMetadata.fromdict(json.load(f))
 
     def process_partition(self, partition_index):
         self.load_metadata()
+        summary_path = self.wip_path / f"p{partition_index}_summary.json"
+        # If someone is rewriting a summary path (for whatever reason), make sure it
+        # doesn't look like it's already been completed.
+        # NOTE to do this properly we probably need to take a lock on this file - but
+        # this simple approach will catch the vast majority of problems.
+        if summary_path.exists():
+            summary_path.unlink()
+
         partition = self.metadata.partitions[partition_index]
         logger.info(
             f"Start p{partition_index} {partition.vcf_path}__{partition.region}"
@@ -1022,22 +1035,21 @@ class IntermediateColumnarFormatWriter:
                     if has_gt:
                         tcw.append("FORMAT/GT", variant.genotype.array())
                     for field in format_fields:
-                        val = None
-                        try:
-                            val = variant.format(field.name)
-                        except KeyError:
-                            pass
+                        val = variant.format(field.name)
                         tcw.append(field.full_name, val)
                     # Note: an issue with updating the progress per variant here like this
                     # is that we get a significant pause at the end of the counter while
                     # all the "small" fields get flushed. Possibly not much to be done about it.
                     core.update_progress(1)
+            logger.info(
+                f"Finished reading VCF for partition {partition_index}, flushing buffers"
+            )
 
         partition_metadata = {
             "num_records": num_records,
             "field_summaries": {k: v.asdict() for k, v in tcw.field_summaries.items()},
         }
-        with open(self.wip_path / f"p{partition_index}_summary.json", "w") as f:
+        with open(summary_path, "w") as f:
             json.dump(partition_metadata, f, indent=4)
         logger.info(
             f"Finish p{partition_index} {partition.vcf_path}__{partition.region}="
@@ -1053,27 +1065,21 @@ class IntermediateColumnarFormatWriter:
         show_progress=False,
     ):
         self.load_metadata()
-        # TODO also need to catch start >= stop
-
-        if start < 0:
-            raise ValueError(f"start={start} must be non-negative")
-        if stop > self.num_partitions:
-            raise ValueError(f"stop={stop} must be <= than the number of partitions")
         if start == 0 and stop == self.num_partitions:
-            num_records_to_process = self.metadata.num_records
-            # logger.info(
-            #     f"Exploding {self.num_columns} columns {self.metadata.num_records} variants "
-            #     f"{self.num_samples} samples"
-            # )
+            num_records = self.metadata.num_records
         else:
-            num_records_to_process = None
-            # logger.info(
-            #     f"Exploding {self.num_columns} columns {self.num_samples} samples"
-            #     f" from partitions {start} to {stop}"
-            # )
-
+            # We only know the number of records if all partitions are done at once,
+            # and we signal this to tqdm by passing None as the total.
+            num_records = None
+        num_columns = len(self.metadata.fields)
+        num_samples = len(self.metadata.samples)
+        logger.info(
+            f"Exploding columns={num_columns} samples={num_samples}; "
+            f"partitions={stop - start} "
+            f"variants={'unknown' if num_records is None else num_records}"
+        )
         progress_config = core.ProgressConfig(
-            total=num_records_to_process,
+            total=num_records,
             units="vars",
             title="Explode",
             show=show_progress,
@@ -1081,6 +1087,28 @@ class IntermediateColumnarFormatWriter:
         with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
             for j in range(start, stop):
                 pwm.submit(self.process_partition, j)
+
+    def explode(self, *, worker_processes=1, show_progress=False):
+        self.load_metadata()
+        return self.process_partition_slice(
+            0,
+            self.num_partitions,
+            worker_processes=worker_processes,
+            show_progress=show_progress,
+        )
+
+    def explode_partition(self, partition, *, show_progress=False, worker_processes=1):
+        self.load_metadata()
+        if partition < 0 or partition >= self.num_partitions:
+            raise ValueError(
+                "Partition index must be in the range 0 <= index < num_partitions"
+            )
+        return self.process_partition_slice(
+            partition,
+            partition + 1,
+            worker_processes=worker_processes,
+            show_progress=show_progress,
+        )
 
     def finalise(self):
         self.load_metadata()
@@ -1106,45 +1134,36 @@ class IntermediateColumnarFormatWriter:
 
 def explode(
     vcfs,
-    cif_path,
+    icf_path,
     *,
     column_chunk_size=16,
     worker_processes=1,
     show_progress=False,
 ):
-    target_num_partitions = max(1, worker_processes * 4)
-    num_partitions = explode_init(
+    writer = IntermediateColumnarFormatWriter(icf_path)
+    num_partitions = writer.init(
         vcfs,
-        cif_path,
+        # Heuristic to get reasonable worker utilisation with lumpy partition sizing
+        target_num_partitions=max(1, worker_processes * 4),
         worker_processes=worker_processes,
-        target_num_partitions=target_num_partitions,
+        show_progress=show_progress,
         column_chunk_size=column_chunk_size,
-        show_progress=show_progress,
     )
-    explode_slice(
-        cif_path,
-        0,
-        num_partitions,
-        worker_processes=worker_processes,
-        show_progress=show_progress,
-    )
-    explode_finalise(cif_path)
-    return IntermediateColumnarFormat(cif_path)
+    writer.explode(worker_processes=worker_processes, show_progress=show_progress)
+    writer.finalise()
+    return IntermediateColumnarFormat(icf_path)
 
 
 def explode_init(
+    icf_path,
     vcfs,
-    cif_path,
     *,
     column_chunk_size=16,
     target_num_partitions=1,
     worker_processes=1,
     show_progress=False,
 ):
-    cif_path = pathlib.Path(cif_path)
-    if cif_path.exists():
-        shutil.rmtree(cif_path)
-    writer = IntermediateColumnarFormatWriter(cif_path)
+    writer = IntermediateColumnarFormatWriter(icf_path)
     return writer.init(
         vcfs,
         target_num_partitions=target_num_partitions,
@@ -1154,25 +1173,18 @@ def explode_init(
     )
 
 
-def explode_slice(
-    cif_path,
-    start,
-    stop,
-    *,
-    worker_processes=1,
-    show_progress=False,
-):
-    writer = IntermediateColumnarFormatWriter(cif_path)
-    writer.process_partition_slice(
-        start,
-        stop,
-        worker_processes=worker_processes,
-        show_progress=show_progress,
+# NOTE only including worker_processes here so we can use the 0 option to get the
+# work done syncronously and so we can get test coverage on it. Should find a
+# better way to do this.
+def explode_partition(icf_path, partition, *, show_progress=False, worker_processes=1):
+    writer = IntermediateColumnarFormatWriter(icf_path)
+    writer.explode_partition(
+        partition, show_progress=show_progress, worker_processes=worker_processes
     )
 
 
-def explode_finalise(cif_path):
-    writer = IntermediateColumnarFormatWriter(cif_path)
+def explode_finalise(icf_path):
+    writer = IntermediateColumnarFormatWriter(icf_path)
     writer.finalise()
 
 
@@ -1184,7 +1196,7 @@ def inspect(path):
     elif (path / ".zmetadata").exists():
         obj = VcfZarr(path)
     else:
-        raise ValueError("Format not recognised")
+        raise ValueError("Format not recognised")  # NEEDS TEST
     return obj.summary_table()
 
 
@@ -1230,7 +1242,6 @@ class ZarrColumnSpec:
             # Any 1 byte field gets BITSHUFFLE by default
             shuffle = numcodecs.Blosc.BITSHUFFLE
         self.compressor["shuffle"] = shuffle
-
 
 
 ZARR_SCHEMA_FORMAT_VERSION = "0.2"
@@ -1431,11 +1442,11 @@ class VcfZarrSchema:
 class VcfZarr:
     def __init__(self, path):
         if not (path / ".zmetadata").exists():
-            raise ValueError("Not in VcfZarr format")
+            raise ValueError("Not in VcfZarr format")  # NEEDS TEST
         self.root = zarr.open(path, mode="r")
 
     def __repr__(self):
-        return repr(self.root)
+        return repr(self.root)  # NEEDS TEST
 
     def summary_table(self):
         data = []
@@ -1578,11 +1589,11 @@ class VcfZarrWriter:
         for value in col.iter_values(start, stop):
             j = var_filter.next_buffer_row()
             var_filter.buff[j] = False
-            try:
-                for f in value:
+            for f in value:
+                try:
                     var_filter.buff[j, lookup[f]] = True
-            except IndexError:
-                raise ValueError(f"Filter '{f}' was not defined in the header.")
+                except KeyError:
+                    raise ValueError(f"Filter '{f}' was not defined in the header.")
         var_filter.flush()
         logger.debug(f"Encoded FILTERS slice {start}:{stop}")
 
@@ -1592,17 +1603,19 @@ class VcfZarrWriter:
 
         for value in col.iter_values(start, stop):
             j = contig.next_buffer_row()
-            try:
-                contig.buff[j] = lookup[value[0]]
-            except KeyError:
-                # TODO add advice about adding it to the spec
-                raise ValueError(f"Contig '{contig}' was not defined in the header.")
+            # Note: because we are using the indexes to define the lookups
+            # and we always have an index, it seems that we the contig lookup
+            # will always succeed. However, if anyone ever does hit a KeyError
+            # here, please do open an issue with a reproducible example!
+            contig.buff[j] = lookup[value[0]]
         contig.flush()
         logger.debug(f"Encoded CHROM slice {start}:{stop}")
 
     def encode_samples(self):
         if not np.array_equal(self.schema.sample_id, self.icf.metadata.samples):
-            raise ValueError("Subsetting or reordering samples not supported currently")
+            raise ValueError(
+                "Subsetting or reordering samples not supported currently"
+            )  # NEEDS TEST
         array = self.root.array(
             "sample_id",
             self.schema.sample_id,
@@ -1664,7 +1677,7 @@ class VcfZarrWriter:
             max_memory = 2**63
         else:
             # Value is specified in Mibibytes
-            max_memory *= 2**20
+            max_memory *= 2**20  # NEEDS TEST
 
         # TODO this will move into the setup logic later when we're making it possible
         # to split the work by slice
@@ -1752,7 +1765,7 @@ class VcfZarrWriter:
         # Fail early if we can't fit a particular column into memory
         for wp in work:
             if wp.memory >= max_memory:
-                raise ValueError(
+                raise ValueError(  # NEEDS TEST
                     f"Insufficient memory for {wp.columns}: "
                     f"{display_size(wp.memory)} > {display_size(max_memory)}"
                 )
@@ -1833,7 +1846,9 @@ def encode(
     else:
         logger.info(f"Reading schema from {schema_path}")
         if variants_chunk_size is not None or samples_chunk_size is not None:
-            raise ValueError("Cannot specify schema along with chunk sizes")
+            raise ValueError(
+                "Cannot specify schema along with chunk sizes"
+            )  # NEEDS TEST
         with open(schema_path, "r") as f:
             schema = VcfZarrSchema.fromjson(f.read())
     zarr_path = pathlib.Path(zarr_path)
@@ -2050,16 +2065,14 @@ def validate(vcf_path, zarr_path, show_progress=False):
             name = colname.split("_", 1)[1]
             if name.isupper():
                 vcf_type = info_headers[name]["Type"]
-                # print(root[colname])
                 info_fields[name] = vcf_type, iter(root[colname])
-    # print(info_fields)
 
     first_pos = next(vcf).POS
     start_index = np.searchsorted(pos, first_pos)
     assert pos[start_index] == first_pos
     vcf = cyvcf2.VCF(vcf_path)
     if show_progress:
-        iterator = tqdm.tqdm(vcf, desc=" Verify", total=vcf.num_records)
+        iterator = tqdm.tqdm(vcf, desc=" Verify", total=vcf.num_records)  # NEEDS TEST
     else:
         iterator = vcf
     for j, row in enumerate(iterator, start_index):
@@ -2096,11 +2109,7 @@ def validate(vcf_path, zarr_path, show_progress=False):
                 assert_info_val_equal(vcf_val, zarr_val, vcf_type)
 
         for name, (vcf_type, zarr_iter) in format_fields.items():
-            vcf_val = None
-            try:
-                vcf_val = row.format(name)
-            except KeyError:
-                pass
+            vcf_val = row.format(name)
             zarr_val = next(zarr_iter)
             if vcf_val is None:
                 assert_format_val_missing(zarr_val, vcf_type)
