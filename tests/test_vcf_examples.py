@@ -823,3 +823,9 @@ def test_split_explode(tmp_path):
     }
     vcf.encode(out, tmp_path / "test.zarr")
     vcf.validate("tests/data/vcf/sample.vcf.gz", tmp_path / "test.zarr")
+
+
+def test_missing_filter(tmp_path):
+    path = "tests/data/vcf/sample_missing_filter.vcf.gz"
+    with pytest.raises(ValueError, match="Filter 'q10' was not defined in the header"):
+        vcf.convert([path], tmp_path)

@@ -288,9 +288,11 @@ def scan_vcfs(
         f"Scanning {len(paths)} VCFs attempting to split into {target_num_partitions} partitions."
     )
     # An easy mistake to make is to pass the same file twice. Check this early on.
-    for k, v in collections.Counter(paths).items():
-        if v > 1:
-            raise ValueError(f"Duplicate path provided: {k}")
+    for path, count in collections.Counter(paths).items():
+        if not path.exists():
+            raise FileNotFoundError(path)
+        if count > 1:
+            raise ValueError(f"Duplicate path provided: {path}")
 
     progress_config = core.ProgressConfig(
         total=len(paths),
@@ -428,7 +430,7 @@ def sanitise_value_float_2d(buff, j, value):
 
 def sanitise_int_array(value, ndmin, dtype):
     if isinstance(value, tuple):
-        value = [VCF_INT_MISSING if x is None else x for x in value]
+        value = [VCF_INT_MISSING if x is None else x for x in value] #  NOT COVERED
     value = np.array(value, ndmin=ndmin, copy=False)
     value[value == VCF_INT_MISSING] = -1
     value[value == VCF_INT_FILL] = -2
@@ -559,7 +561,7 @@ class StringValueTransformer(VcfValueTransformer):
 class SplitStringValueTransformer(StringValueTransformer):
     def transform(self, vcf_value):
         if vcf_value is None:
-            return self.missing_value
+            return self.missing_value  # NOT COVERED
         assert self.dimension == 1
         return np.array(vcf_value, ndmin=1, dtype="str")
 
@@ -882,14 +884,6 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
         return data
 
     @functools.cached_property
-    def total_uncompressed_bytes(self):
-        total = 0
-        for col in self.columns.values():
-            summary = col.vcf_field.summary
-            total += summary.uncompressed_size
-        return total
-
-    @functools.cached_property
     def num_records(self):
         return sum(self.metadata.contig_record_counts.values())
 
@@ -929,6 +923,7 @@ class IntermediateColumnarFormatWriter:
             shutil.rmtree(self.path)
         if target_num_partitions is None:
             target_num_partitions = len(vcfs)
+        vcfs = [pathlib.Path(vcf) for vcf in vcfs]
         target_num_partitions = max(target_num_partitions, len(vcfs))
 
         # TODO move scan_vcfs into this class
@@ -1591,7 +1586,7 @@ class VcfZarrWriter:
             try:
                 for f in value:
                     var_filter.buff[j, lookup[f]] = True
-            except IndexError:
+            except KeyError:
                 raise ValueError(f"Filter '{f}' was not defined in the header.")
         var_filter.flush()
         logger.debug(f"Encoded FILTERS slice {start}:{stop}")

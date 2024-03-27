@@ -233,6 +233,18 @@ class TestGeneratedFieldsExample:
         nt.assert_array_equal(non_missing[0], [["bc", "op"], [".", "op"]])
         nt.assert_array_equal(non_missing[1], [["bc", "."], [".", "."]])
 
+class TestCorruptionDetection:
+    data_path = "tests/data/vcf/sample.vcf.gz"
+
+    @pytest.fixture(scope="class")
+    def icf(self, tmp_path_factory):
+        return vcf.explode([self.data_path], out, column_chunk_size=0.0125)
+
+    def test_missing_field(self, tmp_path):
+        icf_path = tmp_path / "icf"
+        vcf.explode([self.data_path], icf_path)
+
+
 
 class TestSlicing:
     data_path = "tests/data/vcf/multi_contig.vcf.gz"
