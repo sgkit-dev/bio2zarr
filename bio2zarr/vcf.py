@@ -287,6 +287,11 @@ def scan_vcfs(
     logger.info(
         f"Scanning {len(paths)} VCFs attempting to split into {target_num_partitions} partitions."
     )
+    # An easy mistake to make is to pass the same file twice. Check this early on.
+    for k, v in collections.Counter(paths).items():
+        if v > 1:
+            raise ValueError(f"Duplicate path provided: {k}")
+
     progress_config = core.ProgressConfig(
         total=len(paths),
         units="files",
@@ -974,7 +979,7 @@ class IntermediateColumnarFormatWriter:
                 with open(self.wip_path / f"p{j}_summary.json") as f:
                     summary = json.load(f)
                     for k, v in summary["field_summaries"].items():
-                        summary["field_summaries"][k] = VcfFieldSummary(**v)
+                        summary["field_summaries"][k] = VcfFieldSummary.fromdict(v)
                     summaries.append(summary)
             except FileNotFoundError:
                 not_found.append(j)

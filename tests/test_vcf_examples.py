@@ -749,6 +749,18 @@ class TestGeneratedFieldsExample:
     #     nt.assert_array_equal(non_missing[1], [["bc", "."], [".", "."]])
 
 
+class TestSplitFileErrors:
+
+    def test_entirely_incompatible(self, tmp_path):
+        path = "tests/data/vcf/"
+        with pytest.raises(ValueError, match="Incompatible"):
+            vcf.explode_init(tmp_path, [path + "sample.vcf.gz", path + "1kg_2020_chrM.bcf"])
+
+    def test_duplicate_paths(self, tmp_path):
+        path = "tests/data/vcf/"
+        with pytest.raises(ValueError, match="Duplicate"):
+            vcf.explode_init(tmp_path, [path + "sample.vcf.gz"] * 2)
+
 @pytest.mark.parametrize(
     "name",
     [
