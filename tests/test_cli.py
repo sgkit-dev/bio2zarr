@@ -176,6 +176,89 @@ class TestWithMocks:
         )
 
 
+class TestVcfEndToEnd:
+    data_path = "tests/data/vcf/sample.vcf.gz"
+
+    def test_dexplode(self, tmp_path):
+        icf_path = tmp_path / "icf"
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcf2zarr,
+            f"dexplode-init {self.data_path} {icf_path} 5",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert result.stdout.strip() == "3"
+
+        for j in range(3):
+            result = runner.invoke(
+                cli.vcf2zarr,
+                f"dexplode-partition {icf_path} {j}",
+                catch_exceptions=False,
+            )
+            assert result.exit_code == 0
+        result = runner.invoke(
+            cli.vcf2zarr, f"dexplode-finalise {icf_path}", catch_exceptions=False
+        )
+        assert result.exit_code == 0
+
+        result = runner.invoke(
+            cli.vcf2zarr, f"inspect {icf_path}", catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        # Arbitrary check
+        assert "CHROM" in result.stdout
+
+    def test_explode(self, tmp_path):
+        icf_path = tmp_path / "icf"
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcf2zarr, f"explode {self.data_path} {icf_path}", catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        result = runner.invoke(
+            cli.vcf2zarr, f"inspect {icf_path}", catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        # Arbitrary check
+        assert "CHROM" in result.stdout
+
+    def test_encode(self, tmp_path):
+        icf_path = tmp_path / "icf"
+        zarr_path = tmp_path / "zarr"
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcf2zarr, f"explode {self.data_path} {icf_path}", catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        result = runner.invoke(
+            cli.vcf2zarr, f"encode {icf_path} {zarr_path}", catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        result = runner.invoke(
+            cli.vcf2zarr, f"inspect {zarr_path}", catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        # Arbitrary check
+        assert "variant_position" in result.stdout
+
+    def test_convert(self, tmp_path):
+        zarr_path = tmp_path / "zarr"
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcf2zarr,
+            f"convert {self.data_path} {zarr_path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        result = runner.invoke(
+            cli.vcf2zarr, f"inspect {zarr_path}", catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        # Arbitrary check
+        assert "variant_position" in result.stdout
+
+
 class TestVcfPartition:
     def test_num_parts(self):
         path = "tests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz"
