@@ -920,6 +920,8 @@ class IntermediateColumnarFormatWriter:
         target_num_partitions=None,
         show_progress=False,
     ):
+        if self.path.exists():
+            shutil.rmtree(self.path)
         if target_num_partitions is None:
             target_num_partitions = len(vcfs)
         target_num_partitions = max(target_num_partitions, len(vcfs))
@@ -983,11 +985,20 @@ class IntermediateColumnarFormatWriter:
         return summaries
 
     def load_metadata(self):
-        with open(self.wip_path / f"metadata.json") as f:
-            self.metadata = IcfMetadata.fromdict(json.load(f))
+        if self.metadata is None:
+            with open(self.wip_path / f"metadata.json") as f:
+                self.metadata = IcfMetadata.fromdict(json.load(f))
 
     def process_partition(self, partition_index):
         self.load_metadata()
+        summary_path = self.wip_path / f"p{partition_index}_summary.json"
+        # If someone is rewriting a summary path (for whatever reason), make sure it
+        # doesn't look like it's already been completed.
+        # NOTE to do this properly we probably need to take a lock on this file - but
+        # this simple approach will catch the vast majority of problems.
+        if summary_path.exists():
+            summary_path.unlink()
+
         partition = self.metadata.partitions[partition_index]
         logger.info(
             f"Start p{partition_index} {partition.vcf_path}__{partition.region}"
@@ -1032,12 +1043,15 @@ class IntermediateColumnarFormatWriter:
                     # is that we get a significant pause at the end of the counter while
                     # all the "small" fields get flushed. Possibly not much to be done about it.
                     core.update_progress(1)
+            logger.info(
+                f"Finished reading VCF for partition {partition_index}, flushing buffers"
+            )
 
         partition_metadata = {
             "num_records": num_records,
             "field_summaries": {k: v.asdict() for k, v in tcw.field_summaries.items()},
         }
-        with open(self.wip_path / f"p{partition_index}_summary.json", "w") as f:
+        with open(summary_path, "w") as f:
             json.dump(partition_metadata, f, indent=4)
         logger.info(
             f"Finish p{partition_index} {partition.vcf_path}__{partition.region}="
@@ -1053,27 +1067,21 @@ class IntermediateColumnarFormatWriter:
         show_progress=False,
     ):
         self.load_metadata()
-        # TODO also need to catch start >= stop
-
-        if start < 0:
-            raise ValueError(f"start={start} must be non-negative")
-        if stop > self.num_partitions:
-            raise ValueError(f"stop={stop} must be <= than the number of partitions")
         if start == 0 and stop == self.num_partitions:
-            num_records_to_process = self.metadata.num_records
-            # logger.info(
-            #     f"Exploding {self.num_columns} columns {self.metadata.num_records} variants "
-            #     f"{self.num_samples} samples"
-            # )
+            num_records = self.metadata.num_records
         else:
-            num_records_to_process = None
-            # logger.info(
-            #     f"Exploding {self.num_columns} columns {self.num_samples} samples"
-            #     f" from partitions {start} to {stop}"
-            # )
-
+            # We only know the number of records if all partitions are done at once,
+            # and we signal this to tqdm by passing None as the total.
+            num_records = None
+        num_columns = len(self.metadata.fields)
+        num_samples = len(self.metadata.samples)
+        logger.info(
+            f"Exploding columns={num_columns} samples={num_samples}; "
+            f"partitions={stop - start} "
+            f"variants={'unknown' if num_records is None else num_records}"
+        )
         progress_config = core.ProgressConfig(
-            total=num_records_to_process,
+            total=num_records,
             units="vars",
             title="Explode",
             show=show_progress,
@@ -1081,6 +1089,25 @@ class IntermediateColumnarFormatWriter:
         with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
             for j in range(start, stop):
                 pwm.submit(self.process_partition, j)
+
+    def explode(self, *, worker_processes=1, show_progress=False):
+        self.load_metadata()
+        return self.process_partition_slice(
+            0,
+            self.num_partitions,
+            worker_processes=worker_processes,
+            show_progress=show_progress,
+        )
+
+    def explode_partition(self, partition, *, show_progress=False):
+        self.load_metadata()
+        if partition < 0 or partition >= self.num_partitions:
+            raise ValueError(
+                "Partition index must be in the range 0 <= index < num_partitions"
+            )
+        return self.process_partition_slice(
+            partition, partition + 1, worker_processes=1, show_progress=show_progress
+        )
 
     def finalise(self):
         self.load_metadata()
@@ -1112,38 +1139,29 @@ def explode(
     worker_processes=1,
     show_progress=False,
 ):
-    target_num_partitions = max(1, worker_processes * 4)
-    num_partitions = explode_init(
+    writer = IntermediateColumnarFormatWriter(cif_path)
+    num_partitions = writer.init(
         vcfs,
-        cif_path,
+        # Heuristic to get reasonable worker utilisation with lumpy partition sizing
+        target_num_partitions=max(1, worker_processes * 4),
         worker_processes=worker_processes,
-        target_num_partitions=target_num_partitions,
+        show_progress=show_progress,
         column_chunk_size=column_chunk_size,
-        show_progress=show_progress,
     )
-    explode_slice(
-        cif_path,
-        0,
-        num_partitions,
-        worker_processes=worker_processes,
-        show_progress=show_progress,
-    )
-    explode_finalise(cif_path)
+    writer.explode(worker_processes=worker_processes, show_progress=show_progress)
+    writer.finalise()
     return IntermediateColumnarFormat(cif_path)
 
 
 def explode_init(
-    vcfs,
     cif_path,
+    vcfs,
     *,
     column_chunk_size=16,
     target_num_partitions=1,
     worker_processes=1,
     show_progress=False,
 ):
-    cif_path = pathlib.Path(cif_path)
-    if cif_path.exists():
-        shutil.rmtree(cif_path)
     writer = IntermediateColumnarFormatWriter(cif_path)
     return writer.init(
         vcfs,
@@ -1154,21 +1172,9 @@ def explode_init(
     )
 
 
-def explode_slice(
-    cif_path,
-    start,
-    stop,
-    *,
-    worker_processes=1,
-    show_progress=False,
-):
+def explode_partition(cif_path, partition, *, show_progress=False):
     writer = IntermediateColumnarFormatWriter(cif_path)
-    writer.process_partition_slice(
-        start,
-        stop,
-        worker_processes=worker_processes,
-        show_progress=show_progress,
-    )
+    writer.explode_partition(partition, show_progress=show_progress)
 
 
 def explode_finalise(cif_path):
@@ -1230,7 +1236,6 @@ class ZarrColumnSpec:
             # Any 1 byte field gets BITSHUFFLE by default
             shuffle = numcodecs.Blosc.BITSHUFFLE
         self.compressor["shuffle"] = shuffle
-
 
 
 ZARR_SCHEMA_FORMAT_VERSION = "0.2"

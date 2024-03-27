@@ -142,7 +142,7 @@ class TestDefaultSchema:
                 "shuffle": 2,
                 "blocksize": 0,
             },
-            "filters": [{"id": "packbits"}],
+            "filters": [],
         }
 
     def test_call_genotype_phased(self, schema):
@@ -161,5 +161,5 @@ class TestDefaultSchema:
                 "shuffle": 2,
                 "blocksize": 0,
             },
-            "filters": [{"id": "packbits"}],
+            "filters": [],
         }

@@ -88,18 +88,22 @@ def explode(vcfs, zarr_path, verbose, worker_processes, column_chunk_size):
 @click.argument("vcfs", nargs=-1, required=True)
 @click.argument("icf_path", type=click.Path())
 @click.argument("num_partitions", type=int)
+@column_chunk_size
 @verbose
 @worker_processes
-def dexplode_init(vcfs, icf_path, num_partitions, verbose, worker_processes):
+def dexplode_init(
+    vcfs, icf_path, num_partitions, column_chunk_size, verbose, worker_processes
+):
     """
     Initial step for parallel conversion of VCF(s) to intermediate columnar format
     over the requested number of paritions.
     """
     setup_logging(verbose)
     num_partitions = vcf.explode_init(
-        vcfs,
         icf_path,
+        vcfs,
         target_num_partitions=num_partitions,
+        column_chunk_size=column_chunk_size,
         worker_processes=worker_processes,
         show_progress=True,
     )
@@ -107,25 +111,17 @@ def dexplode_init(vcfs, icf_path, num_partitions, verbose, worker_processes):
 
 
 @click.command
-@click.argument("path", type=click.Path(), required=True)
-@click.argument("start", type=int)
-@click.argument("end", type=int)
+@click.argument("icf_path", type=click.Path())
+@click.argument("partition", type=int)
 @verbose
-@worker_processes
-@column_chunk_size
-def dexplode_slice(path, start, end, verbose, worker_processes, column_chunk_size):
+def dexplode_partition(icf_path, partition, verbose):
     """
-    Convert VCF(s) to intermediate columnar format
+    Convert a VCF partition into intermediate columnar format. Must be called *after*
+    the ICF path has been initialised with dexplode_init. Partition indexes must be
+    from 0 (inclusive) to the number of paritions returned by dexplode_init (exclusive).
     """
     setup_logging(verbose)
-    vcf.explode_slice(
-        path,
-        start,
-        end,
-        worker_processes=worker_processes,
-        column_chunk_size=column_chunk_size,
-        show_progress=True,
-    )
+    vcf.explode_partition(icf_path, partition, show_progress=True)
 
 
 @click.command
@@ -297,7 +293,7 @@ def vcf2zarr():
 
     \b
     $ vcf2zarr dexplode-init [VCF_FILE_1] ... [VCF_FILE_N] [ICF_PATH] [NUM_PARTITIONS]
-    $ vcf2zarr dexplode-slice [ICF_PATH] [START] [STOP]
+    $ vcf2zarr dexplode-partition [ICF_PATH] [PARTITION_INDEX]
     $ vcf2zarr dexplode-finalise [ICF_PATH]
 
     See the online documentation at [FIXME] for more details on distributed explode.
@@ -311,7 +307,7 @@ vcf2zarr.add_command(explode)
 vcf2zarr.add_command(mkschema)
 vcf2zarr.add_command(encode)
 vcf2zarr.add_command(dexplode_init)
-vcf2zarr.add_command(dexplode_slice)
+vcf2zarr.add_command(dexplode_partition)
 vcf2zarr.add_command(dexplode_finalise)
 vcf2zarr.add_command(validate)
 

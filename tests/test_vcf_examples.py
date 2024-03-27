@@ -791,23 +791,19 @@ def test_split_explode(tmp_path):
         "tests/data/vcf/sample.vcf.gz.3.split/X.vcf.gz",
     ]
     out = tmp_path / "test.explode"
-    num_partitions = vcf.explode_init(paths, out, target_num_partitions=15)
+    num_partitions = vcf.explode_init(out, paths, target_num_partitions=15)
     assert num_partitions == 3
 
     with pytest.raises(FileNotFoundError):
         pcvcf = vcf.IntermediateColumnarFormat(out)
 
-    with pytest.raises(ValueError):
-        vcf.explode_slice(out, -1, 3)
-    with pytest.raises(ValueError):
-        vcf.explode_slice(out, 0, 42)
-
-    vcf.explode_slice(out, 0, 3)
+    for j in range(num_partitions):
+        vcf.explode_partition(out, j)
     vcf.explode_finalise(out)
     pcvcf = vcf.IntermediateColumnarFormat(out)
     assert pcvcf.columns['POS'].vcf_field.summary.asdict() == {
         'num_chunks': 3,
-        'compressed_size': 587,
+        'compressed_size': 630,
         'uncompressed_size': 1008,
         'max_number': 1,
         'max_value': 1235237,

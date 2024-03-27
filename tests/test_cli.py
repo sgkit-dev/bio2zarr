@@ -30,24 +30,29 @@ class TestWithMocks:
         runner = ct.CliRunner(mix_stderr=False)
         with mock.patch("bio2zarr.vcf.explode_init", return_value=5) as mocked:
             result = runner.invoke(
-                cli.vcf2zarr, ["dexplode-init", "source", "dest", "5"], catch_exceptions=False
+                cli.vcf2zarr,
+                ["dexplode-init", "source", "dest", "5"],
+                catch_exceptions=False,
             )
             assert result.exit_code == 0
             assert len(result.stderr) == 0
             assert result.stdout == "5\n"
             mocked.assert_called_once_with(
-                ("source",),
                 "dest",
+                ("source",),
                 target_num_partitions=5,
                 worker_processes=1,
+                column_chunk_size=64,
                 show_progress=True,
             )
 
-    def test_vcf_dexplode_slice(self):
+    def test_vcf_dexplode_partition(self):
         runner = ct.CliRunner(mix_stderr=False)
-        with mock.patch("bio2zarr.vcf.explode_slice") as mocked:
+        with mock.patch("bio2zarr.vcf.explode_partition") as mocked:
             result = runner.invoke(
-                cli.vcf2zarr, ["dexplode-slice", "path", "1", "2"], catch_exceptions=False
+                cli.vcf2zarr,
+                ["dexplode-partition", "path", "1"],
+                catch_exceptions=False,
             )
             assert result.exit_code == 0
             assert len(result.stdout) == 0
@@ -55,9 +60,6 @@ class TestWithMocks:
             mocked.assert_called_once_with(
                 "path",
                 1,
-                2,
-                column_chunk_size=64,
-                worker_processes=1,
                 show_progress=True,
             )
 
