@@ -600,11 +600,11 @@ class IntermediateColumnarFormatField:
         )
 
     def num_chunks(self, partition_id):
-        return len(self.chunk_cumulative_records(partition_id))
+        return len(self.chunk_record_index(partition_id)) - 1
 
     def chunk_record_index(self, partition_id):
         if partition_id not in self._chunk_record_index:
-            index_path = self.partition_path(partition_id) / "chunk_index.pkl"
+            index_path = self.partition_path(partition_id) / "chunk_index"
             with open(index_path, "rb") as f:
                 a = pickle.load(f)
             assert len(a) > 1
@@ -612,21 +612,26 @@ class IntermediateColumnarFormatField:
             self._chunk_record_index[partition_id] = a
         return self._chunk_record_index[partition_id]
 
-    def chunk_cumulative_records(self, partition_id):
-        return self.chunk_record_index(partition_id)[1:]
-
-    def chunk_num_records(self, partition_id):
-        return np.diff(self.chunk_cumulative_records(partition_id))
-
-    def chunk_files(self, partition_id, start=0):
-        partition_path = self.partition_path(partition_id)
-        for n in self.chunk_cumulative_records(partition_id)[start:]:
-            yield partition_path / f"{n}.pkl"
-
     def read_chunk(self, path):
         with open(path, "rb") as f:
             pkl = self.compressor.decode(f.read())
         return pickle.loads(pkl)
+
+    def chunk_num_records(self, partition_id):
+        return np.diff(self.chunk_record_index(partition_id))
+
+    def chunks(self, partition_id, start_chunk=0):
+        partition_path = self.partition_path(partition_id)
+        chunk_cumulative_records = self.chunk_record_index(partition_id)
+        chunk_num_records = np.diff(chunk_cumulative_records)
+        for count, cumulative in zip(
+            chunk_num_records[start_chunk:], chunk_cumulative_records[start_chunk + 1 :]
+        ):
+            path = partition_path / f"{cumulative}"
+            chunk = self.read_chunk(path)
+            if len(chunk) != count:
+                raise ValueError(f"Corruption detected in chunk: {path}")
+            yield chunk
 
     def iter_values(self, start=None, stop=None):
         start = 0 if start is None else start
@@ -648,9 +653,7 @@ class IntermediateColumnarFormatField:
             f"Read {self.vcf_field.full_name} slice [{start}:{stop}]:"
             f"p_start={start_partition}, c_start={start_chunk}, r_start={record_id}"
         )
-
-        for chunk_path in self.chunk_files(start_partition, start_chunk):
-            chunk = self.read_chunk(chunk_path)
+        for chunk in self.chunks(start_partition, start_chunk):
             for record in chunk:
                 if record_id == stop:
                     return
@@ -659,8 +662,7 @@ class IntermediateColumnarFormatField:
                 record_id += 1
         assert record_id > start
         for partition_id in range(start_partition + 1, self.num_partitions):
-            for chunk_path in self.chunk_files(partition_id):
-                chunk = self.read_chunk(chunk_path)
+            for chunk in self.chunks(partition_id):
                 for record in chunk:
                     if record_id == stop:
                         return
@@ -674,15 +676,13 @@ class IntermediateColumnarFormatField:
         ret = [None] * self.num_records
         j = 0
         for partition_id in range(self.num_partitions):
-            for chunk_path in self.chunk_files(partition_id):
-                chunk = self.read_chunk(chunk_path)
+            for chunk in self.chunks(partition_id):
+                # for chunk_path in self.chunk_files(partition_id):
+                # chunk = self.read_chunk(chunk_path)
                 for record in chunk:
                     ret[j] = record
                     j += 1
-        if j != self.num_records:
-            raise ValueError(  # NEEDS TEST
-                f"Corruption detected: incorrect number of records in {str(self.path)}."
-            )
+        assert j == self.num_records
         return ret
 
     def sanitiser_factory(self, shape):
@@ -738,7 +738,7 @@ class IcfFieldWriter:
         self.buffered_bytes += val_bytes
         self.num_records += 1
         if self.buffered_bytes >= self.max_buffered_bytes:
-            logger.debug(  # NEEDS TEST
+            logger.debug(
                 f"Flush {self.path} buffered={self.buffered_bytes} "
                 f"max={self.max_buffered_bytes}"
             )
@@ -749,7 +749,7 @@ class IcfFieldWriter:
     def write_chunk(self):
         # Update index
         self.chunk_index.append(self.num_records)
-        path = self.path / f"{self.num_records}.pkl"
+        path = self.path / f"{self.num_records}"
         logger.debug(f"Start write: {path}")
         pkl = pickle.dumps(self.buff)
         compressed = self.compressor.encode(pkl)
@@ -768,7 +768,7 @@ class IcfFieldWriter:
         )
         if len(self.buff) > 0:
             self.write_chunk()
-        with open(self.path / "chunk_index.pkl", "wb") as f:
+        with open(self.path / "chunk_index", "wb") as f:
             a = np.array(self.chunk_index, dtype=int)
             pickle.dump(a, f)
 
@@ -921,8 +921,6 @@ class IntermediateColumnarFormatWriter:
     ):
         if self.path.exists():
             shutil.rmtree(self.path)
-        if target_num_partitions is None:
-            target_num_partitions = len(vcfs)  # NEEDS TEST
         vcfs = [pathlib.Path(vcf) for vcf in vcfs]
         target_num_partitions = max(target_num_partitions, len(vcfs))
 

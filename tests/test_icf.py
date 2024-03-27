@@ -1,6 +1,10 @@
+import shutil
+import pickle
+
 import pytest
 import numpy as np
 import numpy.testing as nt
+import numcodecs
 
 from bio2zarr import vcf
 
@@ -237,13 +241,78 @@ class TestGeneratedFieldsExample:
 class TestCorruptionDetection:
     data_path = "tests/data/vcf/sample.vcf.gz"
 
-    @pytest.fixture(scope="class")
-    def icf(self, tmp_path_factory):
-        return vcf.explode([self.data_path], out, column_chunk_size=0.0125)
-
     def test_missing_field(self, tmp_path):
         icf_path = tmp_path / "icf"
         vcf.explode([self.data_path], icf_path)
+        shutil.rmtree(icf_path / "POS")
+        icf = vcf.IntermediateColumnarFormat(icf_path)
+        with pytest.raises(FileNotFoundError):
+            icf["POS"].values
+
+    def test_missing_chunk_index(self, tmp_path):
+        icf_path = tmp_path / "icf"
+        vcf.explode([self.data_path], icf_path)
+        chunk_index_path = icf_path / "POS"/ "p0" / "chunk_index"
+        assert chunk_index_path.exists()
+        chunk_index_path.unlink()
+        icf = vcf.IntermediateColumnarFormat(icf_path)
+        with pytest.raises(FileNotFoundError):
+            icf["POS"].values
+
+    def test_missing_chunk_file(self, tmp_path):
+        icf_path = tmp_path / "icf"
+        vcf.explode([self.data_path], icf_path)
+        chunk_file = icf_path / "POS"/ "p0" / "2"
+        assert chunk_file.exists()
+        chunk_file.unlink()
+        icf = vcf.IntermediateColumnarFormat(icf_path)
+        with pytest.raises(FileNotFoundError):
+            icf["POS"].values
+
+    def test_empty_chunk_file(self, tmp_path):
+        icf_path = tmp_path / "icf"
+        vcf.explode([self.data_path], icf_path)
+        chunk_file = icf_path / "POS"/ "p0" / "2"
+        assert chunk_file.exists()
+        with open(chunk_file, "w") as f:
+            pass
+        icf = vcf.IntermediateColumnarFormat(icf_path)
+        with pytest.raises(RuntimeError, match="blosc"):
+            icf["POS"].values
+
+    @pytest.mark.parametrize("length", [10, 100, 200, 210])
+    def test_truncated_chunk_file(self, tmp_path, length):
+        icf_path = tmp_path / "icf"
+        vcf.explode([self.data_path], icf_path)
+        chunk_file = icf_path / "POS"/ "p0" / "2"
+        with open(chunk_file, "rb") as f:
+            buff = f.read(length)
+        assert len(buff) == length
+        with open(chunk_file, "wb") as f:
+            f.write(buff)
+        icf = vcf.IntermediateColumnarFormat(icf_path)
+        # Either Blosc or pickling errors happen here
+        with pytest.raises((RuntimeError, pickle.UnpicklingError)):
+            icf["POS"].values
+
+    def test_chunk_incorrect_length(self, tmp_path):
+        icf_path = tmp_path / "icf"
+        vcf.explode([self.data_path], icf_path)
+        chunk_file = icf_path / "POS"/ "p0" / "2"
+        compressor = numcodecs.Blosc(cname="lz4")
+        with open(chunk_file, "rb") as f:
+            pkl = compressor.decode(f.read())
+        x = pickle.loads(pkl)
+        assert len(x) == 2
+        # Write back a chunk with the incorrect number of records
+        pkl = pickle.dumps(x[0])
+        with open(chunk_file, "wb") as f:
+            f.write(compressor.encode(pkl))
+        icf = vcf.IntermediateColumnarFormat(icf_path)
+        with pytest.raises(ValueError, match="Corruption detected"):
+            icf["POS"].values
+        with pytest.raises(ValueError, match="Corruption detected"):
+            list(icf["POS"].iter_values(0, 9))
 
 
 class TestSlicing:
@@ -252,7 +321,7 @@ class TestSlicing:
     @pytest.fixture(scope="class")
     def icf(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.exploded"
-        return vcf.explode([self.data_path], out, column_chunk_size=0.0125)
+        return vcf.explode([self.data_path], out, column_chunk_size=0.0125, worker_processes=0)
 
     def test_repr(self, icf):
         assert repr(icf).startswith(
@@ -281,10 +350,9 @@ class TestSlicing:
         for j in range(pos.num_partitions):
             a = pos.chunk_record_index(j)
             nt.assert_array_equal(a, [0, 118, 236, 354, 472, 590, 708, 826, 933])
-            a = pos.chunk_cumulative_records(j)
-            nt.assert_array_equal(a, [118, 236, 354, 472, 590, 708, 826, 933])
             a = pos.chunk_num_records(j)
-            nt.assert_array_equal(a, [118, 118, 118, 118, 118, 118, 107])
+            nt.assert_array_equal(a, [118, 118, 118, 118, 118, 118, 118, 107])
+            assert len(a) == pos.num_chunks(j)
 
     @pytest.mark.parametrize(
         ["start", "stop"],
