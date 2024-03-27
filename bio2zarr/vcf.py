@@ -1033,11 +1033,7 @@ class IntermediateColumnarFormatWriter:
                     if has_gt:
                         tcw.append("FORMAT/GT", variant.genotype.array())
                     for field in format_fields:
-                        val = None
-                        try:
-                            val = variant.format(field.name)
-                        except KeyError:
-                            pass  # NEEDS TEST
+                        val = variant.format(field.name)
                         tcw.append(field.full_name, val)
                     # Note: an issue with updating the progress per variant here like this
                     # is that we get a significant pause at the end of the counter while
@@ -2059,9 +2055,7 @@ def validate(vcf_path, zarr_path, show_progress=False):
             name = colname.split("_", 1)[1]
             if name.isupper():
                 vcf_type = info_headers[name]["Type"]
-                # print(root[colname])
                 info_fields[name] = vcf_type, iter(root[colname])
-    # print(info_fields)
 
     first_pos = next(vcf).POS
     start_index = np.searchsorted(pos, first_pos)
@@ -2105,11 +2099,7 @@ def validate(vcf_path, zarr_path, show_progress=False):
                 assert_info_val_equal(vcf_val, zarr_val, vcf_type)
 
         for name, (vcf_type, zarr_iter) in format_fields.items():
-            vcf_val = None
-            try:
-                vcf_val = row.format(name)
-            except KeyError:
-                pass  # NEEDS TEST
+            vcf_val = row.format(name)
             zarr_val = next(zarr_iter)
             if vcf_val is None:
                 assert_format_val_missing(zarr_val, vcf_type)
