@@ -1093,14 +1093,17 @@ class IntermediateColumnarFormatWriter:
             show_progress=show_progress,
         )
 
-    def explode_partition(self, partition, *, show_progress=False):
+    def explode_partition(self, partition, *, show_progress=False, worker_processes=1):
         self.load_metadata()
         if partition < 0 or partition >= self.num_partitions:
             raise ValueError(
                 "Partition index must be in the range 0 <= index < num_partitions"
             )
         return self.process_partition_slice(
-            partition, partition + 1, worker_processes=1, show_progress=show_progress
+            partition,
+            partition + 1,
+            worker_processes=worker_processes,
+            show_progress=show_progress,
         )
 
     def finalise(self):
@@ -1127,13 +1130,13 @@ class IntermediateColumnarFormatWriter:
 
 def explode(
     vcfs,
-    cif_path,
+    icf_path,
     *,
     column_chunk_size=16,
     worker_processes=1,
     show_progress=False,
 ):
-    writer = IntermediateColumnarFormatWriter(cif_path)
+    writer = IntermediateColumnarFormatWriter(icf_path)
     num_partitions = writer.init(
         vcfs,
         # Heuristic to get reasonable worker utilisation with lumpy partition sizing
@@ -1144,11 +1147,11 @@ def explode(
     )
     writer.explode(worker_processes=worker_processes, show_progress=show_progress)
     writer.finalise()
-    return IntermediateColumnarFormat(cif_path)
+    return IntermediateColumnarFormat(icf_path)
 
 
 def explode_init(
-    cif_path,
+    icf_path,
     vcfs,
     *,
     column_chunk_size=16,
@@ -1156,7 +1159,7 @@ def explode_init(
     worker_processes=1,
     show_progress=False,
 ):
-    writer = IntermediateColumnarFormatWriter(cif_path)
+    writer = IntermediateColumnarFormatWriter(icf_path)
     return writer.init(
         vcfs,
         target_num_partitions=target_num_partitions,
@@ -1166,13 +1169,18 @@ def explode_init(
     )
 
 
-def explode_partition(cif_path, partition, *, show_progress=False):
-    writer = IntermediateColumnarFormatWriter(cif_path)
-    writer.explode_partition(partition, show_progress=show_progress)
+# NOTE only including worker_processes here so we can use the 0 option to get the
+# work done syncronously and so we can get test coverage on it. Should find a
+# better way to do this.
+def explode_partition(icf_path, partition, *, show_progress=False, worker_processes=1):
+    writer = IntermediateColumnarFormatWriter(icf_path)
+    writer.explode_partition(
+        partition, show_progress=show_progress, worker_processes=worker_processes
+    )
 
 
-def explode_finalise(cif_path):
-    writer = IntermediateColumnarFormatWriter(cif_path)
+def explode_finalise(icf_path):
+    writer = IntermediateColumnarFormatWriter(icf_path)
     writer.finalise()
 
 

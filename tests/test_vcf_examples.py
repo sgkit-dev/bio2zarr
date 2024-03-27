@@ -360,12 +360,14 @@ class TestSmallExample:
         for row in data:
             assert "name" in row
 
-    @pytest.mark.parametrize("path", [
-        "tests/data/vcf/sample_missing_contig.vcf.gz",
-        "tests/data/vcf/sample_missing_contig.bcf",
-        "tests/data/vcf/sample_missing_contig_csi.vcf.gz"]
-        )
-
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "tests/data/vcf/sample_missing_contig.vcf.gz",
+            "tests/data/vcf/sample_missing_contig.bcf",
+            "tests/data/vcf/sample_missing_contig_csi.vcf.gz",
+        ],
+    )
     def test_missing_contig_vcf(self, ds, tmp_path, path):
         # 20 has been removed from the header. The datasets is the same,
         # but the ordering of contigs has been permuted. This seems to be the
@@ -772,16 +774,18 @@ class TestGeneratedFieldsExample:
 
 
 class TestSplitFileErrors:
-
     def test_entirely_incompatible(self, tmp_path):
         path = "tests/data/vcf/"
         with pytest.raises(ValueError, match="Incompatible"):
-            vcf.explode_init(tmp_path, [path + "sample.vcf.gz", path + "1kg_2020_chrM.bcf"])
+            vcf.explode_init(
+                tmp_path, [path + "sample.vcf.gz", path + "1kg_2020_chrM.bcf"]
+            )
 
     def test_duplicate_paths(self, tmp_path):
         path = "tests/data/vcf/"
         with pytest.raises(ValueError, match="Duplicate"):
             vcf.explode_init(tmp_path, [path + "sample.vcf.gz"] * 2)
+
 
 @pytest.mark.parametrize(
     "name",
@@ -835,13 +839,13 @@ def test_split_explode(tmp_path):
         vcf.explode_partition(out, j)
     vcf.explode_finalise(out)
     pcvcf = vcf.IntermediateColumnarFormat(out)
-    assert pcvcf.columns['POS'].vcf_field.summary.asdict() == {
-        'num_chunks': 3,
-        'compressed_size': 630,
-        'uncompressed_size': 1008,
-        'max_number': 1,
-        'max_value': 1235237,
-        'min_value': 10
+    assert pcvcf.columns["POS"].vcf_field.summary.asdict() == {
+        "num_chunks": 3,
+        "compressed_size": 630,
+        "uncompressed_size": 1008,
+        "max_number": 1,
+        "max_value": 1235237,
+        "min_value": 10,
     }
     vcf.encode(out, tmp_path / "test.zarr")
     vcf.validate("tests/data/vcf/sample.vcf.gz", tmp_path / "test.zarr")
@@ -851,5 +855,3 @@ def test_missing_filter(tmp_path):
     path = "tests/data/vcf/sample_missing_filter.vcf.gz"
     with pytest.raises(ValueError, match="Filter 'q10' was not defined in the header"):
         vcf.convert([path], tmp_path)
-
-

@@ -150,10 +150,10 @@ class TestIcfWriterExample:
         vcf.explode_init(icf_path, [self.data_path])
         summary_file = icf_path / "wip" / f"p{partition}_summary.json"
         assert not summary_file.exists()
-        vcf.explode_partition(icf_path, partition)
+        vcf.explode_partition(icf_path, partition, worker_processes=0)
         with open(summary_file) as f:
             s1 = f.read()
-        vcf.explode_partition(icf_path, partition)
+        vcf.explode_partition(icf_path, partition, worker_processes=0)
         with open(summary_file) as f:
             s2 = f.read()
         assert s1 == s2
