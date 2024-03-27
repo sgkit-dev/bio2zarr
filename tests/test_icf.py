@@ -118,7 +118,7 @@ class TestIcfWriterExample:
     def test_finalise_no_partitions_fails(self, tmp_path):
         icf_path = tmp_path / "x.icf"
         vcf.explode_init(icf_path, [self.data_path])
-        with pytest.raises(FileNotFoundError, match="3 partitions: \[0, 1, 2\]"):
+        with pytest.raises(FileNotFoundError, match="3 partitions: \\[0, 1, 2\\]"):
             vcf.explode_finalise(icf_path)
 
     @pytest.mark.parametrize("partition", [0, 1, 2])
@@ -128,7 +128,7 @@ class TestIcfWriterExample:
         for j in range(3):
             if j != partition:
                 vcf.explode_partition(icf_path, j)
-        with pytest.raises(FileNotFoundError, match=f"1 partitions: \[{partition}\]"):
+        with pytest.raises(FileNotFoundError, match=f"1 partitions: \\[{partition}\\]"):
             vcf.explode_finalise(icf_path)
 
     @pytest.mark.parametrize("partition", [0, 1, 2])
@@ -233,6 +233,7 @@ class TestGeneratedFieldsExample:
         nt.assert_array_equal(non_missing[0], [["bc", "op"], [".", "op"]])
         nt.assert_array_equal(non_missing[1], [["bc", "."], [".", "."]])
 
+
 class TestCorruptionDetection:
     data_path = "tests/data/vcf/sample.vcf.gz"
 
@@ -243,7 +244,6 @@ class TestCorruptionDetection:
     def test_missing_field(self, tmp_path):
         icf_path = tmp_path / "icf"
         vcf.explode([self.data_path], icf_path)
-
 
 
 class TestSlicing:

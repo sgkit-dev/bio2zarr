@@ -289,7 +289,7 @@ def scan_vcfs(
     )
     # An easy mistake to make is to pass the same file twice. Check this early on.
     for path, count in collections.Counter(paths).items():
-        if not path.exists():
+        if not path.exists():  # NEEDS TEST
             raise FileNotFoundError(path)
         if count > 1:
             raise ValueError(f"Duplicate path provided: {path}")
@@ -430,7 +430,7 @@ def sanitise_value_float_2d(buff, j, value):
 
 def sanitise_int_array(value, ndmin, dtype):
     if isinstance(value, tuple):
-        value = [VCF_INT_MISSING if x is None else x for x in value] #  NOT COVERED
+        value = [VCF_INT_MISSING if x is None else x for x in value]  #  NEEDS TEST
     value = np.array(value, ndmin=ndmin, copy=False)
     value[value == VCF_INT_MISSING] = -1
     value[value == VCF_INT_FILL] = -2
@@ -561,7 +561,7 @@ class StringValueTransformer(VcfValueTransformer):
 class SplitStringValueTransformer(StringValueTransformer):
     def transform(self, vcf_value):
         if vcf_value is None:
-            return self.missing_value  # NOT COVERED
+            return self.missing_value  # NEEDS TEST
         assert self.dimension == 1
         return np.array(vcf_value, ndmin=1, dtype="str")
 
@@ -680,7 +680,7 @@ class IntermediateColumnarFormatField:
                     ret[j] = record
                     j += 1
         if j != self.num_records:
-            raise ValueError(
+            raise ValueError(  # NEEDS TEST
                 f"Corruption detected: incorrect number of records in {str(self.path)}."
             )
         return ret
@@ -738,7 +738,7 @@ class IcfFieldWriter:
         self.buffered_bytes += val_bytes
         self.num_records += 1
         if self.buffered_bytes >= self.max_buffered_bytes:
-            logger.debug(
+            logger.debug(  # NEEDS TEST
                 f"Flush {self.path} buffered={self.buffered_bytes} "
                 f"max={self.max_buffered_bytes}"
             )
@@ -922,7 +922,7 @@ class IntermediateColumnarFormatWriter:
         if self.path.exists():
             shutil.rmtree(self.path)
         if target_num_partitions is None:
-            target_num_partitions = len(vcfs)
+            target_num_partitions = len(vcfs)  # NEEDS TEST
         vcfs = [pathlib.Path(vcf) for vcf in vcfs]
         target_num_partitions = max(target_num_partitions, len(vcfs))
 
@@ -997,7 +997,7 @@ class IntermediateColumnarFormatWriter:
         # NOTE to do this properly we probably need to take a lock on this file - but
         # this simple approach will catch the vast majority of problems.
         if summary_path.exists():
-            summary_path.unlink()
+            summary_path.unlink()  # NEEDS TEST
 
         partition = self.metadata.partitions[partition_index]
         logger.info(
@@ -1037,7 +1037,7 @@ class IntermediateColumnarFormatWriter:
                         try:
                             val = variant.format(field.name)
                         except KeyError:
-                            pass
+                            pass  # NEEDS TEST
                         tcw.append(field.full_name, val)
                     # Note: an issue with updating the progress per variant here like this
                     # is that we get a significant pause at the end of the counter while
@@ -1190,7 +1190,7 @@ def inspect(path):
     elif (path / ".zmetadata").exists():
         obj = VcfZarr(path)
     else:
-        raise ValueError("Format not recognised")
+        raise ValueError("Format not recognised")  # NEEDS TEST
     return obj.summary_table()
 
 
@@ -1436,11 +1436,11 @@ class VcfZarrSchema:
 class VcfZarr:
     def __init__(self, path):
         if not (path / ".zmetadata").exists():
-            raise ValueError("Not in VcfZarr format")
+            raise ValueError("Not in VcfZarr format")  # NEEDS TEST
         self.root = zarr.open(path, mode="r")
 
     def __repr__(self):
-        return repr(self.root)
+        return repr(self.root)  # NEEDS TEST
 
     def summary_table(self):
         data = []
@@ -1583,11 +1583,11 @@ class VcfZarrWriter:
         for value in col.iter_values(start, stop):
             j = var_filter.next_buffer_row()
             var_filter.buff[j] = False
-            try:
-                for f in value:
+            for f in value:
+                try:
                     var_filter.buff[j, lookup[f]] = True
-            except KeyError:
-                raise ValueError(f"Filter '{f}' was not defined in the header.")
+                except KeyError:
+                    raise ValueError(f"Filter '{f}' was not defined in the header.")
         var_filter.flush()
         logger.debug(f"Encoded FILTERS slice {start}:{stop}")
 
@@ -1597,17 +1597,19 @@ class VcfZarrWriter:
 
         for value in col.iter_values(start, stop):
             j = contig.next_buffer_row()
-            try:
-                contig.buff[j] = lookup[value[0]]
-            except KeyError:
-                # TODO add advice about adding it to the spec
-                raise ValueError(f"Contig '{contig}' was not defined in the header.")
+            # Note: because we are using the indexes to define the lookups
+            # and we always have an index, it seems that we the contig lookup
+            # will always succeed. However, if anyone ever does hit a KeyError
+            # here, please do open an issue with a reproducible example!
+            contig.buff[j] = lookup[value[0]]
         contig.flush()
         logger.debug(f"Encoded CHROM slice {start}:{stop}")
 
     def encode_samples(self):
         if not np.array_equal(self.schema.sample_id, self.icf.metadata.samples):
-            raise ValueError("Subsetting or reordering samples not supported currently")
+            raise ValueError(
+                "Subsetting or reordering samples not supported currently"
+            )  # NEEDS TEST
         array = self.root.array(
             "sample_id",
             self.schema.sample_id,
@@ -1669,7 +1671,7 @@ class VcfZarrWriter:
             max_memory = 2**63
         else:
             # Value is specified in Mibibytes
-            max_memory *= 2**20
+            max_memory *= 2**20  # NEEDS TEST
 
         # TODO this will move into the setup logic later when we're making it possible
         # to split the work by slice
@@ -1757,7 +1759,7 @@ class VcfZarrWriter:
         # Fail early if we can't fit a particular column into memory
         for wp in work:
             if wp.memory >= max_memory:
-                raise ValueError(
+                raise ValueError(  # NEEDS TEST
                     f"Insufficient memory for {wp.columns}: "
                     f"{display_size(wp.memory)} > {display_size(max_memory)}"
                 )
@@ -1838,7 +1840,9 @@ def encode(
     else:
         logger.info(f"Reading schema from {schema_path}")
         if variants_chunk_size is not None or samples_chunk_size is not None:
-            raise ValueError("Cannot specify schema along with chunk sizes")
+            raise ValueError(
+                "Cannot specify schema along with chunk sizes"
+            )  # NEEDS TEST
         with open(schema_path, "r") as f:
             schema = VcfZarrSchema.fromjson(f.read())
     zarr_path = pathlib.Path(zarr_path)
@@ -2064,7 +2068,7 @@ def validate(vcf_path, zarr_path, show_progress=False):
     assert pos[start_index] == first_pos
     vcf = cyvcf2.VCF(vcf_path)
     if show_progress:
-        iterator = tqdm.tqdm(vcf, desc=" Verify", total=vcf.num_records)
+        iterator = tqdm.tqdm(vcf, desc=" Verify", total=vcf.num_records)  # NEEDS TEST
     else:
         iterator = vcf
     for j, row in enumerate(iterator, start_index):
@@ -2105,7 +2109,7 @@ def validate(vcf_path, zarr_path, show_progress=False):
             try:
                 vcf_val = row.format(name)
             except KeyError:
-                pass
+                pass  # NEEDS TEST
             zarr_val = next(zarr_iter)
             if vcf_val is None:
                 assert_format_val_missing(zarr_val, vcf_type)
