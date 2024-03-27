@@ -9,37 +9,39 @@ from bio2zarr import provenance
 
 
 class TestWithMocks:
+    vcf_path = "tests/data/vcf/sample.vcf.gz"
+
     @mock.patch("bio2zarr.vcf.explode")
-    def test_vcf_explode(self, mocked):
+    def test_vcf_explode(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr, ["explode", "source", "dest"], catch_exceptions=False
+            cli.vcf2zarr, f"explode {self.vcf_path} {tmp_path}", catch_exceptions=False
         )
         assert result.exit_code == 0
         assert len(result.stdout) == 0
         assert len(result.stderr) == 0
         mocked.assert_called_once_with(
-            ("source",),
-            "dest",
+            (self.vcf_path,),
+            str(tmp_path),
             column_chunk_size=64,
             worker_processes=1,
             show_progress=True,
         )
 
-    def test_vcf_dexplode_init(self):
+    def test_vcf_dexplode_init(self, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         with mock.patch("bio2zarr.vcf.explode_init", return_value=5) as mocked:
             result = runner.invoke(
                 cli.vcf2zarr,
-                ["dexplode-init", "source", "dest", "5"],
+                f"dexplode-init {self.vcf_path} {tmp_path} 5",
                 catch_exceptions=False,
             )
             assert result.exit_code == 0
             assert len(result.stderr) == 0
             assert result.stdout == "5\n"
             mocked.assert_called_once_with(
-                "dest",
-                ("source",),
+                str(tmp_path),
+                (self.vcf_path,),
                 target_num_partitions=5,
                 worker_processes=1,
                 column_chunk_size=64,
@@ -125,35 +127,18 @@ class TestWithMocks:
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.vcf2zarr,
-            ["convert", "vcf_path", "zarr_path"],
+            f"convert {self.vcf_path} zarr_path",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
         assert len(result.stdout) == 0
         assert len(result.stderr) == 0
         mocked.assert_called_once_with(
-            ("vcf_path",),
+            (self.vcf_path,),
             "zarr_path",
             variants_chunk_size=None,
             samples_chunk_size=None,
             worker_processes=1,
-            show_progress=True,
-        )
-
-    @mock.patch("bio2zarr.vcf.validate")
-    def test_validate(self, mocked):
-        runner = ct.CliRunner(mix_stderr=False)
-        result = runner.invoke(
-            cli.vcf2zarr,
-            ["validate", "vcf_path", "zarr_path"],
-            catch_exceptions=False,
-        )
-        assert result.exit_code == 0
-        assert len(result.stdout) == 0
-        assert len(result.stderr) == 0
-        mocked.assert_called_once_with(
-            "vcf_path",
-            "zarr_path",
             show_progress=True,
         )
 
@@ -177,14 +162,14 @@ class TestWithMocks:
 
 
 class TestVcfEndToEnd:
-    data_path = "tests/data/vcf/sample.vcf.gz"
+    vcf_path = "tests/data/vcf/sample.vcf.gz"
 
     def test_dexplode(self, tmp_path):
         icf_path = tmp_path / "icf"
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.vcf2zarr,
-            f"dexplode-init {self.data_path} {icf_path} 5",
+            f"dexplode-init {self.vcf_path} {icf_path} 5",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -213,7 +198,7 @@ class TestVcfEndToEnd:
         icf_path = tmp_path / "icf"
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr, f"explode {self.data_path} {icf_path}", catch_exceptions=False
+            cli.vcf2zarr, f"explode {self.vcf_path} {icf_path}", catch_exceptions=False
         )
         assert result.exit_code == 0
         result = runner.invoke(
@@ -228,7 +213,7 @@ class TestVcfEndToEnd:
         zarr_path = tmp_path / "zarr"
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr, f"explode {self.data_path} {icf_path}", catch_exceptions=False
+            cli.vcf2zarr, f"explode {self.vcf_path} {icf_path}", catch_exceptions=False
         )
         assert result.exit_code == 0
         result = runner.invoke(
@@ -247,7 +232,7 @@ class TestVcfEndToEnd:
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.vcf2zarr,
-            f"convert {self.data_path} {zarr_path}",
+            f"convert {self.vcf_path} {zarr_path}",
             catch_exceptions=False,
         )
         assert result.exit_code == 0

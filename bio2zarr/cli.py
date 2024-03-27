@@ -18,6 +18,12 @@ class NaturalOrderGroup(click.Group):
 
 
 # Common arguments/options
+vcfs = click.argument(
+    "vcfs", nargs=-1, required=True, type=click.Path(exists=True, dir_okay=False)
+)
+
+icf_path = click.argument("icf_path", type=click.Path())
+
 verbose = click.option("-v", "--verbose", count=True, help="Increase verbosity")
 
 version = click.version_option(version=f"{provenance.__version__}")
@@ -65,7 +71,7 @@ def setup_logging(verbosity):
 
 
 @click.command
-@click.argument("vcfs", nargs=-1, required=True)
+@vcfs
 @click.argument("zarr_path", type=click.Path())
 @verbose
 @worker_processes
@@ -85,8 +91,8 @@ def explode(vcfs, zarr_path, verbose, worker_processes, column_chunk_size):
 
 
 @click.command
-@click.argument("vcfs", nargs=-1, required=True)
-@click.argument("icf_path", type=click.Path())
+@vcfs
+@icf_path
 @click.argument("num_partitions", type=int)
 @column_chunk_size
 @verbose
@@ -95,7 +101,7 @@ def dexplode_init(
     vcfs, icf_path, num_partitions, column_chunk_size, verbose, worker_processes
 ):
     """
-    Initial step for parallel conversion of VCF(s) to intermediate columnar format
+    Initial step for distributed conversion of VCF(s) to intermediate columnar format
     over the requested number of paritions.
     """
     setup_logging(verbose)
@@ -111,12 +117,12 @@ def dexplode_init(
 
 
 @click.command
-@click.argument("icf_path", type=click.Path())
+@icf_path
 @click.argument("partition", type=int)
 @verbose
 def dexplode_partition(icf_path, partition, verbose):
     """
-    Convert a VCF partition into intermediate columnar format. Must be called *after*
+    Convert a VCF partition to intermediate columnar format. Must be called *after*
     the ICF path has been initialised with dexplode_init. Partition indexes must be
     from 0 (inclusive) to the number of paritions returned by dexplode_init (exclusive).
     """
@@ -129,26 +135,26 @@ def dexplode_partition(icf_path, partition, verbose):
 @verbose
 def dexplode_finalise(path, verbose):
     """
-    Final step for parallel conversion of VCF(s) to intermediate columnar format
+    Final step for distributed conversion of VCF(s) to intermediate columnar format.
     """
     setup_logging(verbose)
     vcf.explode_finalise(path)
 
 
 @click.command
-@click.argument("icf_path", type=click.Path())
+@click.argument("path", type=click.Path())
 @verbose
-def inspect(icf_path, verbose):
+def inspect(path, verbose):
     """
-    Inspect an intermediate format or Zarr path.
+    Inspect an intermediate columnar format or Zarr path.
     """
     setup_logging(verbose)
-    data = vcf.inspect(icf_path)
+    data = vcf.inspect(path)
     click.echo(tabulate.tabulate(data, headers="keys"))
 
 
 @click.command
-@click.argument("icf_path", type=click.Path())
+@icf_path
 def mkschema(icf_path):
     """
     Generate a schema for zarr encoding
@@ -158,7 +164,7 @@ def mkschema(icf_path):
 
 
 @click.command
-@click.argument("icf_path", type=click.Path())
+@icf_path
 @click.argument("zarr_path", type=click.Path())
 @verbose
 @click.option("-s", "--schema", default=None, type=click.Path(exists=True))
@@ -212,7 +218,7 @@ def encode(
 
 
 @click.command(name="convert")
-@click.argument("vcfs", nargs=-1, required=True)
+@vcfs
 @click.argument("zarr_path", type=click.Path())
 @variants_chunk_size
 @samples_chunk_size
@@ -233,17 +239,6 @@ def convert_vcf(
         show_progress=True,
         worker_processes=worker_processes,
     )
-
-
-@click.command
-@click.argument("vcfs", nargs=-1, required=True)
-@click.argument("zarr_path", type=click.Path())
-def validate(vcfs, zarr_path):
-    """
-    Development only, do not use. Will be removed before release.
-    """
-    # FIXME! Will silently not look at remaining VCFs
-    vcf.validate(vcfs[0], zarr_path, show_progress=True)
 
 
 @version
@@ -309,7 +304,6 @@ vcf2zarr.add_command(encode)
 vcf2zarr.add_command(dexplode_init)
 vcf2zarr.add_command(dexplode_partition)
 vcf2zarr.add_command(dexplode_finalise)
-vcf2zarr.add_command(validate)
 
 
 @click.command(name="convert")
