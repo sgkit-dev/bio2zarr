@@ -6,6 +6,7 @@ import shutil
 import click
 import tabulate
 import coloredlogs
+import numcodecs
 
 from . import vcf
 from . import vcf_utils
@@ -66,6 +67,17 @@ column_chunk_size = click.option(
     help="Approximate uncompressed size of exploded column chunks in MiB",
 )
 
+# We could provide the full flexiblity of numcodecs/Blosc here, but there
+# doesn't seem much point. Can always add more arguments here to control
+# compression level, etc.
+compressor = click.option(
+    "-C",
+    "--compressor",
+    type=click.Choice(["lz4", "zstd"]),
+    default=None,
+    help="Codec to use for compressing column chunks",
+)
+
 # Note: -l and -w were chosen when these were called "width" and "length".
 # possibly there are better letters now.
 variants_chunk_size = click.option(
@@ -113,14 +125,25 @@ def check_overwrite_dir(path, force):
         shutil.rmtree(tmp_delete_path)
 
 
+def get_compressor(cname):
+    if cname is None:
+        return None
+    config = vcf.ICF_DEFAULT_COMPRESSOR.get_config()
+    config["cname"] = cname
+    return numcodecs.get_codec(config)
+
+
 @click.command
 @vcfs
 @new_icf_path
 @force
 @verbose
-@worker_processes
 @column_chunk_size
-def explode(vcfs, icf_path, force, verbose, worker_processes, column_chunk_size):
+@compressor
+@worker_processes
+def explode(
+    vcfs, icf_path, force, verbose, column_chunk_size, compressor, worker_processes
+):
     """
     Convert VCF(s) to intermediate columnar format
     """
@@ -131,6 +154,7 @@ def explode(vcfs, icf_path, force, verbose, worker_processes, column_chunk_size)
         vcfs,
         worker_processes=worker_processes,
         column_chunk_size=column_chunk_size,
+        compressor=get_compressor(compressor),
         show_progress=True,
     )
 
@@ -141,10 +165,18 @@ def explode(vcfs, icf_path, force, verbose, worker_processes, column_chunk_size)
 @click.argument("num_partitions", type=click.IntRange(min=1))
 @force
 @column_chunk_size
+@compressor
 @verbose
 @worker_processes
 def dexplode_init(
-    vcfs, icf_path, num_partitions, force, column_chunk_size, verbose, worker_processes
+    vcfs,
+    icf_path,
+    num_partitions,
+    force,
+    column_chunk_size,
+    compressor,
+    verbose,
+    worker_processes,
 ):
     """
     Initial step for distributed conversion of VCF(s) to intermediate columnar format
@@ -158,6 +190,7 @@ def dexplode_init(
         target_num_partitions=num_partitions,
         column_chunk_size=column_chunk_size,
         worker_processes=worker_processes,
+        compressor=get_compressor(compressor),
         show_progress=True,
     )
     click.echo(num_partitions)
