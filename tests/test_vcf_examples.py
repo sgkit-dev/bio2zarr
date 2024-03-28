@@ -778,13 +778,13 @@ class TestSplitFileErrors:
         path = "tests/data/vcf/"
         with pytest.raises(ValueError, match="Incompatible"):
             vcf.explode_init(
-                tmp_path, [path + "sample.vcf.gz", path + "1kg_2020_chrM.bcf"]
+                tmp_path / "if", [path + "sample.vcf.gz", path + "1kg_2020_chrM.bcf"]
             )
 
     def test_duplicate_paths(self, tmp_path):
         path = "tests/data/vcf/"
         with pytest.raises(ValueError, match="Duplicate"):
-            vcf.explode_init(tmp_path, [path + "sample.vcf.gz"] * 2)
+            vcf.explode_init(tmp_path / "if", [path + "sample.vcf.gz"] * 2)
 
 
 @pytest.mark.parametrize(

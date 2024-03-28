@@ -247,6 +247,57 @@ class TestGeneratedFieldsExample:
         nt.assert_array_equal(non_missing[1], [["bc", "."], [".", "."]])
 
 
+class TestInitProperties:
+    data_path = "tests/data/vcf/sample.vcf.gz"
+
+    def run_explode(self, tmp_path, **kwargs):
+        icf_path = tmp_path / "icf"
+        vcf.explode([self.data_path], icf_path, **kwargs)
+        return vcf.IntermediateColumnarFormat(icf_path)
+
+    def run_dexplode(self, tmp_path, **kwargs):
+        icf_path = tmp_path / "icf"
+        partitions = vcf.explode_init(icf_path, [self.data_path], **kwargs)
+        for j in range(partitions):
+            vcf.explode_partition(icf_path, j)
+        vcf.explode_finalise(icf_path)
+        return vcf.IntermediateColumnarFormat(icf_path)
+
+    @pytest.mark.parametrize(
+        "compressor",
+        [
+            numcodecs.Blosc(),
+            numcodecs.Blosc(cname="lz4", clevel=1, shuffle=numcodecs.Blosc.SHUFFLE),
+            numcodecs.Blosc(cname="zstd", clevel=5, shuffle=numcodecs.Blosc.NOSHUFFLE),
+        ],
+    )
+    def test_compressor_explode(self, tmp_path, compressor):
+        icf = self.run_explode(tmp_path, compressor=compressor)
+        assert icf.metadata.compressor == compressor.get_config()
+
+    @pytest.mark.parametrize(
+        "compressor",
+        [
+            numcodecs.Blosc(),
+            numcodecs.Blosc(cname="lz4", clevel=1, shuffle=numcodecs.Blosc.SHUFFLE),
+            numcodecs.Blosc(cname="zstd", clevel=5, shuffle=numcodecs.Blosc.NOSHUFFLE),
+        ],
+    )
+    def test_compressor_init(self, tmp_path, compressor):
+        icf = self.run_dexplode(tmp_path, compressor=compressor)
+        assert icf.metadata.compressor == compressor.get_config()
+
+    @pytest.mark.parametrize("column_chunk_size", [1, 10, 0.125])
+    def test_column_chunk_size_explode(self, tmp_path, column_chunk_size):
+        icf = self.run_explode(tmp_path, column_chunk_size=column_chunk_size)
+        assert icf.metadata.column_chunk_size == column_chunk_size
+
+    @pytest.mark.parametrize("column_chunk_size", [1, 10, 0.125])
+    def test_column_chunk_size_dexplode(self, tmp_path, column_chunk_size):
+        icf = self.run_dexplode(tmp_path, column_chunk_size=column_chunk_size)
+        assert icf.metadata.column_chunk_size == column_chunk_size
+
+
 class TestCorruptionDetection:
     data_path = "tests/data/vcf/sample.vcf.gz"
 
