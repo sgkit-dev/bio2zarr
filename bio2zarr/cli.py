@@ -1,3 +1,8 @@
+import logging
+import os
+import pathlib
+import shutil
+
 import click
 import tabulate
 import coloredlogs
@@ -7,6 +12,8 @@ from . import vcf_utils
 from . import plink
 from . import provenance
 
+
+logger = logging.getLogger(__name__)
 
 class NaturalOrderGroup(click.Group):
     """
@@ -22,9 +29,12 @@ vcfs = click.argument(
     "vcfs", nargs=-1, required=True, type=click.Path(exists=True, dir_okay=False)
 )
 
-icf_path = click.argument("icf_path", type=click.Path())
+icf_path = click.argument("icf_path", type=click.Path(file_okay=False, dir_okay=True))
 
 verbose = click.option("-v", "--verbose", count=True, help="Increase verbosity")
+
+force = click.option("-f", "--force", is_flag=True, flag_value=True,
+        help="Force overwriting of existing directories")
 
 version = click.version_option(version=f"{provenance.__version__}")
 
@@ -70,20 +80,36 @@ def setup_logging(verbosity):
     coloredlogs.install(level=level)
 
 
+def check_overwrite_dir(path, force):
+    path = pathlib.Path(path)
+    if path.exists():
+        if not force:
+            click.confirm(f"Do you want to overwrite {path}? (use --force to skip this check)")
+        # These trees can be mondo-big and on slow file systems, so it's entirely
+        # feasible that the delete would fail or be killed. This makes it less likely
+        # that partially deleted paths are mistaken for good paths.
+        tmp_delete_path = path.with_suffix(f"{path.suffix}.{os.getpid()}.DELETING")
+        logger.info(f"Deleting {path} (renamed to {tmp_delete_path} while in progress)")
+        os.rename(path, tmp_delete_path)
+        shutil.rmtree(tmp_delete_path)
+
+
 @click.command
 @vcfs
-@click.argument("zarr_path", type=click.Path())
+@icf_path
+@force
 @verbose
 @worker_processes
 @column_chunk_size
-def explode(vcfs, zarr_path, verbose, worker_processes, column_chunk_size):
+def explode(vcfs, icf_path, force, verbose, worker_processes, column_chunk_size):
     """
     Convert VCF(s) to intermediate columnar format
     """
     setup_logging(verbose)
+    check_overwrite_dir(icf_path, force)
     vcf.explode(
         vcfs,
-        zarr_path,
+        icf_path,
         worker_processes=worker_processes,
         column_chunk_size=column_chunk_size,
         show_progress=True,
@@ -94,17 +120,19 @@ def explode(vcfs, zarr_path, verbose, worker_processes, column_chunk_size):
 @vcfs
 @icf_path
 @click.argument("num_partitions", type=int)
+@force
 @column_chunk_size
 @verbose
 @worker_processes
 def dexplode_init(
-    vcfs, icf_path, num_partitions, column_chunk_size, verbose, worker_processes
+    vcfs, icf_path, num_partitions, force, column_chunk_size, verbose, worker_processes
 ):
     """
     Initial step for distributed conversion of VCF(s) to intermediate columnar format
     over the requested number of paritions.
     """
     setup_logging(verbose)
+    check_overwrite_dir(icf_path, force)
     num_partitions = vcf.explode_init(
         icf_path,
         vcfs,
