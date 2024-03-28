@@ -306,8 +306,8 @@ class TestSmallExample:
     def test_full_pipeline(self, ds, tmp_path, worker_processes):
         exploded = tmp_path / "example.exploded"
         vcf.explode(
-            [self.data_path],
             exploded,
+            [self.data_path],
             worker_processes=worker_processes,
         )
         schema = tmp_path / "schema.json"
@@ -322,7 +322,7 @@ class TestSmallExample:
     @pytest.mark.parametrize("variants_chunk_size", [1, 2, 3])
     def test_max_v_chunks(self, ds, tmp_path, max_v_chunks, variants_chunk_size):
         exploded = tmp_path / "example.exploded"
-        vcf.explode([self.data_path], exploded)
+        vcf.explode(exploded, [self.data_path])
         out = tmp_path / "example.zarr"
         vcf.encode(
             exploded,

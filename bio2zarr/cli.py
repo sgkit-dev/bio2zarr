@@ -127,8 +127,8 @@ def explode(vcfs, icf_path, force, verbose, worker_processes, column_chunk_size)
     setup_logging(verbose)
     check_overwrite_dir(icf_path, force)
     vcf.explode(
-        vcfs,
         icf_path,
+        vcfs,
         worker_processes=worker_processes,
         column_chunk_size=column_chunk_size,
         show_progress=True,

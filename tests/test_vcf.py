@@ -14,7 +14,7 @@ def vcf_file():
 @pytest.fixture(scope="module")
 def exploded_path(vcf_file, tmp_path_factory):
     out = tmp_path_factory.mktemp("data") / "example.exploded"
-    vcf.explode([vcf_file], out)
+    vcf.explode(out, [vcf_file])
     return out
 
 

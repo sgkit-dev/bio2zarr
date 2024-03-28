@@ -2,6 +2,7 @@
 # These are large-scale tests that are not possible to run
 # under unit-test conditions.
 import pathlib
+import shutil
 import click
 
 
@@ -40,10 +41,12 @@ def cli(vcfs, worker_processes, force):
             files = [f]
             source_file = f
         exploded = tmp_path / (f.name + ".exploded")
-        if force or not exploded.exists():
+        if force and exploded.exists():
+            shutil.rmtree(exploded)
+        if not exploded.exists():
             vcf.explode(
-                files,
                 exploded,
+                files,
                 worker_processes=worker_processes,
                 show_progress=True,
             )
@@ -53,7 +56,9 @@ def cli(vcfs, worker_processes, force):
                 vcf.mkschema(exploded, specfile)
 
         zarr = tmp_path / (f.name + ".zarr")
-        if force or not zarr.exists():
+        if force and zarr.exists():
+            shutil.rmtree(zarr)
+        if not zarr.exists():
             vcf.encode(
                 exploded,
                 zarr,

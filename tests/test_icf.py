@@ -25,7 +25,7 @@ class TestSmallExample:
     @pytest.fixture(scope="class")
     def icf(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.exploded"
-        return vcf.explode([self.data_path], out)
+        return vcf.explode(out, [self.data_path])
 
     def test_format_version(self, icf):
         assert icf.metadata.format_version == vcf.ICF_METADATA_FORMAT_VERSION
@@ -188,7 +188,7 @@ class TestGeneratedFieldsExample:
         # df = sgkit.load_dataset("tmp/fields.vcf.sg")
         # print(df["variant_IC2"])
         # print(df["variant_IC2"].values)
-        return vcf.explode([self.data_path], out)
+        return vcf.explode(out, [self.data_path])
 
     @pytest.fixture(scope="class")
     def schema(self, icf):
@@ -252,7 +252,7 @@ class TestInitProperties:
 
     def run_explode(self, tmp_path, **kwargs):
         icf_path = tmp_path / "icf"
-        vcf.explode([self.data_path], icf_path, **kwargs)
+        vcf.explode(icf_path, [self.data_path], **kwargs)
         return vcf.IntermediateColumnarFormat(icf_path)
 
     def run_dexplode(self, tmp_path, **kwargs):
@@ -303,7 +303,7 @@ class TestCorruptionDetection:
 
     def test_missing_field(self, tmp_path):
         icf_path = tmp_path / "icf"
-        vcf.explode([self.data_path], icf_path)
+        vcf.explode(icf_path, [self.data_path])
         shutil.rmtree(icf_path / "POS")
         icf = vcf.IntermediateColumnarFormat(icf_path)
         with pytest.raises(FileNotFoundError):
@@ -311,7 +311,7 @@ class TestCorruptionDetection:
 
     def test_missing_chunk_index(self, tmp_path):
         icf_path = tmp_path / "icf"
-        vcf.explode([self.data_path], icf_path)
+        vcf.explode(icf_path, [self.data_path])
         chunk_index_path = icf_path / "POS" / "p0" / "chunk_index"
         assert chunk_index_path.exists()
         chunk_index_path.unlink()
@@ -321,7 +321,7 @@ class TestCorruptionDetection:
 
     def test_missing_chunk_file(self, tmp_path):
         icf_path = tmp_path / "icf"
-        vcf.explode([self.data_path], icf_path)
+        vcf.explode(icf_path, [self.data_path])
         chunk_file = icf_path / "POS" / "p0" / "2"
         assert chunk_file.exists()
         chunk_file.unlink()
@@ -331,7 +331,7 @@ class TestCorruptionDetection:
 
     def test_empty_chunk_file(self, tmp_path):
         icf_path = tmp_path / "icf"
-        vcf.explode([self.data_path], icf_path)
+        vcf.explode(icf_path, [self.data_path])
         chunk_file = icf_path / "POS" / "p0" / "2"
         assert chunk_file.exists()
         with open(chunk_file, "w") as f:
@@ -343,7 +343,7 @@ class TestCorruptionDetection:
     @pytest.mark.parametrize("length", [10, 100, 200, 210])
     def test_truncated_chunk_file(self, tmp_path, length):
         icf_path = tmp_path / "icf"
-        vcf.explode([self.data_path], icf_path)
+        vcf.explode(icf_path, [self.data_path])
         chunk_file = icf_path / "POS" / "p0" / "2"
         with open(chunk_file, "rb") as f:
             buff = f.read(length)
@@ -357,7 +357,7 @@ class TestCorruptionDetection:
 
     def test_chunk_incorrect_length(self, tmp_path):
         icf_path = tmp_path / "icf"
-        vcf.explode([self.data_path], icf_path)
+        vcf.explode(icf_path, [self.data_path])
         chunk_file = icf_path / "POS" / "p0" / "2"
         compressor = numcodecs.Blosc(cname="lz4")
         with open(chunk_file, "rb") as f:
@@ -382,7 +382,7 @@ class TestSlicing:
     def icf(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.exploded"
         return vcf.explode(
-            [self.data_path], out, column_chunk_size=0.0125, worker_processes=0
+            out, [self.data_path], column_chunk_size=0.0125, worker_processes=0
         )
 
     def test_repr(self, icf):

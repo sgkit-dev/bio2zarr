@@ -284,9 +284,7 @@ def scan_vcf(path, target_num_partitions):
         return metadata, vcf.raw_header
 
 
-def scan_vcfs(
-    paths, show_progress, target_num_partitions, worker_processes=1
-):
+def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
     logger.info(
         f"Scanning {len(paths)} VCFs attempting to split into {target_num_partitions} partitions."
     )
@@ -818,9 +816,7 @@ class IcfPartitionWriter(contextlib.AbstractContextManager):
         return False
 
 
-
 class IntermediateColumnarFormat(collections.abc.Mapping):
-
     def __init__(self, path):
         self.path = pathlib.Path(path)
         # TODO raise a more informative error here telling people this
@@ -1130,10 +1126,9 @@ class IntermediateColumnarFormatWriter:
         shutil.rmtree(self.wip_path)
 
 
-# FIXME make icf_path the first arg
 def explode(
-    vcfs,
     icf_path,
+    vcfs,
     *,
     column_chunk_size=16,
     worker_processes=1,
@@ -1880,8 +1875,8 @@ def convert(
     with tempfile.TemporaryDirectory(prefix="vcf2zarr") as tmp:
         if_dir = pathlib.Path(tmp) / "if"
         explode(
-            vcfs,
             if_dir,
+            vcfs,
             worker_processes=worker_processes,
             show_progress=show_progress,
         )

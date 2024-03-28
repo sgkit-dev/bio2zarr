@@ -46,7 +46,7 @@ class TestWithMocks:
         assert len(result.stdout) == 0
         assert len(result.stderr) == 0
         mocked.assert_called_once_with(
-            (self.vcf_path,), str(icf_path), **DEFAULT_EXPLODE_ARGS
+            str(icf_path), (self.vcf_path,), **DEFAULT_EXPLODE_ARGS
         )
 
     @mock.patch("bio2zarr.vcf.explode")
@@ -62,7 +62,7 @@ class TestWithMocks:
         assert len(result.stdout) == 0
         assert len(result.stderr) == 0
         mocked.assert_called_once_with(
-            (self.vcf_path, self.vcf_path), str(icf_path), **DEFAULT_EXPLODE_ARGS
+            str(icf_path), (self.vcf_path, self.vcf_path), **DEFAULT_EXPLODE_ARGS
         )
 
     @pytest.mark.parametrize("response", ["y", "Y", "yes"])
@@ -81,7 +81,7 @@ class TestWithMocks:
         assert f"Do you want to overwrite {icf_path}" in result.stdout
         assert len(result.stderr) == 0
         mocked.assert_called_once_with(
-            (self.vcf_path,), str(icf_path), **DEFAULT_EXPLODE_ARGS
+            str(icf_path), (self.vcf_path,), **DEFAULT_EXPLODE_ARGS
         )
 
     @pytest.mark.parametrize("response", ["y", "Y", "yes"])
@@ -120,9 +120,7 @@ class TestWithMocks:
         assert len(result.stdout) == 0
         assert len(result.stderr) == 0
         mocked.assert_called_once_with(
-            (self.vcf_path,),
-            str(icf_path),
-            **DEFAULT_EXPLODE_ARGS,
+            str(icf_path), (self.vcf_path,), **DEFAULT_EXPLODE_ARGS
         )
 
     @pytest.mark.parametrize("force_arg", ["-f", "--force"])
