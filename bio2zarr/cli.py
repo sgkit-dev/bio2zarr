@@ -15,6 +15,7 @@ from . import provenance
 
 logger = logging.getLogger(__name__)
 
+
 class NaturalOrderGroup(click.Group):
     """
     List commands in the order they are provided in the help text.
@@ -29,12 +30,27 @@ vcfs = click.argument(
     "vcfs", nargs=-1, required=True, type=click.Path(exists=True, dir_okay=False)
 )
 
-icf_path = click.argument("icf_path", type=click.Path(file_okay=False, dir_okay=True))
+new_icf_path = click.argument(
+    "icf_path", type=click.Path(file_okay=False, dir_okay=True)
+)
+
+icf_path = click.argument(
+    "icf_path", type=click.Path(exists=True, file_okay=False, dir_okay=True)
+)
+
+new_zarr_path = click.argument(
+    "zarr_path", type=click.Path(file_okay=False, dir_okay=True)
+)
 
 verbose = click.option("-v", "--verbose", count=True, help="Increase verbosity")
 
-force = click.option("-f", "--force", is_flag=True, flag_value=True,
-        help="Force overwriting of existing directories")
+force = click.option(
+    "-f",
+    "--force",
+    is_flag=True,
+    flag_value=True,
+    help="Force overwriting of existing directories",
+)
 
 version = click.version_option(version=f"{provenance.__version__}")
 
@@ -84,7 +100,10 @@ def check_overwrite_dir(path, force):
     path = pathlib.Path(path)
     if path.exists():
         if not force:
-            click.confirm(f"Do you want to overwrite {path}? (use --force to skip this check)")
+            click.confirm(
+                f"Do you want to overwrite {path}? (use --force to skip this check)",
+                abort=True,
+            )
         # These trees can be mondo-big and on slow file systems, so it's entirely
         # feasible that the delete would fail or be killed. This makes it less likely
         # that partially deleted paths are mistaken for good paths.
@@ -96,7 +115,7 @@ def check_overwrite_dir(path, force):
 
 @click.command
 @vcfs
-@icf_path
+@new_icf_path
 @force
 @verbose
 @worker_processes
@@ -118,8 +137,8 @@ def explode(vcfs, icf_path, force, verbose, worker_processes, column_chunk_size)
 
 @click.command
 @vcfs
-@icf_path
-@click.argument("num_partitions", type=int)
+@new_icf_path
+@click.argument("num_partitions", type=click.IntRange(min=1))
 @force
 @column_chunk_size
 @verbose
@@ -146,7 +165,7 @@ def dexplode_init(
 
 @click.command
 @icf_path
-@click.argument("partition", type=int)
+@click.argument("partition", type=click.IntRange(min=0))
 @verbose
 def dexplode_partition(icf_path, partition, verbose):
     """
@@ -193,7 +212,8 @@ def mkschema(icf_path):
 
 @click.command
 @icf_path
-@click.argument("zarr_path", type=click.Path())
+@new_zarr_path
+@force
 @verbose
 @click.option("-s", "--schema", default=None, type=click.Path(exists=True))
 @variants_chunk_size
@@ -220,6 +240,7 @@ def mkschema(icf_path):
 def encode(
     icf_path,
     zarr_path,
+    force,
     verbose,
     schema,
     variants_chunk_size,
@@ -232,10 +253,11 @@ def encode(
     Encode intermediate columnar format (see explode) to vcfzarr.
     """
     setup_logging(verbose)
+    check_overwrite_dir(zarr_path, force)
     vcf.encode(
         icf_path,
         zarr_path,
-        schema,
+        schema_path=schema,
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
         max_v_chunks=max_variant_chunks,
@@ -247,7 +269,7 @@ def encode(
 
 @click.command(name="convert")
 @vcfs
-@click.argument("zarr_path", type=click.Path())
+@new_zarr_path
 @variants_chunk_size
 @samples_chunk_size
 @verbose
