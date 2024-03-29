@@ -2,6 +2,7 @@ from unittest import mock
 
 import pytest
 import click.testing as ct
+import numcodecs
 
 from bio2zarr import cli
 from bio2zarr import __main__ as main
@@ -10,6 +11,7 @@ from bio2zarr import provenance
 
 DEFAULT_EXPLODE_ARGS = dict(
     column_chunk_size=64,
+    compressor=None,
     worker_processes=1,
     show_progress=True,
 )
@@ -19,6 +21,7 @@ DEFAULT_DEXPLODE_PARTITION_ARGS = dict(show_progress=True)
 DEFAULT_DEXPLODE_INIT_ARGS = dict(
     worker_processes=1,
     column_chunk_size=64,
+    compressor=None,
     show_progress=True,
 )
 DEFAULT_ENCODE_ARGS = dict(
@@ -46,8 +49,69 @@ class TestWithMocks:
         assert len(result.stdout) == 0
         assert len(result.stderr) == 0
         mocked.assert_called_once_with(
-            (self.vcf_path,), str(icf_path), **DEFAULT_EXPLODE_ARGS
+            str(icf_path), (self.vcf_path,), **DEFAULT_EXPLODE_ARGS
         )
+
+    @pytest.mark.parametrize("compressor", ["lz4", "zstd"])
+    @mock.patch("bio2zarr.vcf.explode")
+    def test_vcf_explode_compressor(self, mocked, tmp_path, compressor):
+        icf_path = tmp_path / "icf"
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcf2zarr,
+            f"explode {self.vcf_path} {icf_path} -C {compressor}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert len(result.stdout) == 0
+        assert len(result.stderr) == 0
+        kwargs = dict(DEFAULT_EXPLODE_ARGS)
+        kwargs["compressor"] = numcodecs.Blosc(
+            compressor, clevel=7, shuffle=numcodecs.Blosc.NOSHUFFLE
+        )
+        mocked.assert_called_once_with(
+            str(icf_path),
+            (self.vcf_path,),
+            **kwargs,
+        )
+
+    @pytest.mark.parametrize("compressor", ["lz4", "zstd"])
+    @mock.patch("bio2zarr.vcf.explode_init")
+    def test_vcf_dexplode_init_compressor(self, mocked, tmp_path, compressor):
+        icf_path = tmp_path / "icf"
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcf2zarr,
+            f"dexplode-init {self.vcf_path} {icf_path} 1 -C {compressor}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert len(result.stdout) > 0
+        assert len(result.stderr) == 0
+        kwargs = dict(DEFAULT_EXPLODE_ARGS)
+        kwargs["compressor"] = numcodecs.Blosc(
+            compressor, clevel=7, shuffle=numcodecs.Blosc.NOSHUFFLE
+        )
+        mocked.assert_called_once_with(
+            str(icf_path),
+            (self.vcf_path,),
+            target_num_partitions=1,
+            **kwargs,
+        )
+
+    @pytest.mark.parametrize("compressor", ["LZ4", "asdf"])
+    @mock.patch("bio2zarr.vcf.explode")
+    def test_vcf_explode_bad_compressor(self, mocked, tmp_path, compressor):
+        runner = ct.CliRunner(mix_stderr=False)
+        icf_path = tmp_path / "icf"
+        result = runner.invoke(
+            cli.vcf2zarr,
+            f"explode {self.vcf_path} {icf_path} --compressor {compressor}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 2
+        assert "Invalid value for '-C'" in result.stderr
+        mocked.assert_not_called()
 
     @mock.patch("bio2zarr.vcf.explode")
     def test_vcf_explode_multiple_vcfs(self, mocked, tmp_path):
@@ -62,7 +126,7 @@ class TestWithMocks:
         assert len(result.stdout) == 0
         assert len(result.stderr) == 0
         mocked.assert_called_once_with(
-            (self.vcf_path, self.vcf_path), str(icf_path), **DEFAULT_EXPLODE_ARGS
+            str(icf_path), (self.vcf_path, self.vcf_path), **DEFAULT_EXPLODE_ARGS
         )
 
     @pytest.mark.parametrize("response", ["y", "Y", "yes"])
@@ -81,7 +145,7 @@ class TestWithMocks:
         assert f"Do you want to overwrite {icf_path}" in result.stdout
         assert len(result.stderr) == 0
         mocked.assert_called_once_with(
-            (self.vcf_path,), str(icf_path), **DEFAULT_EXPLODE_ARGS
+            str(icf_path), (self.vcf_path,), **DEFAULT_EXPLODE_ARGS
         )
 
     @pytest.mark.parametrize("response", ["y", "Y", "yes"])
@@ -120,9 +184,7 @@ class TestWithMocks:
         assert len(result.stdout) == 0
         assert len(result.stderr) == 0
         mocked.assert_called_once_with(
-            (self.vcf_path,),
-            str(icf_path),
-            **DEFAULT_EXPLODE_ARGS,
+            str(icf_path), (self.vcf_path,), **DEFAULT_EXPLODE_ARGS
         )
 
     @pytest.mark.parametrize("force_arg", ["-f", "--force"])

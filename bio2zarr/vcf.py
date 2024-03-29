@@ -152,7 +152,7 @@ class VcfPartition:
 ICF_METADATA_FORMAT_VERSION = "0.2"
 ICF_DEFAULT_COMPRESSOR = numcodecs.Blosc(
     cname="lz4", clevel=7, shuffle=numcodecs.Blosc.NOSHUFFLE
-).get_config()
+)
 
 
 @dataclasses.dataclass
@@ -284,9 +284,7 @@ def scan_vcf(path, target_num_partitions):
         return metadata, vcf.raw_header
 
 
-def scan_vcfs(
-    paths, show_progress, target_num_partitions, column_chunk_size, worker_processes=1
-):
+def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
     logger.info(
         f"Scanning {len(paths)} VCFs attempting to split into {target_num_partitions} partitions."
     )
@@ -334,12 +332,6 @@ def scan_vcfs(
         key=lambda x: (contig_index_map[x.region.contig], x.region.start)
     )
     icf_metadata.partitions = all_partitions
-    icf_metadata.format_version = ICF_METADATA_FORMAT_VERSION
-    icf_metadata.compressor = ICF_DEFAULT_COMPRESSOR
-    icf_metadata.column_chunk_size = column_chunk_size
-    # Bare minimum here for provenance - would be nice to include versions of key
-    # dependencies as well.
-    icf_metadata.provenance = {"source": f"bio2zarr-{provenance.__version__}"}
     logger.info(f"Scan complete, resulting in {len(all_partitions)} partitions.")
     return icf_metadata, header
 
@@ -824,13 +816,7 @@ class IcfPartitionWriter(contextlib.AbstractContextManager):
         return False
 
 
-# TODO rename to IntermediateColumnarFormat and move to icf.py
-
-
 class IntermediateColumnarFormat(collections.abc.Mapping):
-    # TODO Check if other compressors would give reasonable compression
-    # with significantly faster times
-
     def __init__(self, path):
         self.path = pathlib.Path(path)
         # TODO raise a more informative error here telling people this
@@ -922,9 +908,12 @@ class IntermediateColumnarFormatWriter:
         worker_processes=1,
         target_num_partitions=None,
         show_progress=False,
+        compressor=None,
     ):
         if self.path.exists():
-            shutil.rmtree(self.path)
+            raise ValueError("ICF path already exists")
+        if compressor is None:
+            compressor = ICF_DEFAULT_COMPRESSOR
         vcfs = [pathlib.Path(vcf) for vcf in vcfs]
         target_num_partitions = max(target_num_partitions, len(vcfs))
 
@@ -934,9 +923,14 @@ class IntermediateColumnarFormatWriter:
             worker_processes=worker_processes,
             show_progress=show_progress,
             target_num_partitions=target_num_partitions,
-            column_chunk_size=column_chunk_size,
         )
         self.metadata = icf_metadata
+        self.metadata.format_version = ICF_METADATA_FORMAT_VERSION
+        self.metadata.compressor = compressor.get_config()
+        self.metadata.column_chunk_size = column_chunk_size
+        # Bare minimum here for provenance - would be nice to include versions of key
+        # dependencies as well.
+        self.metadata.provenance = {"source": f"bio2zarr-{provenance.__version__}"}
 
         self.mkdirs()
 
@@ -1133,12 +1127,13 @@ class IntermediateColumnarFormatWriter:
 
 
 def explode(
-    vcfs,
     icf_path,
+    vcfs,
     *,
     column_chunk_size=16,
     worker_processes=1,
     show_progress=False,
+    compressor=None,
 ):
     writer = IntermediateColumnarFormatWriter(icf_path)
     num_partitions = writer.init(
@@ -1148,6 +1143,7 @@ def explode(
         worker_processes=worker_processes,
         show_progress=show_progress,
         column_chunk_size=column_chunk_size,
+        compressor=compressor,
     )
     writer.explode(worker_processes=worker_processes, show_progress=show_progress)
     writer.finalise()
@@ -1162,6 +1158,7 @@ def explode_init(
     target_num_partitions=1,
     worker_processes=1,
     show_progress=False,
+    compressor=None,
 ):
     writer = IntermediateColumnarFormatWriter(icf_path)
     return writer.init(
@@ -1170,6 +1167,7 @@ def explode_init(
         worker_processes=worker_processes,
         show_progress=show_progress,
         column_chunk_size=column_chunk_size,
+        compressor=compressor,
     )
 
 
@@ -1661,8 +1659,6 @@ class VcfZarrWriter:
             self.init_array(column)
 
     def finalise(self):
-        # for column in self.schema.columns.values():
-        #     self.finalise_array(column)
         zarr.consolidate_metadata(self.path)
 
     def encode(
@@ -1876,10 +1872,11 @@ def convert(
     show_progress=False,
     # TODO add arguments to control location of tmpdir
 ):
-    with tempfile.TemporaryDirectory(prefix="vcf2zarr_if_") as if_dir:
+    with tempfile.TemporaryDirectory(prefix="vcf2zarr") as tmp:
+        if_dir = pathlib.Path(tmp) / "if"
         explode(
-            vcfs,
             if_dir,
+            vcfs,
             worker_processes=worker_processes,
             show_progress=show_progress,
         )
