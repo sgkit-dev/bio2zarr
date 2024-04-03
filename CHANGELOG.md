@@ -1,3 +1,7 @@
+# 0.0.4 2024-04-xx
+
+- Fix bug in --max-memory handling, and argument to a string like 10G
+
 # 0.0.3 2024-03-28
 
 - Various refinements to the CLI
