@@ -265,9 +265,8 @@ def mkschema(icf_path):
 @click.option(
     "-M",
     "--max-memory",
-    type=int,
     default=None,
-    help="An approximate bound on overall memory usage in megabytes",
+    help="An approximate bound on overall memory usage (e.g. 10G),",
 )
 @worker_processes
 def encode(

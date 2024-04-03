@@ -1478,6 +1478,16 @@ class EncodingWork:
     memory: int = 0
 
 
+def parse_max_memory(max_memory):
+    if max_memory is None:
+        # Effectively unbounded
+        return 2**63
+    if isinstance(max_memory, str):
+        max_memory = humanfriendly.parse_size(max_memory)
+    logger.info(f"Set memory budget to {display_size(max_memory)}")
+    return max_memory
+
+
 class VcfZarrWriter:
     def __init__(self, path, icf, schema):
         self.path = pathlib.Path(path)
@@ -1668,12 +1678,7 @@ class VcfZarrWriter:
         show_progress=False,
         max_memory=None,
     ):
-        if max_memory is None:
-            # Unbounded
-            max_memory = 2**63
-        else:
-            # Value is specified in Mibibytes
-            max_memory *= 2**20  # NEEDS TEST
+        max_memory = parse_max_memory(max_memory)
 
         # TODO this will move into the setup logic later when we're making it possible
         # to split the work by slice
@@ -1760,8 +1765,8 @@ class VcfZarrWriter:
 
         # Fail early if we can't fit a particular column into memory
         for wp in work:
-            if wp.memory >= max_memory:
-                raise ValueError(  # NEEDS TEST
+            if wp.memory > max_memory:
+                raise ValueError(
                     f"Insufficient memory for {wp.columns}: "
                     f"{display_size(wp.memory)} > {display_size(max_memory)}"
                 )
@@ -1774,6 +1779,8 @@ class VcfZarrWriter:
         )
 
         used_memory = 0
+        # We need to keep some bounds on the queue size or the memory bounds algorithm
+        # below doesn't really work.
         max_queued = 4 * max(1, worker_processes)
         encoded_slices = collections.Counter()
 
@@ -1800,10 +1807,14 @@ class VcfZarrWriter:
                             self.finalise_array(column)
 
             for wp in work:
-                if (
+                while (
                     used_memory + wp.memory > max_memory
                     or len(future_to_work) > max_queued
                 ):
+                    logger.debug(
+                        f"Wait: mem_required={used_memory + wp.memory} max_mem={max_memory} "
+                        f"queued={len(future_to_work)} max_queued={max_queued}"
+                    )
                     service_completed_futures()
                 future = pwm.submit(wp.func, wp.start, wp.stop)
                 used_memory += wp.memory

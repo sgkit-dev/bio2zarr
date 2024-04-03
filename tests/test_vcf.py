@@ -1,7 +1,8 @@
 import json
 
 import pytest
-
+import xarray.testing as xt
+import sgkit as sg
 
 from bio2zarr import vcf
 
@@ -12,17 +13,17 @@ def vcf_file():
 
 
 @pytest.fixture(scope="module")
-def exploded_path(vcf_file, tmp_path_factory):
+def icf_path(vcf_file, tmp_path_factory):
     out = tmp_path_factory.mktemp("data") / "example.exploded"
     vcf.explode(out, [vcf_file])
     return out
 
 
 @pytest.fixture(scope="module")
-def schema_path(exploded_path, tmp_path_factory):
+def schema_path(icf_path, tmp_path_factory):
     out = tmp_path_factory.mktemp("data") / "example.schema.json"
     with open(out, "w") as f:
-        vcf.mkschema(exploded_path, f)
+        vcf.mkschema(icf_path, f)
     return out
 
 
@@ -33,10 +34,49 @@ def schema(schema_path):
 
 
 @pytest.fixture(scope="module")
-def zarr_path(exploded_path, tmp_path_factory):
+def zarr_path(icf_path, tmp_path_factory):
     out = tmp_path_factory.mktemp("data") / "example.zarr"
-    vcf.encode(exploded_path, out)
+    vcf.encode(icf_path, out)
     return out
+
+
+class TestEncodeMaxMemory:
+    @pytest.mark.parametrize(
+        ["arg", "expected"],
+        [
+            (1, 1),
+            (100.01, 100.01),
+            ("1k", 1000),
+            ("1KiB", 1024),
+            ("1K", 1000),
+            ("1MiB", 1024**2),
+            ("1GiB", 1024**3),
+            (None, 2**63),
+        ],
+    )
+    def test_parser(self, arg, expected):
+        assert vcf.parse_max_memory(arg) == expected
+
+    @pytest.mark.parametrize("max_memory", [-1, 0, 1, "100 bytes"])
+    def test_not_enough_memory(self, tmp_path, icf_path, max_memory):
+        zarr_path = tmp_path / "zarr"
+        with pytest.raises(ValueError, match="Insufficient memory"):
+            vcf.encode(icf_path, zarr_path, max_memory=max_memory)
+
+    @pytest.mark.parametrize("max_memory", [135, 269])
+    def test_not_enough_memory_for_two(
+        self, tmp_path, icf_path, zarr_path, caplog, max_memory
+    ):
+        other_zarr_path = tmp_path / "zarr"
+        with caplog.at_level("DEBUG"):
+            vcf.encode(
+                icf_path, other_zarr_path, max_memory=max_memory, worker_processes=2
+            )
+        # This isn't a particularly strong test, but oh well.
+        assert "Wait: mem_required" in caplog.text
+        ds1 = sg.load_dataset(zarr_path)
+        ds2 = sg.load_dataset(other_zarr_path)
+        xt.assert_equal(ds1, ds2)
 
 
 class TestJsonVersions:
@@ -48,8 +88,8 @@ class TestJsonVersions:
             vcf.VcfZarrSchema.fromdict(d)
 
     @pytest.mark.parametrize("version", ["0.0", "1.0", "xxxxx", 0.1])
-    def test_exploded_metadata_mismatch(self, tmpdir, exploded_path, version):
-        with open(exploded_path / "metadata.json", "r") as f:
+    def test_exploded_metadata_mismatch(self, tmpdir, icf_path, version):
+        with open(icf_path / "metadata.json", "r") as f:
             d = json.load(f)
 
         d["format_version"] = version
