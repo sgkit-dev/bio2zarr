@@ -1499,11 +1499,13 @@ def parse_max_memory(max_memory):
 
 
 class VcfZarrWriter:
-    def __init__(self, path, icf, schema):
+    def __init__(self, path, icf, schema, dimension_separator=None):
         self.path = pathlib.Path(path)
         self.icf = icf
         self.schema = schema
         store = zarr.DirectoryStore(self.path)
+        # Default to using nested directories following the Zarr v3 default.
+        self.dimension_separator = "/" if dimension_separator is None else dimension_separator
         self.root = zarr.group(store=store)
 
     def init_array(self, variable):
@@ -1519,7 +1521,9 @@ class VcfZarrWriter:
             compressor=numcodecs.get_codec(variable.compressor),
             filters=[numcodecs.get_codec(filt) for filt in variable.filters],
             object_codec=object_codec,
+            dimension_separator=self.dimension_separator
         )
+        # Dimension names are part of the spec in Zarr v3
         a.attrs["_ARRAY_DIMENSIONS"] = variable.dimensions
 
     def get_array(self, name):
@@ -1657,6 +1661,7 @@ class VcfZarrWriter:
                 "contig_length",
                 self.schema.contig_length,
                 dtype=np.int64,
+                compressor=DEFAULT_ZARR_COMPRESSOR,
             )
             array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
         return {v: j for j, v in enumerate(self.schema.contig_id)}

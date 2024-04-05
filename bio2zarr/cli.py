@@ -282,7 +282,7 @@ def encode(
     worker_processes,
 ):
     """
-    Encode intermediate columnar format (see explode) to vcfzarr.
+    Convert intermediate columnar format to vcfzarr.
     """
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)
