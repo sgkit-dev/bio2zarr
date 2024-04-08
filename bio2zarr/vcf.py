@@ -932,10 +932,10 @@ class IntermediateColumnarFormatWriter:
         # dependencies as well.
         self.metadata.provenance = {"source": f"bio2zarr-{provenance.__version__}"}
 
-        self.mkdirs()
+        self.mkdirs(worker_processes)
 
         # Note: this is needed for the current version of the vcfzarr spec, but it's
-        # probably goint to be dropped.
+        # probably going to be dropped.
         # https://github.com/pystatgen/vcf-zarr-spec/issues/15
         # May be useful to keep lying around still though?
         logger.info(f"Writing VCF header")
@@ -947,20 +947,30 @@ class IntermediateColumnarFormatWriter:
             json.dump(self.metadata.asdict(), f, indent=4)
         return self.num_partitions
 
-    def mkdirs(self):
-        # TODO add worker_processes here and do this with the ParallelWorkManager
+    def mkdirs(self, worker_processes=1):
         logger.info(
             f"Creating {len(self.metadata.fields) * self.num_partitions} directories"
         )
         self.path.mkdir()
         self.wip_path.mkdir()
-        for field in self.metadata.fields:
-            col_path = get_vcf_field_path(self.path, field)
-            logger.debug(f"Make directories for {field.full_name} at {col_path}")
-            col_path.mkdir(parents=True)
-            for j in range(self.num_partitions):
-                part_path = col_path / f"p{j}"
-                part_path.mkdir()
+        # Due to high latency batch system filesystems, we create all the directories in
+        # parallel
+        progress_config = core.ProgressConfig(
+            total=len(self.metadata.fields) * self.num_partitions,
+            units="dir",
+            title="Creating directories",
+            show=True
+        )
+        with core.ParallelWorkManager(
+                worker_processes=worker_processes,
+                progress_config=progress_config
+        ) as manager:
+            for field in self.metadata.fields:
+                col_path = get_vcf_field_path(self.path, field)
+                manager.submit(col_path.mkdir, parents=True)
+                for j in range(self.num_partitions):
+                    part_path = col_path / f"p{j}"
+                    manager.submit(part_path.mkdir, parents=True)
 
     def load_partition_summaries(self):
         summaries = []
