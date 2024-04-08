@@ -75,7 +75,7 @@ compressor = click.option(
     "--compressor",
     type=click.Choice(["lz4", "zstd"]),
     default=None,
-    help="Codec to use for compressing column chunks",
+    help="Codec to use for compressing column chunks (Default=zstd)."
 )
 
 # Note: -l and -w were chosen when these were called "width" and "length".
@@ -282,7 +282,7 @@ def encode(
     worker_processes,
 ):
     """
-    Encode intermediate columnar format (see explode) to vcfzarr.
+    Convert intermediate columnar format to vcfzarr.
     """
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)

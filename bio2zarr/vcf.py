@@ -151,7 +151,7 @@ class VcfPartition:
 
 ICF_METADATA_FORMAT_VERSION = "0.2"
 ICF_DEFAULT_COMPRESSOR = numcodecs.Blosc(
-    cname="lz4", clevel=7, shuffle=numcodecs.Blosc.NOSHUFFLE
+    cname="zstd", clevel=7, shuffle=numcodecs.Blosc.NOSHUFFLE
 )
 
 
@@ -890,6 +890,15 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
         return len(self.columns)
 
 
+
+def mkdir_with_progress(path):
+    logger.debug(f"mkdir f{path}")
+    # NOTE we may have race-conditions here, I'm not sure. Hopefully allowing
+    # parents=True will take care of it.
+    path.mkdir(parents=True)
+    core.update_progress(1)
+
+
 class IntermediateColumnarFormatWriter:
     def __init__(self, path):
         self.path = pathlib.Path(path)
@@ -932,7 +941,7 @@ class IntermediateColumnarFormatWriter:
         # dependencies as well.
         self.metadata.provenance = {"source": f"bio2zarr-{provenance.__version__}"}
 
-        self.mkdirs(worker_processes)
+        self.mkdirs(worker_processes, show_progress=show_progress)
 
         # Note: this is needed for the current version of the vcfzarr spec, but it's
         # probably going to be dropped.
@@ -947,30 +956,30 @@ class IntermediateColumnarFormatWriter:
             json.dump(self.metadata.asdict(), f, indent=4)
         return self.num_partitions
 
-    def mkdirs(self, worker_processes=1):
-        logger.info(
-            f"Creating {len(self.metadata.fields) * self.num_partitions} directories"
-        )
+    def mkdirs(self, worker_processes=1, show_progress=False):
+        num_dirs = len(self.metadata.fields) * self.num_partitions
+        logger.info(f"Creating {num_dirs} directories")
         self.path.mkdir()
         self.wip_path.mkdir()
         # Due to high latency batch system filesystems, we create all the directories in
         # parallel
         progress_config = core.ProgressConfig(
-            total=len(self.metadata.fields) * self.num_partitions,
-            units="dir",
-            title="Creating directories",
-            show=True
+            total=num_dirs,
+            units="dirs",
+            title="Mkdirs",
+            show=show_progress,
         )
         with core.ParallelWorkManager(
-                worker_processes=worker_processes,
-                progress_config=progress_config
+            worker_processes=worker_processes, progress_config=progress_config
         ) as manager:
             for field in self.metadata.fields:
                 col_path = get_vcf_field_path(self.path, field)
+                # Don't bother trying to count the intermediate directories towards
+                # progress
                 manager.submit(col_path.mkdir, parents=True)
                 for j in range(self.num_partitions):
                     part_path = col_path / f"p{j}"
-                    manager.submit(part_path.mkdir, parents=True)
+                    manager.submit(mkdir_with_progress, part_path)
 
     def load_partition_summaries(self):
         summaries = []
@@ -1499,15 +1508,17 @@ def parse_max_memory(max_memory):
 
 
 class VcfZarrWriter:
-    def __init__(self, path, icf, schema):
+    def __init__(self, path, icf, schema, dimension_separator=None):
         self.path = pathlib.Path(path)
         self.icf = icf
         self.schema = schema
+        # Default to using nested directories following the Zarr v3 default.
+        # This seems to require version 2.17+ to work properly
+        self.dimension_separator = "/" if dimension_separator is None else dimension_separator
         store = zarr.DirectoryStore(self.path)
         self.root = zarr.group(store=store)
 
     def init_array(self, variable):
-        # print("CREATE", variable)
         object_codec = None
         if variable.dtype == "O":
             object_codec = numcodecs.VLenUTF8()
@@ -1519,7 +1530,9 @@ class VcfZarrWriter:
             compressor=numcodecs.get_codec(variable.compressor),
             filters=[numcodecs.get_codec(filt) for filt in variable.filters],
             object_codec=object_codec,
+            dimension_separator=self.dimension_separator,
         )
+        # Dimension names are part of the spec in Zarr v3
         a.attrs["_ARRAY_DIMENSIONS"] = variable.dimensions
 
     def get_array(self, name):
@@ -1657,6 +1670,7 @@ class VcfZarrWriter:
                 "contig_length",
                 self.schema.contig_length,
                 dtype=np.int64,
+                compressor=DEFAULT_ZARR_COMPRESSOR,
             )
             array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
         return {v: j for j, v in enumerate(self.schema.contig_id)}
@@ -1849,6 +1863,7 @@ def encode(
     variants_chunk_size=None,
     samples_chunk_size=None,
     max_v_chunks=None,
+    dimension_separator=None,
     max_memory=None,
     worker_processes=1,
     show_progress=False,
@@ -1872,7 +1887,7 @@ def encode(
     if zarr_path.exists():
         logger.warning(f"Deleting existing {zarr_path}")
         shutil.rmtree(zarr_path)
-    vzw = VcfZarrWriter(zarr_path, icf, schema)
+    vzw = VcfZarrWriter(zarr_path, icf, schema, dimension_separator=dimension_separator)
     vzw.init()
     vzw.encode(
         max_v_chunks=max_v_chunks,

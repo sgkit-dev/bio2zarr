@@ -9,3 +9,4 @@ pytest-xdist
 sgkit
 tabulate
 tqdm
+zarr>=2.17
