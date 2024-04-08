@@ -151,7 +151,7 @@ class VcfPartition:
 
 ICF_METADATA_FORMAT_VERSION = "0.2"
 ICF_DEFAULT_COMPRESSOR = numcodecs.Blosc(
-    cname="lz4", clevel=7, shuffle=numcodecs.Blosc.NOSHUFFLE
+    cname="zstd", clevel=7, shuffle=numcodecs.Blosc.NOSHUFFLE
 )
 
 
@@ -1505,7 +1505,9 @@ class VcfZarrWriter:
         self.schema = schema
         store = zarr.DirectoryStore(self.path)
         # Default to using nested directories following the Zarr v3 default.
-        self.dimension_separator = "/" if dimension_separator is None else dimension_separator
+        self.dimension_separator = (
+            "/" if dimension_separator is None else dimension_separator
+        )
         self.root = zarr.group(store=store)
 
     def init_array(self, variable):
@@ -1521,7 +1523,7 @@ class VcfZarrWriter:
             compressor=numcodecs.get_codec(variable.compressor),
             filters=[numcodecs.get_codec(filt) for filt in variable.filters],
             object_codec=object_codec,
-            dimension_separator=self.dimension_separator
+            dimension_separator=self.dimension_separator,
         )
         # Dimension names are part of the spec in Zarr v3
         a.attrs["_ARRAY_DIMENSIONS"] = variable.dimensions

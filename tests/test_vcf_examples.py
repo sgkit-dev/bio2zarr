@@ -841,7 +841,7 @@ def test_split_explode(tmp_path):
     pcvcf = vcf.IntermediateColumnarFormat(out)
     assert pcvcf.columns["POS"].vcf_field.summary.asdict() == {
         "num_chunks": 3,
-        "compressed_size": 630,
+        "compressed_size": 587,
         "uncompressed_size": 1008,
         "max_number": 1,
         "max_value": 1235237,

@@ -275,6 +275,16 @@ class TestInitProperties:
         icf = self.run_explode(tmp_path, compressor=compressor)
         assert icf.metadata.compressor == compressor.get_config()
 
+    def test_default_compressor_explode(self, tmp_path):
+        icf = self.run_explode(tmp_path)
+        assert icf.metadata.compressor == vcf.ICF_DEFAULT_COMPRESSOR.get_config()
+        assert icf.metadata.compressor["cname"] == "zstd"
+
+    def test_default_compressor_dexplode(self, tmp_path):
+        icf = self.run_dexplode(tmp_path)
+        assert icf.metadata.compressor == vcf.ICF_DEFAULT_COMPRESSOR.get_config()
+        assert icf.metadata.compressor["cname"] == "zstd"
+
     @pytest.mark.parametrize(
         "compressor",
         [
@@ -340,7 +350,8 @@ class TestCorruptionDetection:
         with pytest.raises(RuntimeError, match="blosc"):
             icf["POS"].values
 
-    @pytest.mark.parametrize("length", [10, 100, 200, 210])
+    # Chunk file is 195 long
+    @pytest.mark.parametrize("length", [10, 100, 190, 194])
     def test_truncated_chunk_file(self, tmp_path, length):
         icf_path = tmp_path / "icf"
         vcf.explode(icf_path, [self.data_path])
@@ -359,7 +370,7 @@ class TestCorruptionDetection:
         icf_path = tmp_path / "icf"
         vcf.explode(icf_path, [self.data_path])
         chunk_file = icf_path / "POS" / "p0" / "2"
-        compressor = numcodecs.Blosc(cname="lz4")
+        compressor = numcodecs.Blosc(cname="zstd")
         with open(chunk_file, "rb") as f:
             pkl = compressor.decode(f.read())
         x = pickle.loads(pkl)

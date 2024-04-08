@@ -75,7 +75,7 @@ compressor = click.option(
     "--compressor",
     type=click.Choice(["lz4", "zstd"]),
     default=None,
-    help="Codec to use for compressing column chunks",
+    help="Codec to use for compressing column chunks (Default=zstd)."
 )
 
 # Note: -l and -w were chosen when these were called "width" and "length".
