@@ -50,7 +50,8 @@ def wait_on_futures(futures):
             cancel_futures(futures)
             if isinstance(exception, cf.process.BrokenProcessPool):
                 raise RuntimeError(
-                    "Worker process died: you may have run out of memory") from exception
+                    "Worker process died: you may have run out of memory"
+                ) from exception
             else:
                 raise exception
 
