@@ -1,6 +1,10 @@
-# 0.0.4 2024-04-xx
+# 0.0.4 2024-04-08
 
 - Fix bug in --max-memory handling, and argument to a string like 10G
+- Add compressor choice in explode, switch default to zstd
+- Run mkdirs in parallel and provide progress
+- Change dimension separator to "/" in Zarr
+- Update min Zarr version to 2.17
 
 # 0.0.3 2024-03-28
 
