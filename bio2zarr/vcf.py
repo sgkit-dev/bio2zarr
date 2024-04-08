@@ -1512,15 +1512,13 @@ class VcfZarrWriter:
         self.path = pathlib.Path(path)
         self.icf = icf
         self.schema = schema
-        store = zarr.DirectoryStore(self.path)
         # Default to using nested directories following the Zarr v3 default.
-        self.dimension_separator = (
-            "/" if dimension_separator is None else dimension_separator
-        )
+        # This seems to require version 2.17+ to work properly
+        self.dimension_separator = "/" if dimension_separator is None else dimension_separator
+        store = zarr.DirectoryStore(self.path)
         self.root = zarr.group(store=store)
 
     def init_array(self, variable):
-        # print("CREATE", variable)
         object_codec = None
         if variable.dtype == "O":
             object_codec = numcodecs.VLenUTF8()
@@ -1865,6 +1863,7 @@ def encode(
     variants_chunk_size=None,
     samples_chunk_size=None,
     max_v_chunks=None,
+    dimension_separator=None,
     max_memory=None,
     worker_processes=1,
     show_progress=False,
@@ -1888,7 +1887,7 @@ def encode(
     if zarr_path.exists():
         logger.warning(f"Deleting existing {zarr_path}")
         shutil.rmtree(zarr_path)
-    vzw = VcfZarrWriter(zarr_path, icf, schema)
+    vzw = VcfZarrWriter(zarr_path, icf, schema, dimension_separator=dimension_separator)
     vzw.init()
     vzw.encode(
         max_v_chunks=max_v_chunks,

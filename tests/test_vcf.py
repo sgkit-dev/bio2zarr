@@ -99,6 +99,29 @@ class TestJsonVersions:
             vcf.IcfMetadata.fromdict(d)
 
 
+class TestEncodeDimensionSeparator:
+
+    @pytest.mark.parametrize("dimension_separator", [None, "/"])
+    def test_directories(self, tmp_path, icf_path, dimension_separator):
+        zarr_path = tmp_path / "zarr"
+        vcf.encode(icf_path, zarr_path, dimension_separator=dimension_separator)
+        # print(zarr_path)
+        chunk_file = zarr_path / "call_genotype" / "0" / "0" / "0"
+        assert chunk_file.exists()
+
+    def test_files(self, tmp_path, icf_path):
+        zarr_path = tmp_path / "zarr"
+        vcf.encode(icf_path, zarr_path, dimension_separator=".")
+        chunk_file = zarr_path / "call_genotype" / "0.0.0"
+        assert chunk_file.exists()
+
+    @pytest.mark.parametrize("dimension_separator", ["\\", "X", []])
+    def test_bad_value(self, tmp_path, icf_path, dimension_separator):
+        zarr_path = tmp_path / "zarr"
+        with pytest.raises(ValueError):
+            vcf.encode(icf_path, zarr_path, dimension_separator=dimension_separator)
+
+
 class TestDefaultSchema:
     def test_format_version(self, schema):
         assert schema["format_version"] == vcf.ZARR_SCHEMA_FORMAT_VERSION
