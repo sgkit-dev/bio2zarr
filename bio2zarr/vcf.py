@@ -1388,7 +1388,16 @@ class VcfZarrSchema:
             # TODO make an option to add in the empty extra dimension
             if field.summary.max_number > 1:
                 shape.append(field.summary.max_number)
-                dimensions.append(field.name)
+                # TODO we should really be checking this to see if the named dimensions
+                # are actually correct.
+                if field.vcf_number == "R":
+                    dimensions.append("alleles")
+                elif field.vcf_number == "A":
+                    dimensions.append("alt_alleles")
+                elif field.vcf_number == "G":
+                    dimensions.append("genotypes")
+                else:
+                    dimensions.append(f"{field.category}_{field.name}_dim")
             variable_name = prefix + field.name
             colspec = ZarrColumnSpec(
                 vcf_field=field.full_name,

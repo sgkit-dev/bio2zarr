@@ -195,30 +195,34 @@ class TestGeneratedFieldsExample:
         return vcf.VcfZarrSchema.generate(icf)
 
     @pytest.mark.parametrize(
-        ("name", "dtype", "shape"),
+        ("name", "dtype", "shape", "dimensions"),
         [
-            ("variant_II1", "i1", (208,)),
-            ("variant_II2", "i2", (208, 2)),
-            ("variant_IIA", "i2", (208, 2)),
-            ("variant_IIR", "i2", (208, 3)),
-            ("variant_IID", "i2", (208, 7)),
-            ("variant_IF1", "f4", (208,)),
-            ("variant_IF2", "f4", (208, 2)),
-            ("variant_IFA", "f4", (208, 2)),
-            ("variant_IFR", "f4", (208, 3)),
-            ("variant_IFD", "f4", (208, 9)),
-            ("variant_IC1", "U1", (208,)),
-            ("variant_IC2", "U1", (208, 2)),
-            ("variant_IS1", "O", (208,)),
-            ("variant_IS2", "O", (208, 2)),
-            ("call_FS2", "O", (208, 2, 2)),
-            ("call_FC2", "U1", (208, 2, 2)),
+            ("variant_II1", "i1", (208,), ("variants",)),
+            ("variant_II2", "i2", (208, 2), ("variants", "INFO_II2_dim")),
+            ("variant_IIA", "i2", (208, 2), ("variants", "alt_alleles")),
+            ("variant_IIR", "i2", (208, 3), ("variants", "alleles")),
+            ("variant_IID", "i2", (208, 7), ("variants", "INFO_IID_dim")),
+            ("variant_IF1", "f4", (208,), ("variants",)),
+            ("variant_IF2", "f4", (208, 2), ("variants", "INFO_IF2_dim")),
+            ("variant_IFA", "f4", (208, 2), ("variants", "alt_alleles")),
+            ("variant_IFR", "f4", (208, 3), ("variants", "alleles")),
+            ("variant_IFD", "f4", (208, 9), ("variants", "INFO_IFD_dim")),
+            ("variant_IC1", "U1", (208,), ("variants",)),
+            ("variant_IC2", "U1", (208, 2), ("variants", "INFO_IC2_dim")),
+            ("variant_IS1", "O", (208,), ("variants",)),
+            ("variant_IS2", "O", (208, 2), ("variants", "INFO_IS2_dim")),
+            ("call_FS2", "O", (208, 2, 2), ("variants", "samples", "FORMAT_FS2_dim")),
+            ("call_FC2", "U1", (208, 2, 2), ("variants", "samples", "FORMAT_FC2_dim")),
+            ("call_FIG", "i2", (208, 2, 6), ("variants", "samples", "genotypes")),
+            ("call_FIA", "i2", (208, 2, 2), ("variants", "samples", "alt_alleles")),
+            ("call_FIR", "i2", (208, 2, 3), ("variants", "samples", "alleles")),
         ],
     )
-    def test_info_schemas(self, schema, name, dtype, shape):
+    def test_info_schemas(self, schema, name, dtype, shape, dimensions):
         v = schema.columns[name]
         assert v.dtype == dtype
         assert tuple(v.shape) == shape
+        assert v.dimensions == dimensions
 
     def test_info_string1(self, icf):
         non_missing = [v for v in icf["INFO/IS1"].values if v is not None]
