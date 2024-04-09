@@ -384,6 +384,23 @@ class TestSmallExample:
             drop_vars = ["contig_id", "variant_contig"]
             xt.assert_equal(ds_c1.drop_vars(drop_vars), ds_c2.drop_vars(drop_vars))
 
+    def test_vcf_dimensions(self, ds):
+        assert ds.call_genotype.dims == ("variants", "samples", "ploidy")
+        assert ds.call_genotype_mask.dims == ("variants", "samples", "ploidy")
+        assert ds.call_genotype_phased.dims == ("variants", "samples")
+        assert ds.call_HQ.dims == ("variants", "samples", "FORMAT_HQ_dim")
+        assert ds.call_DP.dims == ("variants", "samples")
+        assert ds.call_GQ.dims == ("variants", "samples")
+        assert ds.variant_AA.dims == ("variants",)
+        assert ds.variant_NS.dims == ("variants",)
+        assert ds.variant_AN.dims == ("variants",)
+        assert ds.variant_AC.dims == ("variants", "INFO_AC_dim")
+        assert ds.variant_AF.dims == ("variants", "INFO_AF_dim")
+        assert ds.variant_DP.dims == ("variants", )
+        assert ds.variant_DB.dims == ("variants", )
+        assert ds.variant_H2.dims == ("variants", )
+        assert ds.variant_position.dims == ("variants", )
+
 
 class Test1000G2020Example:
     data_path = "tests/data/vcf/1kg_2020_chrM.vcf.gz"
