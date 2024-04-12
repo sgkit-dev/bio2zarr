@@ -1,3 +1,7 @@
+# 0.0.5 2024-04-XX
+
+- Fix bug in schema handling (compressor settings ignored)
+
 # 0.0.4 2024-04-08
 
 - Fix bug in --max-memory handling, and argument to a string like 10G

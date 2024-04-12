@@ -890,7 +890,6 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
         return len(self.columns)
 
 
-
 def mkdir_with_progress(path):
     logger.debug(f"mkdir f{path}")
     # NOTE we may have race-conditions here, I'm not sure. Hopefully allowing
@@ -1226,20 +1225,25 @@ class ZarrColumnSpec:
     dtype: str
     shape: tuple
     chunks: tuple
-    dimensions: list
+    dimensions: tuple
     description: str
     vcf_field: str
-    compressor: dict = None
-    filters: list = None
-    # TODO add filters
+    compressor: dict
+    filters: list
 
     def __post_init__(self):
+        # Ensure these are tuples for ease of comparison and consistency
         self.shape = tuple(self.shape)
         self.chunks = tuple(self.chunks)
         self.dimensions = tuple(self.dimensions)
-        self.compressor = DEFAULT_ZARR_COMPRESSOR.get_config()
-        self.filters = []
-        self._choose_compressor_settings()
+
+    @staticmethod
+    def new(**kwargs):
+        spec = ZarrColumnSpec(
+            **kwargs, compressor=DEFAULT_ZARR_COMPRESSOR.get_config(), filters=[]
+        )
+        spec._choose_compressor_settings()
+        return spec
 
     def _choose_compressor_settings(self):
         """
@@ -1315,7 +1319,7 @@ class VcfZarrSchema:
         def fixed_field_spec(
             name, dtype, vcf_field=None, shape=(m,), dimensions=("variants",)
         ):
-            return ZarrColumnSpec(
+            return ZarrColumnSpec.new(
                 vcf_field=vcf_field,
                 name=name,
                 dtype=dtype,
@@ -1399,7 +1403,7 @@ class VcfZarrSchema:
                 else:
                     dimensions.append(f"{field.category}_{field.name}_dim")
             variable_name = prefix + field.name
-            colspec = ZarrColumnSpec(
+            colspec = ZarrColumnSpec.new(
                 vcf_field=field.full_name,
                 name=variable_name,
                 dtype=field.smallest_dtype(),
@@ -1417,7 +1421,7 @@ class VcfZarrSchema:
             dimensions = ["variants", "samples"]
 
             colspecs.append(
-                ZarrColumnSpec(
+                ZarrColumnSpec.new(
                     vcf_field=None,
                     name="call_genotype_phased",
                     dtype="bool",
@@ -1430,7 +1434,7 @@ class VcfZarrSchema:
             shape += [ploidy]
             dimensions += ["ploidy"]
             colspecs.append(
-                ZarrColumnSpec(
+                ZarrColumnSpec.new(
                     vcf_field=None,
                     name="call_genotype",
                     dtype=gt_field.smallest_dtype(),
@@ -1441,7 +1445,7 @@ class VcfZarrSchema:
                 )
             )
             colspecs.append(
-                ZarrColumnSpec(
+                ZarrColumnSpec.new(
                     vcf_field=None,
                     name="call_genotype_mask",
                     dtype="bool",
@@ -1523,7 +1527,9 @@ class VcfZarrWriter:
         self.schema = schema
         # Default to using nested directories following the Zarr v3 default.
         # This seems to require version 2.17+ to work properly
-        self.dimension_separator = "/" if dimension_separator is None else dimension_separator
+        self.dimension_separator = (
+            "/" if dimension_separator is None else dimension_separator
+        )
         store = zarr.DirectoryStore(self.path)
         self.root = zarr.group(store=store)
 

@@ -3,6 +3,7 @@ import json
 import pytest
 import xarray.testing as xt
 import sgkit as sg
+import zarr
 
 from bio2zarr import vcf
 
@@ -100,7 +101,6 @@ class TestJsonVersions:
 
 
 class TestEncodeDimensionSeparator:
-
     @pytest.mark.parametrize("dimension_separator", [None, "/"])
     def test_directories(self, tmp_path, icf_path, dimension_separator):
         zarr_path = tmp_path / "zarr"
@@ -120,6 +120,77 @@ class TestEncodeDimensionSeparator:
         zarr_path = tmp_path / "zarr"
         with pytest.raises(ValueError):
             vcf.encode(icf_path, zarr_path, dimension_separator=dimension_separator)
+
+
+class TestSchemaJsonRoundTrip:
+    def assert_json_round_trip(self, schema):
+        schema2 = vcf.VcfZarrSchema.fromjson(schema.asjson())
+        assert schema == schema2
+
+    def test_generated_no_changes(self, icf_path):
+        icf = vcf.IntermediateColumnarFormat(icf_path)
+        self.assert_json_round_trip(vcf.VcfZarrSchema.generate(icf))
+
+    def test_generated_no_columns(self, icf_path):
+        icf = vcf.IntermediateColumnarFormat(icf_path)
+        schema = vcf.VcfZarrSchema.generate(icf)
+        schema.columns.clear()
+        self.assert_json_round_trip(schema)
+
+    def test_generated_no_samples(self, icf_path):
+        icf = vcf.IntermediateColumnarFormat(icf_path)
+        schema = vcf.VcfZarrSchema.generate(icf)
+        schema.sample_id.clear()
+        self.assert_json_round_trip(schema)
+
+    def test_generated_change_dtype(self, icf_path):
+        icf = vcf.IntermediateColumnarFormat(icf_path)
+        schema = vcf.VcfZarrSchema.generate(icf)
+        schema.columns["variant_position"].dtype = "i8"
+        self.assert_json_round_trip(schema)
+
+    def test_generated_change_compressor(self, icf_path):
+        icf = vcf.IntermediateColumnarFormat(icf_path)
+        schema = vcf.VcfZarrSchema.generate(icf)
+        schema.columns["variant_position"].compressor = {"cname": "FAKE"}
+        self.assert_json_round_trip(schema)
+
+
+class TestSchemaEncode:
+    @pytest.mark.parametrize(
+        ["cname", "clevel", "shuffle"], [("lz4", 1, 0), ("zlib", 7, 1), ("zstd", 4, 2)]
+    )
+    def test_codec(self, tmp_path, icf_path, cname, clevel, shuffle):
+        zarr_path = tmp_path / "zarr"
+        icf = vcf.IntermediateColumnarFormat(icf_path)
+        schema = vcf.VcfZarrSchema.generate(icf)
+        for var in schema.columns.values():
+            var.compressor["cname"] = cname
+            var.compressor["clevel"] = clevel
+            var.compressor["shuffle"] = shuffle
+        schema_path = tmp_path / "schema"
+        with open(schema_path, "w") as f:
+            f.write(schema.asjson())
+        vcf.encode(icf_path, zarr_path, schema_path=schema_path)
+        root = zarr.open(zarr_path)
+        for var in schema.columns.values():
+            a = root[var.name]
+            assert a.compressor.cname == cname
+            assert a.compressor.clevel == clevel
+            assert a.compressor.shuffle == shuffle
+
+    @pytest.mark.parametrize("dtype", ["i4", "i8"])
+    def test_genotype_dtype(self, tmp_path, icf_path, dtype):
+        zarr_path = tmp_path / "zarr"
+        icf = vcf.IntermediateColumnarFormat(icf_path)
+        schema = vcf.VcfZarrSchema.generate(icf)
+        schema.columns["call_genotype"].dtype = dtype
+        schema_path = tmp_path / "schema"
+        with open(schema_path, "w") as f:
+            f.write(schema.asjson())
+        vcf.encode(icf_path, zarr_path, schema_path=schema_path)
+        root = zarr.open(zarr_path)
+        assert root["call_genotype"].dtype == dtype
 
 
 class TestDefaultSchema:
