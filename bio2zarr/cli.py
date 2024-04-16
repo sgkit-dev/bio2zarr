@@ -207,7 +207,7 @@ def dexplode_partition(icf_path, partition, verbose):
     from 0 (inclusive) to the number of paritions returned by dexplode_init (exclusive).
     """
     setup_logging(verbose)
-    vcf.explode_partition(icf_path, partition, show_progress=True)
+    vcf.explode_partition(icf_path, partition, show_progress=False)
 
 
 @click.command
