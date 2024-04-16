@@ -1,7 +1,8 @@
 import json
+
 import pytest
-import xarray.testing as xt
 import sgkit as sg
+import xarray.testing as xt
 import zarr
 
 from bio2zarr import vcf, vcf_utils
@@ -42,7 +43,7 @@ def zarr_path(icf_path, tmp_path_factory):
 
 class TestEncodeMaxMemory:
     @pytest.mark.parametrize(
-        ["arg", "expected"],
+        ("arg", "expected"),
         [
             (1, 1),
             (100.01, 100.01),
@@ -89,7 +90,7 @@ class TestJsonVersions:
 
     @pytest.mark.parametrize("version", ["0.0", "1.0", "xxxxx", 0.1])
     def test_exploded_metadata_mismatch(self, tmpdir, icf_path, version):
-        with open(icf_path / "metadata.json", "r") as f:
+        with open(icf_path / "metadata.json") as f:
             d = json.load(f)
 
         d["format_version"] = version
@@ -117,7 +118,7 @@ class TestEncodeDimensionSeparator:
     @pytest.mark.parametrize("dimension_separator", ["\\", "X", []])
     def test_bad_value(self, tmp_path, icf_path, dimension_separator):
         zarr_path = tmp_path / "zarr"
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="dimension_separator must be either"):
             vcf.encode(icf_path, zarr_path, dimension_separator=dimension_separator)
 
 
@@ -157,7 +158,7 @@ class TestSchemaJsonRoundTrip:
 
 class TestSchemaEncode:
     @pytest.mark.parametrize(
-        ["cname", "clevel", "shuffle"], [("lz4", 1, 0), ("zlib", 7, 1), ("zstd", 4, 2)]
+        ("cname", "clevel", "shuffle"), [("lz4", 1, 0), ("zlib", 7, 1), ("zstd", 4, 2)]
     )
     def test_codec(self, tmp_path, icf_path, cname, clevel, shuffle):
         zarr_path = tmp_path / "zarr"

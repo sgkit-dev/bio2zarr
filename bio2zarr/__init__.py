@@ -1,1 +1,1 @@
-from . provenance import __version__
+from .provenance import __version__  # noqa F401

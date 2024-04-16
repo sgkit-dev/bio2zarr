@@ -2,6 +2,7 @@
 # VCFs of various lenghts for testing the indexing code.
 # TODO should move to a "scripts" directory or something
 import sys
+
 import click
 
 

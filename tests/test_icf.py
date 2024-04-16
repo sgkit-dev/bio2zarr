@@ -1,25 +1,24 @@
-import shutil
 import pickle
+import shutil
 
-import pytest
+import numcodecs
 import numpy as np
 import numpy.testing as nt
-import numcodecs
+import pytest
 
-from bio2zarr import vcf
-from bio2zarr import provenance
+from bio2zarr import provenance, vcf
 
 
 class TestSmallExample:
     data_path = "tests/data/vcf/sample.vcf.gz"
 
     # fmt: off
-    columns = [
+    columns = (
         'ALT', 'CHROM', 'FILTERS', 'FORMAT/DP', 'FORMAT/GQ',
         'FORMAT/GT', 'FORMAT/HQ', 'ID', 'INFO/AA', 'INFO/AC',
         'INFO/AF', 'INFO/AN', 'INFO/DB', 'INFO/DP', 'INFO/H2',
         'INFO/NS', 'POS', 'QUAL', 'REF'
-    ]
+    )
     # fmt: on
 
     @pytest.fixture(scope="class")
@@ -39,7 +38,7 @@ class TestSmallExample:
         schema_file = tmp_path / "schema.json"
         with open(schema_file, "w") as f:
             vcf.mkschema(icf.path, f)
-        with open(schema_file, "r") as f:
+        with open(schema_file) as f:
             schema1 = vcf.VcfZarrSchema.fromjson(f.read())
         schema2 = vcf.VcfZarrSchema.generate(icf)
         assert schema1 == schema2
@@ -47,7 +46,7 @@ class TestSmallExample:
     def test_summary_table(self, icf):
         data = icf.summary_table()
         cols = [d["name"] for d in data]
-        assert sorted(cols) == self.columns
+        assert tuple(sorted(cols)) == self.columns
 
     def test_inspect(self, icf):
         assert icf.summary_table() == vcf.inspect(icf.path)
@@ -95,12 +94,12 @@ class TestIcfWriterExample:
     data_path = "tests/data/vcf/sample.vcf.gz"
 
     # fmt: off
-    columns = [
+    columns = (
         'ALT', 'CHROM', 'FILTERS', 'FORMAT/DP', 'FORMAT/GQ',
         'FORMAT/GT', 'FORMAT/HQ', 'ID', 'INFO/AA', 'INFO/AC',
         'INFO/AF', 'INFO/AN', 'INFO/DB', 'INFO/DP', 'INFO/H2',
         'INFO/NS', 'POS', 'QUAL', 'REF'
-    ]
+    )
     # fmt: on
 
     def test_init_paths(self, tmp_path):
@@ -321,7 +320,7 @@ class TestCorruptionDetection:
         shutil.rmtree(icf_path / "POS")
         icf = vcf.IntermediateColumnarFormat(icf_path)
         with pytest.raises(FileNotFoundError):
-            icf["POS"].values
+            icf["POS"].values  # noqa B018
 
     def test_missing_chunk_index(self, tmp_path):
         icf_path = tmp_path / "icf"
@@ -331,7 +330,7 @@ class TestCorruptionDetection:
         chunk_index_path.unlink()
         icf = vcf.IntermediateColumnarFormat(icf_path)
         with pytest.raises(FileNotFoundError):
-            icf["POS"].values
+            icf["POS"].values  # noqa B018
 
     def test_missing_chunk_file(self, tmp_path):
         icf_path = tmp_path / "icf"
@@ -341,18 +340,18 @@ class TestCorruptionDetection:
         chunk_file.unlink()
         icf = vcf.IntermediateColumnarFormat(icf_path)
         with pytest.raises(FileNotFoundError):
-            icf["POS"].values
+            icf["POS"].values  # noqa B018
 
     def test_empty_chunk_file(self, tmp_path):
         icf_path = tmp_path / "icf"
         vcf.explode(icf_path, [self.data_path])
         chunk_file = icf_path / "POS" / "p0" / "2"
         assert chunk_file.exists()
-        with open(chunk_file, "w") as f:
+        with open(chunk_file, "w") as _:
             pass
         icf = vcf.IntermediateColumnarFormat(icf_path)
         with pytest.raises(RuntimeError, match="blosc"):
-            icf["POS"].values
+            icf["POS"].values  # noqa B018
 
     # Chunk file is 195 long
     @pytest.mark.parametrize("length", [10, 100, 190, 194])
@@ -368,7 +367,7 @@ class TestCorruptionDetection:
         icf = vcf.IntermediateColumnarFormat(icf_path)
         # Either Blosc or pickling errors happen here
         with pytest.raises((RuntimeError, pickle.UnpicklingError)):
-            icf["POS"].values
+            icf["POS"].values  # noqa B018
 
     def test_chunk_incorrect_length(self, tmp_path):
         icf_path = tmp_path / "icf"
@@ -385,7 +384,7 @@ class TestCorruptionDetection:
             f.write(compressor.encode(pkl))
         icf = vcf.IntermediateColumnarFormat(icf_path)
         with pytest.raises(ValueError, match="Corruption detected"):
-            icf["POS"].values
+            icf["POS"].values  # noqa B018
         with pytest.raises(ValueError, match="Corruption detected"):
             list(icf["POS"].iter_values(0, 9))
 
@@ -407,7 +406,8 @@ class TestSlicing:
 
     def test_pos_repr(self, icf):
         assert repr(icf["POS"]).startswith(
-            "IntermediateColumnarFormatField(name=POS, partition_chunks=[8, 8, 8, 8, 8], path="
+            "IntermediateColumnarFormatField(name=POS, "
+            "partition_chunks=[8, 8, 8, 8, 8], path="
         )
 
     def test_partition_record_index(self, icf):
@@ -432,7 +432,7 @@ class TestSlicing:
             assert len(a) == pos.num_chunks(j)
 
     @pytest.mark.parametrize(
-        ["start", "stop"],
+        ("start", "stop"),
         [
             (0, 1),
             (0, 4665),

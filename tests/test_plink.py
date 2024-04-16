@@ -1,11 +1,10 @@
+import bed_reader
 import numpy as np
 import numpy.testing as nt
-import xarray.testing as xt
 import pytest
 import sgkit as sg
 import sgkit.io.plink
-import bed_reader
-import zarr
+import xarray.testing as xt
 
 from bio2zarr import plink
 
@@ -199,7 +198,7 @@ class TestSimulatedExample:
 
     # @pytest.mark.xfail
     @pytest.mark.parametrize(
-        ["variants_chunk_size", "samples_chunk_size"],
+        ("variants_chunk_size", "samples_chunk_size"),
         [
             (10, 1),
             (10, 10),
@@ -227,7 +226,7 @@ class TestSimulatedExample:
 
 
 @pytest.mark.parametrize(
-    ["variants_chunk_size", "samples_chunk_size"],
+    ("variants_chunk_size", "samples_chunk_size"),
     [
         (10, 1),
         (10, 10),
@@ -237,7 +236,9 @@ class TestSimulatedExample:
     ],
 )
 @pytest.mark.parametrize("worker_processes", [0])
-def test_by_validating(tmp_path, variants_chunk_size, samples_chunk_size, worker_processes):
+def test_by_validating(
+    tmp_path, variants_chunk_size, samples_chunk_size, worker_processes
+):
     path = "tests/data/plink/plink_sim_10s_100v_10pmiss.bed"
     out = tmp_path / "example.zarr"
     plink.convert(

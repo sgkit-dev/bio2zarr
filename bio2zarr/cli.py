@@ -4,15 +4,11 @@ import pathlib
 import shutil
 
 import click
-import tabulate
 import coloredlogs
 import numcodecs
+import tabulate
 
-from . import vcf
-from . import vcf_utils
-from . import plink
-from . import provenance
-
+from . import plink, provenance, vcf, vcf_utils
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +71,7 @@ compressor = click.option(
     "--compressor",
     type=click.Choice(["lz4", "zstd"]),
     default=None,
-    help="Codec to use for compressing column chunks (Default=zstd)."
+    help="Codec to use for compressing column chunks (Default=zstd).",
 )
 
 # Note: -l and -w were chosen when these were called "width" and "length".

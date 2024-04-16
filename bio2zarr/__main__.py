@@ -2,10 +2,12 @@ import click
 
 from . import cli
 
+
 @cli.version
 @click.group()
 def bio2zarr():
     pass
+
 
 # Provide a single top-level interface to all of the functionality.
 # This probably isn't the recommended way of interacting, as we

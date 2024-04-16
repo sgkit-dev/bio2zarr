@@ -1,9 +1,8 @@
-import pytest
 import msprime
-import pysam
-import sgkit as sg
-import numpy as np
 import numpy.testing as nt
+import pysam
+import pytest
+import sgkit as sg
 
 from bio2zarr import vcf
 

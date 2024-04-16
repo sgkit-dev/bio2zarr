@@ -3,8 +3,8 @@
 # under unit-test conditions.
 import pathlib
 import shutil
-import click
 
+import click
 
 from bio2zarr import vcf
 

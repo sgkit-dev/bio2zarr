@@ -1,16 +1,15 @@
-import dataclasses
-import contextlib
 import concurrent.futures as cf
+import contextlib
+import dataclasses
+import logging
 import multiprocessing
 import threading
-import logging
 import time
 
-import zarr
+import numcodecs
 import numpy as np
 import tqdm
-import numcodecs
-
+import zarr
 
 logger = logging.getLogger(__name__)
 
