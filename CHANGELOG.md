@@ -1,6 +1,8 @@
 # 0.0.5 2024-04-XX
 
 - Fix bug in schema handling (compressor settings ignored)
+- Move making ICF field partition directories into per-partition processing.
+  Remove progress on the init mkdirs step.
 
 # 0.0.4 2024-04-08
 
