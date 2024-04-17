@@ -1,9 +1,10 @@
-# 0.0.5 2024-04-XX
+# 0.0.5 2024-04-17
 
 - Fix bug in schema handling (compressor settings ignored)
 - Move making ICF field partition directories into per-partition processing.
   Remove progress on the init mkdirs step.
 - Turn off progress monitor on dexplode-partition
+- Fix empty partition bug
 
 # 0.0.4 2024-04-08
 
