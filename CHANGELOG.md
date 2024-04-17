@@ -1,4 +1,4 @@
-# 0.0.5 2024-04-XX
+# 0.0.5 2024-04-17
 
 - Fix bug in schema handling (compressor settings ignored)
 - Move making ICF field partition directories into per-partition processing.
