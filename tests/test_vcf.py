@@ -1,11 +1,10 @@
 import json
-
 import pytest
 import xarray.testing as xt
 import sgkit as sg
 import zarr
 
-from bio2zarr import vcf
+from bio2zarr import vcf, vcf_utils
 
 
 @pytest.fixture(scope="module")
@@ -297,3 +296,25 @@ class TestDefaultSchema:
             },
             "filters": [],
         }
+
+
+@pytest.mark.parametrize(
+    "regions",
+    [
+        # Overlapping partitions
+        [("1", 100, 200), ("1", 150, 250)],
+        # Overlap by one position
+        [("1", 100, 201), ("1", 200, 300)],
+        # Contained overlap
+        [("1", 100, 300), ("1", 150, 250)],
+        # Exactly equal
+        [("1", 100, 200), ("1", 100, 200)],
+    ],
+)
+def test_check_overlap(regions):
+    partitions = [
+        vcf.VcfPartition("", region=vcf_utils.Region(contig, start, end))
+        for contig, start, end in regions
+    ]
+    with pytest.raises(ValueError, match="Multiple VCFs have the region"):
+        vcf.check_overlap(partitions)
