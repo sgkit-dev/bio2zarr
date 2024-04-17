@@ -435,6 +435,22 @@ class IndexedVcf(contextlib.AbstractContextManager):
             if var.POS >= start:
                 yield var
 
+    def _filter_empty(self, regions):
+        """
+        Return all regions in the specified list that have one or more records.
+
+        Sometimes with Tabix indexes these seem to crop up:
+
+        - https://github.com/sgkit-dev/bio2zarr/issues/45
+        - https://github.com/sgkit-dev/bio2zarr/issues/120
+        """
+        ret = []
+        for region in regions:
+            variants = self.variants(region)
+            if next(variants, None) is not None:
+                ret.append(region)
+        return ret
+
     def partition_into_regions(
         self,
         num_parts: Optional[int] = None,
@@ -511,4 +527,4 @@ class IndexedVcf(contextlib.AbstractContextManager):
             if self.index.record_counts[ri] > 0:
                 regions.append(Region(self.sequence_names[ri]))
 
-        return regions
+        return self._filter_empty(regions)

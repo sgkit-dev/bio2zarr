@@ -9,13 +9,7 @@ data_path = pathlib.Path("tests/data/vcf/")
 
 
 def assert_part_counts_non_zero(part_counts, index_file):
-    # We may have one zero count value at the end in Tabix indexes.
-    # Should probably try to get rid of it, but probably no harm
-    # https://github.com/jeromekelleher/bio2zarr/issues/45
-    if index_file.endswith(".tbi"):
-        assert np.all(part_counts[:-1] > 0)
-    else:
-        assert np.all(part_counts > 0)
+    assert np.all(part_counts > 0)
 
 
 class TestIndexedVcf:
