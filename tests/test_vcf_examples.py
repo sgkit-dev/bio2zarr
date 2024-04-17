@@ -1,15 +1,14 @@
-import pathlib
 import collections
+import pathlib
 
+import cyvcf2
 import numpy as np
 import numpy.testing as nt
-import xarray.testing as xt
 import pytest
 import sgkit as sg
-import cyvcf2
+import xarray.testing as xt
 
-from bio2zarr import vcf
-from bio2zarr import provenance
+from bio2zarr import provenance, vcf
 
 
 class TestSmallExample:
@@ -244,7 +243,7 @@ class TestSmallExample:
                 xt.assert_equal(ds[col], ds2[col])
 
     @pytest.mark.parametrize(
-        ["variants_chunk_size", "samples_chunk_size", "y_chunks", "x_chunks"],
+        ("variants_chunk_size", "samples_chunk_size", "y_chunks", "x_chunks"),
         [
             (1, 1, (1, 1, 1, 1, 1, 1, 1, 1, 1), (1, 1, 1)),
             (2, 2, (2, 2, 2, 2, 1), (2, 1)),
@@ -396,10 +395,10 @@ class TestSmallExample:
         assert ds.variant_AN.dims == ("variants",)
         assert ds.variant_AC.dims == ("variants", "INFO_AC_dim")
         assert ds.variant_AF.dims == ("variants", "INFO_AF_dim")
-        assert ds.variant_DP.dims == ("variants", )
-        assert ds.variant_DB.dims == ("variants", )
-        assert ds.variant_H2.dims == ("variants", )
-        assert ds.variant_position.dims == ("variants", )
+        assert ds.variant_DP.dims == ("variants",)
+        assert ds.variant_DB.dims == ("variants",)
+        assert ds.variant_H2.dims == ("variants",)
+        assert ds.variant_position.dims == ("variants",)
 
 
 class Test1000G2020Example:
@@ -822,13 +821,13 @@ def test_by_validating(name, tmp_path):
 
 
 @pytest.mark.parametrize(
-    ["source", "suffix", "files"],
+    ("source", "suffix", "files"),
     [
-        ["sample.vcf.gz", "3.split", ["19:1-.vcf.gz", "20.vcf.gz", "X.vcf.gz"]],
-        ["sample.vcf.gz", "3.split", ["20.vcf.gz", "19:1-.vcf.gz", "X.vcf.gz"]],
-        ["out_of_order_contigs.vcf.gz", "2.split", ["A.vcf.gz", "B:1-.vcf.gz"]],
-        ["out_of_order_contigs.vcf.gz", "2.split", ["A.bcf", "B:1-.bcf"]],
-        ["out_of_order_contigs.vcf.gz", "2.split", ["A.vcf.gz", "B:1-.bcf"]],
+        ("sample.vcf.gz", "3.split", ["19:1-.vcf.gz", "20.vcf.gz", "X.vcf.gz"]),
+        ("sample.vcf.gz", "3.split", ["20.vcf.gz", "19:1-.vcf.gz", "X.vcf.gz"]),
+        ("out_of_order_contigs.vcf.gz", "2.split", ["A.vcf.gz", "B:1-.vcf.gz"]),
+        ("out_of_order_contigs.vcf.gz", "2.split", ["A.bcf", "B:1-.bcf"]),
+        ("out_of_order_contigs.vcf.gz", "2.split", ["A.vcf.gz", "B:1-.bcf"]),
     ],
 )
 def test_by_validating_split(source, suffix, files, tmp_path):

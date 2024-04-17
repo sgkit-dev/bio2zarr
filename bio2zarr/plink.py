@@ -1,13 +1,12 @@
 import logging
 
+import bed_reader
 import humanfriendly
+import numcodecs
 import numpy as np
 import zarr
-import bed_reader
-import numcodecs
 
 from . import core
-
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +23,6 @@ def encode_genotypes_slice(bed_path, zarr_path, start, stop):
     gt_mask = core.BufferedArray(root["call_genotype_mask"], start)
     gt_phased = core.BufferedArray(root["call_genotype_phased"], start)
     variants_chunk_size = gt.array.chunks[0]
-    n = gt.array.shape[1]
     assert start % variants_chunk_size == 0
 
     logger.debug(f"Reading slice {start}:{stop}")
@@ -96,7 +94,7 @@ def convert(
         chunks=(samples_chunk_size,),
     )
     a.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
-    logger.debug(f"Encoded samples")
+    logger.debug("Encoded samples")
 
     # TODO encode these in slices - but read them in one go to avoid
     # fetching repeatedly from bim file
@@ -108,7 +106,7 @@ def convert(
         chunks=(variants_chunk_size,),
     )
     a.attrs["_ARRAY_DIMENSIONS"] = ["variants"]
-    logger.debug(f"encoded variant_position")
+    logger.debug("encoded variant_position")
 
     alleles = np.stack([bed.allele_1, bed.allele_2], axis=1)
     a = root.array(
@@ -119,7 +117,7 @@ def convert(
         chunks=(variants_chunk_size,),
     )
     a.attrs["_ARRAY_DIMENSIONS"] = ["variants", "alleles"]
-    logger.debug(f"encoded variant_allele")
+    logger.debug("encoded variant_allele")
 
     # TODO remove this?
     a = root.empty(
@@ -201,4 +199,4 @@ def validate(bed_path, zarr_path):
             elif bed_call == 2:
                 assert list(zarr_call) == [1, 1]
             else:  # pragma no cover
-                assert False
+                raise AssertionError(f"Unexpected bed call {bed_call}")

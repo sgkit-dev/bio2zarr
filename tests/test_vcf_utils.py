@@ -1,7 +1,7 @@
 import pathlib
 
-import pytest
 import numpy as np
+import pytest
 
 from bio2zarr import vcf_utils
 
@@ -36,7 +36,7 @@ class TestIndexedVcf:
 
     # values computed using bcftools index -s
     @pytest.mark.parametrize(
-        ["index_file", "expected"],
+        ("index_file", "expected"),
         [
             ("sample.vcf.gz.tbi", {"19": 2, "20": 6, "X": 1}),
             ("sample.bcf.csi", {"19": 2, "20": 6, "X": 1}),
@@ -56,7 +56,7 @@ class TestIndexedVcf:
         assert indexed_vcf.contig_record_counts() == expected
 
     @pytest.mark.parametrize(
-        ["index_file", "expected"],
+        ("index_file", "expected"),
         [
             ("sample.vcf.gz.tbi", ["19:1-", "20", "X"]),
             ("sample.bcf.csi", ["19:1-", "20", "X"]),
@@ -78,7 +78,7 @@ class TestIndexedVcf:
         assert [str(r) for r in regions] == expected
 
     @pytest.mark.parametrize(
-        ["index_file", "num_expected", "total_records"],
+        ("index_file", "num_expected", "total_records"),
         [
             ("sample.vcf.gz.tbi", 3, 9),
             ("sample.bcf.csi", 3, 9),
@@ -106,7 +106,7 @@ class TestIndexedVcf:
         assert_part_counts_non_zero(part_variant_counts, index_file)
 
     @pytest.mark.parametrize(
-        ["index_file", "total_records"],
+        ("index_file", "total_records"),
         [
             ("sample.vcf.gz.tbi", 9),
             ("sample.bcf.csi", 9),

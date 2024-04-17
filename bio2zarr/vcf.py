@@ -1,29 +1,27 @@
 import collections
+import contextlib
 import dataclasses
 import functools
+import json
 import logging
+import math
 import os
 import pathlib
 import pickle
-import sys
 import shutil
-import json
-import math
+import sys
 import tempfile
-import contextlib
 from typing import Any, List
 
-import humanfriendly
 import cyvcf2
+import humanfriendly
 import numcodecs
 import numpy as np
 import numpy.testing as nt
 import tqdm
 import zarr
 
-from . import core
-from . import provenance
-from . import vcf_utils
+from . import core, provenance, vcf_utils
 
 logger = logging.getLogger(__name__)
 
@@ -301,7 +299,8 @@ def check_overlap(partitions):
 
 def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
     logger.info(
-        f"Scanning {len(paths)} VCFs attempting to split into {target_num_partitions} partitions."
+        f"Scanning {len(paths)} VCFs attempting to split into {target_num_partitions}"
+        f" partitions."
     )
     # An easy mistake to make is to pass the same file twice. Check this early on.
     for path, count in collections.Counter(paths).items():
@@ -850,7 +849,7 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
             partition.num_records for partition in self.metadata.partitions
         ]
         # Allow us to find which partition a given record is in
-        self.partition_record_index = np.cumsum([0] + partition_num_records)
+        self.partition_record_index = np.cumsum([0, *partition_num_records])
         for field in self.metadata.fields:
             self.columns[field.full_name] = IntermediateColumnarFormatField(self, field)
         logger.info(
@@ -860,7 +859,8 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
 
     def __repr__(self):
         return (
-            f"IntermediateColumnarFormat(fields={len(self)}, partitions={self.num_partitions}, "
+            f"IntermediateColumnarFormat(fields={len(self)}, "
+            f"partitions={self.num_partitions}, "
             f"records={self.num_records}, path={self.path})"
         )
 
@@ -956,11 +956,11 @@ class IntermediateColumnarFormatWriter:
         # probably going to be dropped.
         # https://github.com/pystatgen/vcf-zarr-spec/issues/15
         # May be useful to keep lying around still though?
-        logger.info(f"Writing VCF header")
+        logger.info("Writing VCF header")
         with open(self.path / "header.txt", "w") as f:
             f.write(header)
 
-        logger.info(f"Writing WIP metadata")
+        logger.info("Writing WIP metadata")
         with open(self.wip_path / "metadata.json", "w") as f:
             json.dump(self.metadata.asdict(), f, indent=4)
         return self.num_partitions
@@ -988,13 +988,14 @@ class IntermediateColumnarFormatWriter:
                 not_found.append(j)
         if len(not_found) > 0:
             raise FileNotFoundError(
-                f"Partition metadata not found for {len(not_found)} partitions: {not_found}"
+                f"Partition metadata not found for {len(not_found)}"
+                f" partitions: {not_found}"
             )
         return summaries
 
     def load_metadata(self):
         if self.metadata is None:
-            with open(self.wip_path / f"metadata.json") as f:
+            with open(self.wip_path / "metadata.json") as f:
                 self.metadata = IcfMetadata.fromdict(json.load(f))
 
     def process_partition(self, partition_index):
@@ -1043,12 +1044,14 @@ class IntermediateColumnarFormatWriter:
                     for field in format_fields:
                         val = variant.format(field.name)
                         tcw.append(field.full_name, val)
-                    # Note: an issue with updating the progress per variant here like this
-                    # is that we get a significant pause at the end of the counter while
-                    # all the "small" fields get flushed. Possibly not much to be done about it.
+                    # Note: an issue with updating the progress per variant here like
+                    # this is that we get a significant pause at the end of the counter
+                    # while all the "small" fields get flushed. Possibly not much to be
+                    # done about it.
                     core.update_progress(1)
             logger.info(
-                f"Finished reading VCF for partition {partition_index}, flushing buffers"
+                f"Finished reading VCF for partition {partition_index}, "
+                f"flushing buffers"
             )
 
         partition_metadata = {
@@ -1130,11 +1133,11 @@ class IntermediateColumnarFormatWriter:
             for summary in partition_summaries:
                 field.summary.update(summary["field_summaries"][field.full_name])
 
-        logger.info(f"Finalising metadata")
+        logger.info("Finalising metadata")
         with open(self.path / "metadata.json", "w") as f:
             json.dump(self.metadata.asdict(), f, indent=4)
 
-        logger.debug(f"Removing WIP directory")
+        logger.debug("Removing WIP directory")
         shutil.rmtree(self.wip_path)
 
 
@@ -1148,7 +1151,7 @@ def explode(
     compressor=None,
 ):
     writer = IntermediateColumnarFormatWriter(icf_path)
-    num_partitions = writer.init(
+    writer.init(
         vcfs,
         # Heuristic to get reasonable worker utilisation with lumpy partition sizing
         target_num_partitions=max(1, worker_processes * 4),
@@ -1381,7 +1384,7 @@ class VcfZarrSchema:
             if field.category == "FORMAT":
                 prefix = "call_"
                 shape.append(n)
-                chunks.append(samples_chunk_size),
+                chunks.append(samples_chunk_size)
                 dimensions.append("samples")
             # TODO make an option to add in the empty extra dimension
             if field.summary.max_number > 1:
@@ -1633,7 +1636,9 @@ class VcfZarrWriter:
                 try:
                     var_filter.buff[j, lookup[f]] = True
                 except KeyError:
-                    raise ValueError(f"Filter '{f}' was not defined in the header.")
+                    raise ValueError(
+                        f"Filter '{f}' was not defined " f"in the header."
+                    ) from None
         var_filter.flush()
         logger.debug(f"Encoded FILTERS slice {start}:{stop}")
 
@@ -1736,7 +1741,8 @@ class VcfZarrWriter:
             variant_chunk_size = array.blocks[0].nbytes
             encoding_memory_requirements[col.name] = variant_chunk_size
             logger.debug(
-                f"{col.name} requires at least {display_size(variant_chunk_size)} per worker"
+                f"{col.name} requires at least {display_size(variant_chunk_size)} "
+                f"per worker"
             )
             total_bytes += array.nbytes
 
@@ -1845,8 +1851,9 @@ class VcfZarrWriter:
                     or len(future_to_work) > max_queued
                 ):
                     logger.debug(
-                        f"Wait: mem_required={used_memory + wp.memory} max_mem={max_memory} "
-                        f"queued={len(future_to_work)} max_queued={max_queued}"
+                        f"Wait: mem_required={used_memory + wp.memory} "
+                        f"max_mem={max_memory} queued={len(future_to_work)} "
+                        f"max_queued={max_queued}"
                     )
                     service_completed_futures()
                 future = pwm.submit(wp.func, wp.start, wp.stop)
@@ -1890,7 +1897,7 @@ def encode(
             raise ValueError(
                 "Cannot specify schema along with chunk sizes"
             )  # NEEDS TEST
-        with open(schema_path, "r") as f:
+        with open(schema_path) as f:
             schema = VcfZarrSchema.fromjson(f.read())
     zarr_path = pathlib.Path(zarr_path)
     if zarr_path.exists():
@@ -1971,7 +1978,7 @@ def assert_all_fill(zarr_val, vcf_type):
     elif vcf_type == "Float":
         assert_all_fill_float(zarr_val)
     else:  # pragma: no cover
-        assert False
+        assert False  # noqa PT015
 
 
 def assert_all_missing(zarr_val, vcf_type):
@@ -1984,7 +1991,7 @@ def assert_all_missing(zarr_val, vcf_type):
     elif vcf_type == "Float":
         assert_all_missing_float(zarr_val)
     else:  # pragma: no cover
-        assert False
+        assert False  # noqa PT015
 
 
 def assert_info_val_missing(zarr_val, vcf_type):
@@ -2123,7 +2130,7 @@ def validate(vcf_path, zarr_path, show_progress=False):
         assert vid[j] == ("." if row.ID is None else row.ID)
         assert allele[j, 0] == row.REF
         k = len(row.ALT)
-        nt.assert_array_equal(allele[j, 1 : k + 1], row.ALT),
+        nt.assert_array_equal(allele[j, 1 : k + 1], row.ALT)
         assert np.all(allele[j, k + 1 :] == "")
         # TODO FILTERS
 

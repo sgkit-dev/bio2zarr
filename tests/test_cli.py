@@ -1,13 +1,11 @@
 from unittest import mock
 
-import pytest
 import click.testing as ct
 import numcodecs
+import pytest
 
-from bio2zarr import cli
 from bio2zarr import __main__ as main
-from bio2zarr import provenance
-
+from bio2zarr import cli, provenance
 
 DEFAULT_EXPLODE_ARGS = dict(
     column_chunk_size=64,
@@ -16,7 +14,7 @@ DEFAULT_EXPLODE_ARGS = dict(
     show_progress=True,
 )
 
-DEFAULT_DEXPLODE_PARTITION_ARGS = dict(show_progress=True)
+DEFAULT_DEXPLODE_PARTITION_ARGS = dict(show_progress=False)
 
 DEFAULT_DEXPLODE_INIT_ARGS = dict(
     worker_processes=1,

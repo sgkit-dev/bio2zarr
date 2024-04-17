@@ -1,14 +1,14 @@
-from typing import IO, Any, Dict, Optional, Sequence, Union
 import contextlib
-import struct
-import pathlib
 import gzip
-from dataclasses import dataclass
 import os
+import pathlib
+import struct
+from dataclasses import dataclass
+from typing import IO, Any, Dict, Optional, Sequence, Union
 
-import numpy as np
 import cyvcf2
 import humanfriendly
+import numpy as np
 
 from bio2zarr.typing import PathType
 
@@ -38,7 +38,8 @@ def read_bytes_as_value(f: IO[Any], fmt: str, nodata: Optional[Any] = None) -> A
     fmt : str
         A Python `struct` format string.
     nodata : Optional[Any], optional
-        The value to return in case there is no further data in the stream, by default None
+        The value to return in case there is no further data in the stream,
+        by default None
 
     Returns
     -------
@@ -277,7 +278,8 @@ class TabixIndex:
         # Create file offsets for each element in the linear index
         file_offsets = np.array([get_file_offset(vfp) for vfp in linear_index])
 
-        # Calculate corresponding contigs and positions or each element in the linear index
+        # Calculate corresponding contigs and positions or each element in
+        # the linear index
         contig_indexes = np.hstack(
             [np.full(len(li), i) for (i, li) in enumerate(linear_indexes)]
         )

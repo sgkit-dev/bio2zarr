@@ -1,5 +1,4 @@
 import numpy as np
-import numpy.testing as nt
 import pytest
 import zarr
 
@@ -36,7 +35,7 @@ class TestParallelWorkManager:
     @pytest.mark.parametrize("total", [1, 10, 20])
     @pytest.mark.parametrize("workers", [1, 2, 3])
     def test_error_in_workers_as_completed(self, total, workers):
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError):  # noqa PT012
             with core.ParallelWorkManager(workers) as pwm:
                 for j in range(total):
                     pwm.submit(frozenset, range(j))
@@ -47,7 +46,7 @@ class TestParallelWorkManager:
     @pytest.mark.parametrize("total", [1, 10, 20])
     @pytest.mark.parametrize("workers", [1, 2, 3])
     def test_error_in_workers_on_exit(self, total, workers):
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError):  # noqa PT012
             with core.ParallelWorkManager(workers) as pwm:
                 for j in range(total):
                     pwm.submit(frozenset, range(j))
@@ -57,7 +56,7 @@ class TestParallelWorkManager:
 
 class TestChunkAlignedSlices:
     @pytest.mark.parametrize(
-        ["n", "expected"],
+        ("n", "expected"),
         [
             (1, [(0, 20)]),
             (2, [(0, 10), (10, 20)]),
@@ -73,7 +72,7 @@ class TestChunkAlignedSlices:
         assert result == expected
 
     @pytest.mark.parametrize(
-        ["n", "max_chunks", "expected"],
+        ("n", "max_chunks", "expected"),
         [
             (1, 5, [(0, 20)]),
             (1, 1, [(0, 5)]),
@@ -89,7 +88,7 @@ class TestChunkAlignedSlices:
         assert result == expected
 
     @pytest.mark.parametrize(
-        ["n", "expected"],
+        ("n", "expected"),
         [
             (1, [(0, 20)]),
             (2, [(0, 14), (14, 20)]),
@@ -103,7 +102,7 @@ class TestChunkAlignedSlices:
         assert result == expected
 
     @pytest.mark.parametrize(
-        ["n", "expected"],
+        ("n", "expected"),
         [
             (1, [(0, 20)]),
             (2, [(0, 20)]),
@@ -116,7 +115,7 @@ class TestChunkAlignedSlices:
         assert result == expected
 
     @pytest.mark.parametrize(
-        ["n", "expected"],
+        ("n", "expected"),
         [
             (1, [(0, 5)]),
             (2, [(0, 3), (3, 5)]),
