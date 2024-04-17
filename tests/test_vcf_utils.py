@@ -77,7 +77,7 @@ class TestIndexedVcf:
             ("sample.vcf.gz.tbi", 3, 9),
             ("sample.bcf.csi", 3, 9),
             ("sample_no_genotypes.vcf.gz.csi", 3, 9),
-            ("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi", 18, 19910),
+            ("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi", 17, 19910),
             ("CEUTrio.20.21.gatk3.4.g.bcf.csi", 3, 19910),
             ("1kg_2020_chrM.vcf.gz.tbi", 1, 23),
             ("1kg_2020_chrM.vcf.gz.csi", 1, 23),
