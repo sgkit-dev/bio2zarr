@@ -1544,8 +1544,13 @@ class VcfZarrWriter:
             object_codec=object_codec,
             dimension_separator=self.dimension_separator,
         )
-        # Dimension names are part of the spec in Zarr v3
-        a.attrs["_ARRAY_DIMENSIONS"] = variable.dimensions
+        a.attrs.update(
+            {
+                "description": variable.description,
+                # Dimension names are part of the spec in Zarr v3
+                "_ARRAY_DIMENSIONS": variable.dimensions,
+            }
+        )
 
     def get_array(self, name):
         return self.root["wip_" + name]

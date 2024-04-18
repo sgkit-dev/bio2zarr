@@ -319,3 +319,39 @@ def test_check_overlap(regions):
     ]
     with pytest.raises(ValueError, match="Multiple VCFs have the region"):
         vcf.check_overlap(partitions)
+
+
+class TestVcfDescriptions:
+    @pytest.mark.parametrize(
+        ("field", "description"),
+        [
+            ("variant_NS", "Number of Samples With Data"),
+            ("variant_AN", "Total number of alleles in called genotypes"),
+            (
+                "variant_AC",
+                "Allele count in genotypes, for each ALT allele, "
+                "in the same order as listed",
+            ),
+            ("variant_DP", "Total Depth"),
+            ("variant_AF", "Allele Frequency"),
+            ("variant_AA", "Ancestral Allele"),
+            ("variant_DB", "dbSNP membership, build 129"),
+            ("variant_H2", "HapMap2 membership"),
+            ("call_GQ", "Genotype Quality"),
+            ("call_DP", "Read Depth"),
+            ("call_HQ", "Haplotype Quality"),
+        ],
+    )
+    def test_fields(self, schema, field, description):
+        assert schema["columns"][field]["description"] == description
+
+    # This information is not in the schema yet,
+    # https://github.com/sgkit-dev/bio2zarr/issues/123
+    # @pytest.mark.parametrize(
+    #     ("filt", "description"),
+    #     [
+    #         ("s50","Less than 50% of samples have data"),
+    #         ("q10", "Quality below 10"),
+    #     ])
+    # def test_filters(self, schema, filt, description):
+    #     assert schema["filters"][field]["description"] == description
