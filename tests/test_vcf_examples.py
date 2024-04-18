@@ -400,6 +400,29 @@ class TestSmallExample:
         assert ds.variant_H2.dims == ("variants",)
         assert ds.variant_position.dims == ("variants",)
 
+    @pytest.mark.parametrize(
+        ("field", "description"),
+        [
+            ("variant_NS", "Number of Samples With Data"),
+            ("variant_AN", "Total number of alleles in called genotypes"),
+            (
+                "variant_AC",
+                "Allele count in genotypes, for each ALT allele, "
+                "in the same order as listed",
+            ),
+            ("variant_DP", "Total Depth"),
+            ("variant_AF", "Allele Frequency"),
+            ("variant_AA", "Ancestral Allele"),
+            ("variant_DB", "dbSNP membership, build 129"),
+            ("variant_H2", "HapMap2 membership"),
+            ("call_GQ", "Genotype Quality"),
+            ("call_DP", "Read Depth"),
+            ("call_HQ", "Haplotype Quality"),
+        ],
+    )
+    def test_vcf_field_description(self, ds, field, description):
+        assert ds[field].attrs["description"] == description
+
 
 class Test1000G2020Example:
     data_path = "tests/data/vcf/1kg_2020_chrM.vcf.gz"
