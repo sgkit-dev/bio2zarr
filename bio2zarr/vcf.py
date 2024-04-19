@@ -111,9 +111,6 @@ class VcfField:
             return self.name
         return f"{self.category}/{self.name}"
 
-    # TODO add method here to choose a good set compressor and
-    # filters default here for this field.
-
     def smallest_dtype(self):
         """
         Returns the smallest dtype suitable for this field based
@@ -123,13 +120,13 @@ class VcfField:
         if self.vcf_type == "Float":
             ret = "f4"
         elif self.vcf_type == "Integer":
-            dtype = "i4"
-            for a_dtype in ["i1", "i2"]:
-                info = np.iinfo(a_dtype)
-                if info.min <= s.min_value and s.max_value <= info.max:
-                    dtype = a_dtype
-                    break
-            ret = dtype
+            if not math.isfinite(s.max_value):
+                # All missing values; use i1. Note we should have some API to
+                # check more explicitly for missingness:
+                # https://github.com/sgkit-dev/bio2zarr/issues/131
+                ret = "i1"
+            else:
+                ret = core.min_int_dtype(s.min_value, s.max_value)
         elif self.vcf_type == "Flag":
             ret = "bool"
         elif self.vcf_type == "Character":
@@ -151,6 +148,10 @@ ICF_METADATA_FORMAT_VERSION = "0.2"
 ICF_DEFAULT_COMPRESSOR = numcodecs.Blosc(
     cname="zstd", clevel=7, shuffle=numcodecs.Blosc.NOSHUFFLE
 )
+
+# TODO refactor this to have embedded Contig dataclass, Filters
+# and Samples dataclasses to allow for more information to be
+# retained and forward compatibility.
 
 
 @dataclasses.dataclass
@@ -182,6 +183,14 @@ class IcfMetadata:
             if field.category == "FORMAT":
                 fields.append(field)
         return fields
+
+    @property
+    def num_contigs(self):
+        return len(self.contig_names)
+
+    @property
+    def num_filters(self):
+        return len(self.filters)
 
     @property
     def num_records(self):
@@ -1242,6 +1251,50 @@ class ZarrColumnSpec:
         spec._choose_compressor_settings()
         return spec
 
+    @staticmethod
+    def from_field(
+        vcf_field,
+        *,
+        num_variants,
+        num_samples,
+        variants_chunk_size,
+        samples_chunk_size,
+        variable_name=None,
+    ):
+        shape = [num_variants]
+        prefix = "variant_"
+        dimensions = ["variants"]
+        chunks = [variants_chunk_size]
+        if vcf_field.category == "FORMAT":
+            prefix = "call_"
+            shape.append(num_samples)
+            chunks.append(samples_chunk_size)
+            dimensions.append("samples")
+        if variable_name is None:
+            variable_name = prefix + vcf_field.name
+        # TODO make an option to add in the empty extra dimension
+        if vcf_field.summary.max_number > 1:
+            shape.append(vcf_field.summary.max_number)
+            # TODO we should really be checking this to see if the named dimensions
+            # are actually correct.
+            if vcf_field.vcf_number == "R":
+                dimensions.append("alleles")
+            elif vcf_field.vcf_number == "A":
+                dimensions.append("alt_alleles")
+            elif vcf_field.vcf_number == "G":
+                dimensions.append("genotypes")
+            else:
+                dimensions.append(f"{vcf_field.category}_{vcf_field.name}_dim")
+        return ZarrColumnSpec.new(
+            vcf_field=vcf_field.full_name,
+            name=variable_name,
+            dtype=vcf_field.smallest_dtype(),
+            shape=shape,
+            chunks=chunks,
+            dimensions=dimensions,
+            description=vcf_field.description,
+        )
+
     def _choose_compressor_settings(self):
         """
         Choose compressor and filter settings based on the size and
@@ -1250,15 +1303,19 @@ class ZarrColumnSpec:
 
         See https://github.com/pystatgen/bio2zarr/discussions/74
         """
-        dt = np.dtype(self.dtype)
         # Default is to not shuffle, because autoshuffle isn't recognised
         # by many Zarr implementations, and shuffling can lead to worse
         # performance in some cases anyway. Turning on shuffle should be a
         # deliberate choice.
         shuffle = numcodecs.Blosc.NOSHUFFLE
-        if dt.itemsize == 1:
-            # Any 1 byte field gets BITSHUFFLE by default
+        if self.name == "call_genotype" and self.dtype == "i1":
+            # call_genotype gets BITSHUFFLE by default as it gets
+            # significantly better compression (at a cost of slower
+            # decoding)
             shuffle = numcodecs.Blosc.BITSHUFFLE
+        elif self.dtype == "bool":
+            shuffle = numcodecs.Blosc.BITSHUFFLE
+
         self.compressor["shuffle"] = shuffle
 
 
@@ -1313,6 +1370,16 @@ class VcfZarrSchema:
             f"Generating schema with chunks={variants_chunk_size, samples_chunk_size}"
         )
 
+        def spec_from_field(field, variable_name=None):
+            return ZarrColumnSpec.from_field(
+                field,
+                num_samples=n,
+                num_variants=m,
+                samples_chunk_size=samples_chunk_size,
+                variants_chunk_size=variants_chunk_size,
+                variable_name=variable_name,
+            )
+
         def fixed_field_spec(
             name, dtype, vcf_field=None, shape=(m,), dimensions=("variants",)
         ):
@@ -1328,95 +1395,56 @@ class VcfZarrSchema:
 
         alt_col = icf.columns["ALT"]
         max_alleles = alt_col.vcf_field.summary.max_number + 1
-        num_filters = len(icf.metadata.filters)
 
-        # # FIXME get dtype from lookup table
         colspecs = [
             fixed_field_spec(
                 name="variant_contig",
-                dtype="i2",  # FIXME
+                dtype=core.min_int_dtype(0, icf.metadata.num_contigs),
             ),
             fixed_field_spec(
                 name="variant_filter",
                 dtype="bool",
-                shape=(m, num_filters),
+                shape=(m, icf.metadata.num_filters),
                 dimensions=["variants", "filters"],
             ),
             fixed_field_spec(
                 name="variant_allele",
                 dtype="str",
-                shape=[m, max_alleles],
+                shape=(m, max_alleles),
                 dimensions=["variants", "alleles"],
             ),
             fixed_field_spec(
-                vcf_field="POS",
-                name="variant_position",
-                dtype="i4",
-            ),
-            fixed_field_spec(
-                vcf_field=None,
                 name="variant_id",
                 dtype="str",
             ),
             fixed_field_spec(
-                vcf_field=None,
                 name="variant_id_mask",
                 dtype="bool",
             ),
-            fixed_field_spec(
-                vcf_field="QUAL",
-                name="variant_quality",
-                dtype="f4",
-            ),
         ]
+        name_map = {field.full_name: field for field in icf.metadata.fields}
+
+        # Only two of the fixed fields have a direct one-to-one mapping.
+        colspecs.extend(
+            [
+                spec_from_field(name_map["QUAL"], variable_name="variant_quality"),
+                spec_from_field(name_map["POS"], variable_name="variant_position"),
+            ]
+        )
+        colspecs.extend([spec_from_field(field) for field in icf.metadata.info_fields])
 
         gt_field = None
-        for field in icf.metadata.fields:
-            if field.category == "fixed":
-                continue
+        for field in icf.metadata.format_fields:
             if field.name == "GT":
                 gt_field = field
                 continue
-            shape = [m]
-            prefix = "variant_"
-            dimensions = ["variants"]
-            chunks = [variants_chunk_size]
-            if field.category == "FORMAT":
-                prefix = "call_"
-                shape.append(n)
-                chunks.append(samples_chunk_size)
-                dimensions.append("samples")
-            # TODO make an option to add in the empty extra dimension
-            if field.summary.max_number > 1:
-                shape.append(field.summary.max_number)
-                # TODO we should really be checking this to see if the named dimensions
-                # are actually correct.
-                if field.vcf_number == "R":
-                    dimensions.append("alleles")
-                elif field.vcf_number == "A":
-                    dimensions.append("alt_alleles")
-                elif field.vcf_number == "G":
-                    dimensions.append("genotypes")
-                else:
-                    dimensions.append(f"{field.category}_{field.name}_dim")
-            variable_name = prefix + field.name
-            colspec = ZarrColumnSpec.new(
-                vcf_field=field.full_name,
-                name=variable_name,
-                dtype=field.smallest_dtype(),
-                shape=shape,
-                chunks=chunks,
-                dimensions=dimensions,
-                description=field.description,
-            )
-            colspecs.append(colspec)
+            colspecs.append(spec_from_field(field))
 
         if gt_field is not None:
             ploidy = gt_field.summary.max_number - 1
             shape = [m, n]
             chunks = [variants_chunk_size, samples_chunk_size]
             dimensions = ["variants", "samples"]
-
             colspecs.append(
                 ZarrColumnSpec.new(
                     vcf_field=None,

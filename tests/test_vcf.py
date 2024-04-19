@@ -225,7 +225,7 @@ class TestDefaultSchema:
     def test_variant_contig(self, schema):
         assert schema["columns"]["variant_contig"] == {
             "name": "variant_contig",
-            "dtype": "i2",
+            "dtype": "i1",
             "shape": [9],
             "chunks": [10000],
             "dimensions": ["variants"],
@@ -293,6 +293,25 @@ class TestDefaultSchema:
                 "cname": "zstd",
                 "clevel": 7,
                 "shuffle": 2,
+                "blocksize": 0,
+            },
+            "filters": [],
+        }
+
+    def test_call_GQ(self, schema):
+        assert schema["columns"]["call_GQ"] == {
+            "name": "call_GQ",
+            "dtype": "i1",
+            "shape": [9, 3],
+            "chunks": [10000, 1000],
+            "dimensions": ["variants", "samples"],
+            "description": "Genotype Quality",
+            "vcf_field": "FORMAT/GQ",
+            "compressor": {
+                "id": "blosc",
+                "cname": "zstd",
+                "clevel": 7,
+                "shuffle": 0,
                 "blocksize": 0,
             },
             "filters": [],

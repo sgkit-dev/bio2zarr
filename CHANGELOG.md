@@ -1,3 +1,7 @@
+# 0.0.6 2024-04-xx
+
+- Only use NOSHUFFLE by default on ``call_genotype`` and bool arrays.
+
 # 0.0.5 2024-04-17
 
 - Fix bug in schema handling (compressor settings ignored)
