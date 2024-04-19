@@ -3,12 +3,12 @@ name: Build Docs
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, test]
     tags:
       - '*'
 
 jobs:
-  build-deploy-docs:
+  build-docs:
     name: Docs
     runs-on: ubuntu-latest
     steps:
@@ -32,3 +32,26 @@ jobs:
       - name: Build Docs
         run: |
           make -C docs
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_build/html
+
+  deploy:
+    needs: build-docs
+
+    permissions:
+        pages: write
+        id-token: write
+
+    environment:
+        name: github-pages
+        url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+    steps:
+        - name: Deploy to GitHub Pages
+          if: github.ref == 'refs/heads/main'
+          id: deployment
+          uses: actions/deploy-pages@v4
