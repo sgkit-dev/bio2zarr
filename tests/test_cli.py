@@ -22,6 +22,7 @@ DEFAULT_DEXPLODE_INIT_ARGS = dict(
     compressor=None,
     show_progress=True,
 )
+
 DEFAULT_ENCODE_ARGS = dict(
     schema_path=None,
     variants_chunk_size=None,
@@ -29,6 +30,14 @@ DEFAULT_ENCODE_ARGS = dict(
     max_v_chunks=None,
     worker_processes=1,
     max_memory=None,
+    show_progress=True,
+)
+
+DEFAULT_DENCODE_INIT_ARGS = dict(
+    schema_path=None,
+    variants_chunk_size=None,
+    samples_chunk_size=None,
+    max_v_chunks=None,
     show_progress=True,
 )
 
@@ -384,6 +393,55 @@ class TestWithMocks:
             str(zarr_path),
             **DEFAULT_ENCODE_ARGS,
         )
+
+    @mock.patch("bio2zarr.vcf.encode_init", return_value=10)
+    def test_dencode(self, mocked, tmp_path):
+        icf_path = tmp_path / "icf"
+        icf_path.mkdir()
+        zarr_path = tmp_path / "zarr"
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcf2zarr,
+            f"dencode-init {icf_path} {zarr_path} 10",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert result.stdout == "10\n"
+        assert len(result.stderr) == 0
+        mocked.assert_called_once_with(
+            str(icf_path),
+            str(zarr_path),
+            target_num_partitions=10,
+            **DEFAULT_DENCODE_INIT_ARGS,
+        )
+
+    @mock.patch("bio2zarr.vcf.encode_partition")
+    def test_vcf_dencode_partition(self, mocked, tmp_path):
+        runner = ct.CliRunner(mix_stderr=False)
+        zarr_path = tmp_path / "zarr"
+        zarr_path.mkdir()
+        result = runner.invoke(
+            cli.vcf2zarr,
+            f"dencode-partition {zarr_path} 1",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert len(result.stdout) == 0
+        assert len(result.stderr) == 0
+        mocked.assert_called_once_with(
+            str(zarr_path), 1, **DEFAULT_DEXPLODE_PARTITION_ARGS
+        )
+
+    @mock.patch("bio2zarr.vcf.encode_finalise")
+    def test_vcf_dencode_finalise(self, mocked, tmp_path):
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcf2zarr, f"dencode-finalise {tmp_path}", catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        assert len(result.stdout) == 0
+        assert len(result.stderr) == 0
+        mocked.assert_called_once_with(str(tmp_path))
 
     @mock.patch("bio2zarr.vcf.convert")
     def test_convert_vcf(self, mocked):

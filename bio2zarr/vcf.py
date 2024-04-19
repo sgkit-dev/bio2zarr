@@ -1947,6 +1947,65 @@ def encode(
     vzw.finalise()
 
 
+def encode_init(
+    icf_path,
+    zarr_path,
+    target_num_partitions,
+    *,
+    schema_path=None,
+    variants_chunk_size=None,
+    samples_chunk_size=None,
+    max_v_chunks=None,
+    dimension_separator=None,
+    max_memory=None,
+    worker_processes=1,
+    show_progress=False,
+):
+    pass
+    # icf = IntermediateColumnarFormat(icf_path)
+    # if schema_path is None:
+    #     schema = VcfZarrSchema.generate(
+    #         icf,
+    #         variants_chunk_size=variants_chunk_size,
+    #         samples_chunk_size=samples_chunk_size,
+    #     )
+    # else:
+    #     logger.info(f"Reading schema from {schema_path}")
+    #     if variants_chunk_size is not None or samples_chunk_size is not None:
+    #         raise ValueError(
+    #             "Cannot specify schema along with chunk sizes"
+    #         )  # NEEDS TEST
+    #     with open(schema_path) as f:
+    #         schema = VcfZarrSchema.fromjson(f.read())
+    # zarr_path = pathlib.Path(zarr_path)
+    # if zarr_path.exists():
+    #     logger.warning(f"Deleting existing {zarr_path}")
+
+    #     shutil.rmtree(zarr_path)
+    # vzw = VcfZarrWriter(zarr_path, icf, schema,
+    # dimension_separator=dimension_separator)
+    # vzw.init()
+    # vzw.encode(
+    #     max_v_chunks=max_v_chunks,
+    #     worker_processes=worker_processes,
+    #     max_memory=max_memory,
+    #     show_progress=show_progress,
+    # )
+    # vzw.finalise()
+
+
+def encode_partition(zarr_path, partition, *, show_progress=False, worker_processes=1):
+    writer = VcfZarrWriter(zarr_path)
+    writer.encode_partition(
+        partition, show_progress=show_progress, worker_processes=worker_processes
+    )
+
+
+def encode_finalise(zarr_path):
+    writer = VcfZarrWriter(zarr_path)
+    writer.finalise()
+
+
 def convert(
     vcfs,
     out_path,
