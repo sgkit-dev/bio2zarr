@@ -111,9 +111,6 @@ class VcfField:
             return self.name
         return f"{self.category}/{self.name}"
 
-    # TODO add method here to choose a good set compressor and
-    # filters default here for this field.
-
     def smallest_dtype(self):
         """
         Returns the smallest dtype suitable for this field based
@@ -123,7 +120,13 @@ class VcfField:
         if self.vcf_type == "Float":
             ret = "f4"
         elif self.vcf_type == "Integer":
-            ret = core.min_int_dtype(s.min_value, s.max_value)
+            if not math.isfinite(s.max_value):
+                # All missing values; use i1. Note we should have some API to
+                # check more explicitly for missingness:
+                # https://github.com/sgkit-dev/bio2zarr/issues/131
+                ret = "i1"
+            else:
+                ret = core.min_int_dtype(s.min_value, s.max_value)
         elif self.vcf_type == "Flag":
             ret = "bool"
         elif self.vcf_type == "Character":
@@ -1300,17 +1303,19 @@ class ZarrColumnSpec:
 
         See https://github.com/pystatgen/bio2zarr/discussions/74
         """
-        dt = np.dtype(self.dtype)
         # Default is to not shuffle, because autoshuffle isn't recognised
         # by many Zarr implementations, and shuffling can lead to worse
         # performance in some cases anyway. Turning on shuffle should be a
         # deliberate choice.
         shuffle = numcodecs.Blosc.NOSHUFFLE
-        if self.name == "call_genotype" and dt.itemsize == 1:
+        if self.name == "call_genotype" and self.dtype == "i1":
             # call_genotype gets BITSHUFFLE by default as it gets
             # significantly better compression (at a cost of slower
             # decoding)
             shuffle = numcodecs.Blosc.BITSHUFFLE
+        elif self.dtype == "bool":
+            shuffle = numcodecs.Blosc.BITSHUFFLE
+
         self.compressor["shuffle"] = shuffle
 
 
@@ -1440,7 +1445,6 @@ class VcfZarrSchema:
             shape = [m, n]
             chunks = [variants_chunk_size, samples_chunk_size]
             dimensions = ["variants", "samples"]
-
             colspecs.append(
                 ZarrColumnSpec.new(
                     vcf_field=None,

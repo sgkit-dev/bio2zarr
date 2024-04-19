@@ -298,6 +298,25 @@ class TestDefaultSchema:
             "filters": [],
         }
 
+    def test_call_GQ(self, schema):
+        assert schema["columns"]["call_GQ"] == {
+            "name": "call_GQ",
+            "dtype": "i1",
+            "shape": [9, 3],
+            "chunks": [10000, 1000],
+            "dimensions": ["variants", "samples"],
+            "description": "Genotype Quality",
+            "vcf_field": "FORMAT/GQ",
+            "compressor": {
+                "id": "blosc",
+                "cname": "zstd",
+                "clevel": 7,
+                "shuffle": 0,
+                "blocksize": 0,
+            },
+            "filters": [],
+        }
+
 
 @pytest.mark.parametrize(
     "regions",
