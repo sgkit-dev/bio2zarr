@@ -1545,32 +1545,195 @@ def parse_max_memory(max_memory):
     return max_memory
 
 
+@dataclasses.dataclass
+class VcfZarrPartition:
+    start_index: int
+    stop_index: int
+    start_chunk: int
+    stop_chunk: int
+
+    @staticmethod
+    def generate_partitions(num_records, chunk_size, num_partitions, max_chunks=None):
+        num_chunks = int(np.ceil(num_records / chunk_size))
+        if max_chunks is not None:
+            num_chunks = min(num_chunks, max_chunks)
+        partitions = []
+        splits = np.array_split(np.arange(num_chunks), min(num_partitions, num_chunks))
+        for chunk_slice in splits:
+            start_chunk = int(chunk_slice[0])
+            stop_chunk = int(chunk_slice[-1]) + 1
+            start_index = start_chunk * chunk_size
+            stop_index = min(stop_chunk * chunk_size, num_records)
+            partitions.append(
+                VcfZarrPartition(start_index, stop_index, start_chunk, stop_chunk)
+            )
+        return partitions
+
+
+VZW_METADATA_FORMAT_VERSION = "0.1"
+
+
+@dataclasses.dataclass
+class VcfZarrWriterMetadata:
+    format_version: str
+    icf_path: str
+    schema: VcfZarrSchema
+    dimension_separator: str
+    partitions: list
+    provenance: dict
+
+    def asdict(self):
+        return dataclasses.asdict(self)
+
+    @staticmethod
+    def fromdict(d):
+        if d["format_version"] != VZW_METADATA_FORMAT_VERSION:
+            raise ValueError(
+                "VcfZarrWriter  format version mismatch: "
+                f"{d['format_version']} != {VZW_METADATA_FORMAT_VERSION}"
+            )
+        ret = VcfZarrWriterMetadata(**d)
+        ret.schema = VcfZarrSchema.fromdict(ret.schema)
+        ret.partitions = [VcfZarrPartition(**p) for p in ret.partitions]
+        return ret
+
+
 class VcfZarrWriter:
-    def __init__(self, path, icf, schema, dimension_separator=None):
+    def __init__(self, path):
         self.path = pathlib.Path(path)
+        self.wip_path = self.path / "wip"
+        self.arrays_path = self.wip_path / "arrays"
+        self.partitions_path = self.wip_path / "partitions"
+        self.metadata = None
+        self.icf = None
+
+    @property
+    def schema(self):
+        return self.metadata.schema
+
+    #######################
+    # init
+    #######################
+
+    def init(
+        self,
+        icf,
+        *,
+        target_num_partitions,
+        schema,
+        dimension_separator=None,
+        max_variant_chunks=None,
+    ):
         self.icf = icf
-        self.schema = schema
+        if self.path.exists():
+            raise ValueError("Zarr path already exists")
+        partitions = VcfZarrPartition.generate_partitions(
+            self.icf.num_records,
+            schema.variants_chunk_size,
+            target_num_partitions,
+            max_chunks=max_variant_chunks,
+        )
         # Default to using nested directories following the Zarr v3 default.
         # This seems to require version 2.17+ to work properly
-        self.dimension_separator = (
+        dimension_separator = (
             "/" if dimension_separator is None else dimension_separator
         )
-        store = zarr.DirectoryStore(self.path)
-        self.root = zarr.group(store=store)
+        self.metadata = VcfZarrWriterMetadata(
+            format_version=VZW_METADATA_FORMAT_VERSION,
+            icf_path=str(self.icf.path),
+            schema=schema,
+            dimension_separator=dimension_separator,
+            partitions=partitions,
+            # Bare minimum here for provenance - see comments above
+            provenance={"source": f"bio2zarr-{provenance.__version__}"},
+        )
 
-    def init_array(self, variable):
+        self.path.mkdir()
+        store = zarr.DirectoryStore(self.path)
+        root = zarr.group(store=store)
+        root.attrs.update(
+            {
+                "vcf_zarr_version": "0.2",
+                "vcf_header": self.icf.vcf_header,
+                "source": f"bio2zarr-{provenance.__version__}",
+            }
+        )
+        # Doing this syncronously - this is fine surely
+        self.encode_samples(root)
+        self.encode_filter_id(root)
+        self.encode_contig_id(root)
+
+        self.wip_path.mkdir()
+        self.arrays_path.mkdir()
+        self.partitions_path.mkdir()
+        store = zarr.DirectoryStore(self.arrays_path)
+        root = zarr.group(store=store)
+
+        for column in self.schema.columns.values():
+            self.init_array(root, column, partitions[-1].stop_index)
+
+        logger.info("Writing WIP metadata")
+        with open(self.wip_path / "metadata.json", "w") as f:
+            json.dump(self.metadata.asdict(), f, indent=4)
+        return len(partitions)
+
+    def encode_samples(self, root):
+        if not np.array_equal(self.schema.sample_id, self.icf.metadata.samples):
+            raise ValueError(
+                "Subsetting or reordering samples not supported currently"
+            )  # NEEDS TEST
+        array = root.array(
+            "sample_id",
+            self.schema.sample_id,
+            dtype="str",
+            compressor=DEFAULT_ZARR_COMPRESSOR,
+            chunks=(self.schema.samples_chunk_size,),
+        )
+        array.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
+        logger.debug("Samples done")
+
+    def encode_contig_id(self, root):
+        array = root.array(
+            "contig_id",
+            self.schema.contig_id,
+            dtype="str",
+            compressor=DEFAULT_ZARR_COMPRESSOR,
+        )
+        array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
+        if self.schema.contig_length is not None:
+            array = root.array(
+                "contig_length",
+                self.schema.contig_length,
+                dtype=np.int64,
+                compressor=DEFAULT_ZARR_COMPRESSOR,
+            )
+            array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
+
+    def encode_filter_id(self, root):
+        array = root.array(
+            "filter_id",
+            self.schema.filter_id,
+            dtype="str",
+            compressor=DEFAULT_ZARR_COMPRESSOR,
+        )
+        array.attrs["_ARRAY_DIMENSIONS"] = ["filters"]
+
+    def init_array(self, root, variable, variants_dim_size):
         object_codec = None
         if variable.dtype == "O":
             object_codec = numcodecs.VLenUTF8()
-        a = self.root.empty(
-            "wip_" + variable.name,
-            shape=variable.shape,
+        shape = list(variable.shape)
+        # Truncate the variants dimension is max_variant_chunks was specified
+        shape[0] = variants_dim_size
+        a = root.empty(
+            variable.name,
+            shape=shape,
             chunks=variable.chunks,
             dtype=variable.dtype,
             compressor=numcodecs.get_codec(variable.compressor),
             filters=[numcodecs.get_codec(filt) for filt in variable.filters],
             object_codec=object_codec,
-            dimension_separator=self.dimension_separator,
+            dimension_separator=self.metadata.dimension_separator,
         )
         a.attrs.update(
             {
@@ -1579,38 +1742,99 @@ class VcfZarrWriter:
                 "_ARRAY_DIMENSIONS": variable.dimensions,
             }
         )
+        logger.debug(f"Initialised {a}")
 
-    def get_array(self, name):
-        return self.root["wip_" + name]
+    #######################
+    # encode_partition
+    #######################
 
-    def finalise_array(self, variable_name):
-        source = self.path / ("wip_" + variable_name)
-        dest = self.path / variable_name
+    def load_metadata(self):
+        if self.metadata is None:
+            with open(self.wip_path / "metadata.json") as f:
+                self.metadata = VcfZarrWriterMetadata.fromdict(json.load(f))
+            self.icf = IntermediateColumnarFormat(self.metadata.icf_path)
+
+    def partition_path(self, partition_index):
+        return self.partitions_path / f"p{partition_index}"
+
+    def wip_partition_array_path(self, partition_index, name):
+        return self.partition_path(partition_index) / f"wip_{name}"
+
+    def partition_array_path(self, partition_index, name):
+        return self.partition_path(partition_index) / name
+
+    def encode_partition(
+        self, partition_index, *, show_progress=False, worker_processes=1
+    ):
+        self.load_metadata()
+        partition_path = self.partition_path(partition_index)
+        partition_path.mkdir(exist_ok=True)
+        logger.debug(f"Creating partition dir {partition_path}")
+
+        self.encode_alleles_partition(partition_index)
+        self.encode_id_partition(partition_index)
+        self.encode_filters_partition(partition_index)
+        self.encode_contig_partition(partition_index)
+        for col in self.metadata.schema.columns.values():
+            if col.vcf_field is not None:
+                self.encode_array_partition(col, partition_index)
+        if "call_genotype" in self.metadata.schema.columns:
+            self.encode_genotypes_partition(partition_index)
+
+    def init_partition_array(self, partition_index, name):
+        wip_path = self.wip_partition_array_path(partition_index, name)
+        # Create an empty array like the definition
+        src = self.arrays_path / name
+        # Overwrite any existing WIP files
+        shutil.copytree(src, wip_path, dirs_exist_ok=True)
+        array = zarr.open(wip_path)
+        logger.debug(f"Opened empty array {array} @ {wip_path}")
+        return array
+
+    def finalise_partition_array(self, partition_index, name):
+        wip_path = self.wip_partition_array_path(partition_index, name)
+        final_path = self.partition_array_path(partition_index, name)
+        if final_path.exists():
+            logger.warning(f"Removing existing {final_path}")
+            shutil.rmtree(final_path)
         # Atomic swap
-        os.rename(source, dest)
-        logger.info(f"Finalised {variable_name}")
+        os.rename(wip_path, final_path)
+        logger.debug(f"Encoded {name} partition {partition_index}")
 
-    def encode_array_slice(self, column, start, stop):
+    def encode_array_partition(self, column, partition_index):
+        array = self.init_partition_array(partition_index, column.name)
+
+        partition = self.metadata.partitions[partition_index]
+        ba = core.BufferedArray(array, partition.start_index)
         source_col = self.icf.columns[column.vcf_field]
-        array = self.get_array(column.name)
-        ba = core.BufferedArray(array, start)
         sanitiser = source_col.sanitiser_factory(ba.buff.shape)
 
-        for value in source_col.iter_values(start, stop):
+        for value in source_col.iter_values(
+            partition.start_index, partition.stop_index
+        ):
             # We write directly into the buffer in the sanitiser function
             # to make it easier to reason about dimension padding
             j = ba.next_buffer_row()
             sanitiser(ba.buff, j, value)
         ba.flush()
-        logger.debug(f"Encoded {column.name} slice {start}:{stop}")
+        self.finalise_partition_array(partition_index, column.name)
 
-    def encode_genotypes_slice(self, start, stop):
+    def encode_genotypes_partition(self, partition_index):
+        gt_array = self.init_partition_array(partition_index, "call_genotype")
+        gt_mask_array = self.init_partition_array(partition_index, "call_genotype_mask")
+        gt_phased_array = self.init_partition_array(
+            partition_index, "call_genotype_phased"
+        )
+
+        partition = self.metadata.partitions[partition_index]
+        gt = core.BufferedArray(gt_array, partition.start_index)
+        gt_mask = core.BufferedArray(gt_mask_array, partition.start_index)
+        gt_phased = core.BufferedArray(gt_phased_array, partition.start_index)
+
         source_col = self.icf.columns["FORMAT/GT"]
-        gt = core.BufferedArray(self.get_array("call_genotype"), start)
-        gt_mask = core.BufferedArray(self.get_array("call_genotype_mask"), start)
-        gt_phased = core.BufferedArray(self.get_array("call_genotype_phased"), start)
-
-        for value in source_col.iter_values(start, stop):
+        for value in source_col.iter_values(
+            partition.start_index, partition.stop_index
+        ):
             j = gt.next_buffer_row()
             sanitise_value_int_2d(gt.buff, j, value[:, :-1])
             j = gt_phased.next_buffer_row()
@@ -1622,29 +1846,40 @@ class VcfZarrWriter:
         gt.flush()
         gt_phased.flush()
         gt_mask.flush()
-        logger.debug(f"Encoded GT slice {start}:{stop}")
 
-    def encode_alleles_slice(self, start, stop):
+        self.finalise_partition_array(partition_index, "call_genotype")
+        self.finalise_partition_array(partition_index, "call_genotype_mask")
+        self.finalise_partition_array(partition_index, "call_genotype_phased")
+
+    def encode_alleles_partition(self, partition_index):
+        array_name = "variant_allele"
+        alleles_array = self.init_partition_array(partition_index, array_name)
+        partition = self.metadata.partitions[partition_index]
+        alleles = core.BufferedArray(alleles_array, partition.start_index)
         ref_col = self.icf.columns["REF"]
         alt_col = self.icf.columns["ALT"]
-        alleles = core.BufferedArray(self.get_array("variant_allele"), start)
 
         for ref, alt in zip(
-            ref_col.iter_values(start, stop), alt_col.iter_values(start, stop)
+            ref_col.iter_values(partition.start_index, partition.stop_index),
+            alt_col.iter_values(partition.start_index, partition.stop_index),
         ):
             j = alleles.next_buffer_row()
             alleles.buff[j, :] = STR_FILL
             alleles.buff[j, 0] = ref[0]
             alleles.buff[j, 1 : 1 + len(alt)] = alt
         alleles.flush()
-        logger.debug(f"Encoded alleles slice {start}:{stop}")
 
-    def encode_id_slice(self, start, stop):
+        self.finalise_partition_array(partition_index, array_name)
+
+    def encode_id_partition(self, partition_index):
+        vid_array = self.init_partition_array(partition_index, "variant_id")
+        vid_mask_array = self.init_partition_array(partition_index, "variant_id_mask")
+        partition = self.metadata.partitions[partition_index]
+        vid = core.BufferedArray(vid_array, partition.start_index)
+        vid_mask = core.BufferedArray(vid_mask_array, partition.start_index)
         col = self.icf.columns["ID"]
-        vid = core.BufferedArray(self.get_array("variant_id"), start)
-        vid_mask = core.BufferedArray(self.get_array("variant_id_mask"), start)
 
-        for value in col.iter_values(start, stop):
+        for value in col.iter_values(partition.start_index, partition.stop_index):
             j = vid.next_buffer_row()
             k = vid_mask.next_buffer_row()
             assert j == k
@@ -1656,13 +1891,19 @@ class VcfZarrWriter:
                 vid_mask.buff[j] = True
         vid.flush()
         vid_mask.flush()
-        logger.debug(f"Encoded ID slice {start}:{stop}")
 
-    def encode_filters_slice(self, lookup, start, stop):
+        self.finalise_partition_array(partition_index, "variant_id")
+        self.finalise_partition_array(partition_index, "variant_id_mask")
+
+    def encode_filters_partition(self, partition_index):
+        lookup = {filt: index for index, filt in enumerate(self.schema.filter_id)}
+        array_name = "variant_filter"
+        array = self.init_partition_array(partition_index, array_name)
+        partition = self.metadata.partitions[partition_index]
+        var_filter = core.BufferedArray(array, partition.start_index)
+
         col = self.icf.columns["FILTERS"]
-        var_filter = core.BufferedArray(self.get_array("variant_filter"), start)
-
-        for value in col.iter_values(start, stop):
+        for value in col.iter_values(partition.start_index, partition.stop_index):
             j = var_filter.next_buffer_row()
             var_filter.buff[j] = False
             for f in value:
@@ -1673,13 +1914,18 @@ class VcfZarrWriter:
                         f"Filter '{f}' was not defined " f"in the header."
                     ) from None
         var_filter.flush()
-        logger.debug(f"Encoded FILTERS slice {start}:{stop}")
 
-    def encode_contig_slice(self, lookup, start, stop):
+        self.finalise_partition_array(partition_index, array_name)
+
+    def encode_contig_partition(self, partition_index):
+        lookup = {contig: index for index, contig in enumerate(self.schema.contig_id)}
+        array_name = "variant_contig"
+        array = self.init_partition_array(partition_index, array_name)
+        partition = self.metadata.partitions[partition_index]
+        contig = core.BufferedArray(array, partition.start_index)
         col = self.icf.columns["CHROM"]
-        contig = core.BufferedArray(self.get_array("variant_contig"), start)
 
-        for value in col.iter_values(start, stop):
+        for value in col.iter_values(partition.start_index, partition.stop_index):
             j = contig.next_buffer_row()
             # Note: because we are using the indexes to define the lookups
             # and we always have an index, it seems that we the contig lookup
@@ -1687,216 +1933,204 @@ class VcfZarrWriter:
             # here, please do open an issue with a reproducible example!
             contig.buff[j] = lookup[value[0]]
         contig.flush()
-        logger.debug(f"Encoded CHROM slice {start}:{stop}")
 
-    def encode_samples(self):
-        if not np.array_equal(self.schema.sample_id, self.icf.metadata.samples):
-            raise ValueError(
-                "Subsetting or reordering samples not supported currently"
-            )  # NEEDS TEST
-        array = self.root.array(
-            "sample_id",
-            self.schema.sample_id,
-            dtype="str",
-            compressor=DEFAULT_ZARR_COMPRESSOR,
-            chunks=(self.schema.samples_chunk_size,),
-        )
-        array.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
-        logger.debug("Samples done")
+        self.finalise_partition_array(partition_index, array_name)
 
-    def encode_contig_id(self):
-        array = self.root.array(
-            "contig_id",
-            self.schema.contig_id,
-            dtype="str",
-            compressor=DEFAULT_ZARR_COMPRESSOR,
-        )
-        array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
-        if self.schema.contig_length is not None:
-            array = self.root.array(
-                "contig_length",
-                self.schema.contig_length,
-                dtype=np.int64,
-                compressor=DEFAULT_ZARR_COMPRESSOR,
+    #######################
+    # finalise
+    #######################
+
+    def finalise_array(self, name):
+        logger.info(f"Finalising {name}")
+        final_path = self.path / name
+        if final_path.exists():
+            raise ValueError(f"Array {name} already exists")
+        for partition in range(len(self.metadata.partitions)):
+            # Move all the files in partition dir to dest dir
+            src = self.partition_array_path(partition, name)
+            if not src.exists():
+                raise ValueError(f"Partition {partition} of {name} does not exist")
+            dest = self.arrays_path / name
+            # This is Zarr v2 specific. Chunks in v3 with start with "c" prefix.
+            chunk_files = [
+                path for path in src.iterdir() if not path.name.startswith(".")
+            ]
+            # TODO check for a count of then number of files
+            logger.debug(
+                f"Moving {len(chunk_files)} chunks for {name} partition {partition}"
             )
-            array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
-        return {v: j for j, v in enumerate(self.schema.contig_id)}
-
-    def encode_filter_id(self):
-        array = self.root.array(
-            "filter_id",
-            self.schema.filter_id,
-            dtype="str",
-            compressor=DEFAULT_ZARR_COMPRESSOR,
-        )
-        array.attrs["_ARRAY_DIMENSIONS"] = ["filters"]
-        return {v: j for j, v in enumerate(self.schema.filter_id)}
-
-    def init(self):
-        self.root.attrs["vcf_zarr_version"] = "0.2"
-        self.root.attrs["vcf_header"] = self.icf.vcf_header
-        self.root.attrs["source"] = f"bio2zarr-{provenance.__version__}"
-        for column in self.schema.columns.values():
-            self.init_array(column)
+            for chunk_file in chunk_files:
+                os.rename(chunk_file, dest / chunk_file.name)
+        # Finally, once all the chunks have moved into the arrays dir,
+        # we move it out of wip
+        os.rename(self.arrays_path / name, self.path / name)
 
     def finalise(self):
+        self.load_metadata()
+        for name in self.metadata.schema.columns:
+            self.finalise_array(name)
         zarr.consolidate_metadata(self.path)
 
-    def encode(
-        self,
-        worker_processes=1,
-        max_v_chunks=None,
-        show_progress=False,
-        max_memory=None,
-    ):
-        max_memory = parse_max_memory(max_memory)
+    ######################
+    # Encode
+    ######################
 
-        # TODO this will move into the setup logic later when we're making it possible
-        # to split the work by slice
-        num_slices = max(1, worker_processes * 4)
-        # Using POS arbitrarily to get the array slices
-        slices = core.chunk_aligned_slices(
-            self.get_array("variant_position"), num_slices, max_chunks=max_v_chunks
-        )
-        truncated = slices[-1][-1]
-        for array in self.root.values():
-            if array.attrs["_ARRAY_DIMENSIONS"][0] == "variants":
-                shape = list(array.shape)
-                shape[0] = truncated
-                array.resize(shape)
 
-        total_bytes = 0
-        encoding_memory_requirements = {}
-        for col in self.schema.columns.values():
-            array = self.get_array(col.name)
-            # NOTE!! this is bad, we're potentially creating quite a large
-            # numpy array for basically nothing. We can compute this.
-            variant_chunk_size = array.blocks[0].nbytes
-            encoding_memory_requirements[col.name] = variant_chunk_size
-            logger.debug(
-                f"{col.name} requires at least {display_size(variant_chunk_size)} "
-                f"per worker"
-            )
-            total_bytes += array.nbytes
+#     def encode(
+#         self,
+#         worker_processes=1,
+#         max_v_chunks=None,
+#         show_progress=False,
+#         max_memory=None,
+#     ):
+#         max_memory = parse_max_memory(max_memory)
 
-        filter_id_map = self.encode_filter_id()
-        contig_id_map = self.encode_contig_id()
+#         # TODO this will move into the setup logic later when we're making it possible
+#         # to split the work by slice
+#         num_slices = max(1, worker_processes * 4)
+#         # Using POS arbitrarily to get the array slices
+#         slices = core.chunk_aligned_slices(
+#             self.get_array("variant_position"), num_slices, max_chunks=max_v_chunks
+#         )
+#         truncated = slices[-1][-1]
+#         for array in self.root.values():
+#             if array.attrs["_ARRAY_DIMENSIONS"][0] == "variants":
+#                 shape = list(array.shape)
+#                 shape[0] = truncated
+#                 array.resize(shape)
 
-        work = []
-        for start, stop in slices:
-            for col in self.schema.columns.values():
-                if col.vcf_field is not None:
-                    f = functools.partial(self.encode_array_slice, col)
-                    work.append(
-                        EncodingWork(
-                            f,
-                            start,
-                            stop,
-                            [col.name],
-                            encoding_memory_requirements[col.name],
-                        )
-                    )
-            work.append(
-                EncodingWork(self.encode_alleles_slice, start, stop, ["variant_allele"])
-            )
-            work.append(
-                EncodingWork(
-                    self.encode_id_slice, start, stop, ["variant_id", "variant_id_mask"]
-                )
-            )
-            work.append(
-                EncodingWork(
-                    functools.partial(self.encode_filters_slice, filter_id_map),
-                    start,
-                    stop,
-                    ["variant_filter"],
-                )
-            )
-            work.append(
-                EncodingWork(
-                    functools.partial(self.encode_contig_slice, contig_id_map),
-                    start,
-                    stop,
-                    ["variant_contig"],
-                )
-            )
-            if "call_genotype" in self.schema.columns:
-                variables = [
-                    "call_genotype",
-                    "call_genotype_phased",
-                    "call_genotype_mask",
-                ]
-                gt_memory = sum(
-                    encoding_memory_requirements[name] for name in variables
-                )
-                work.append(
-                    EncodingWork(
-                        self.encode_genotypes_slice, start, stop, variables, gt_memory
-                    )
-                )
+#         total_bytes = 0
+#         encoding_memory_requirements = {}
+#         for col in self.schema.columns.values():
+#             array = self.get_array(col.name)
+#             # NOTE!! this is bad, we're potentially creating quite a large
+#             # numpy array for basically nothing. We can compute this.
+#             variant_chunk_size = array.blocks[0].nbytes
+#             encoding_memory_requirements[col.name] = variant_chunk_size
+#             logger.debug(
+#                 f"{col.name} requires at least {display_size(variant_chunk_size)} "
+#                 f"per worker"
+#             )
+#             total_bytes += array.nbytes
 
-        # Fail early if we can't fit a particular column into memory
-        for wp in work:
-            if wp.memory > max_memory:
-                raise ValueError(
-                    f"Insufficient memory for {wp.columns}: "
-                    f"{display_size(wp.memory)} > {display_size(max_memory)}"
-                )
+#         filter_id_map = self.encode_filter_id()
+#         contig_id_map = self.encode_contig_id()
 
-        progress_config = core.ProgressConfig(
-            total=total_bytes,
-            title="Encode",
-            units="B",
-            show=show_progress,
-        )
+#         work = []
+#         for start, stop in slices:
+#             for col in self.schema.columns.values():
+#                 if col.vcf_field is not None:
+#                     f = functools.partial(self.encode_array_slice, col)
+#                     work.append(
+#                         EncodingWork(
+#                             f,
+#                             start,
+#                             stop,
+#                             [col.name],
+#                             encoding_memory_requirements[col.name],
+#                         )
+#                     )
+#             work.append(
+#             EncodingWork(self.encode_alleles_slice, start, stop, ["variant_allele"])
+#             )
+#             work.append(
+#                 EncodingWork(
+#                 self.encode_id_slice, start, stop, ["variant_id", "variant_id_mask"]
+#                 )
+#             )
+#             work.append(
+#                 EncodingWork(
+#                     functools.partial(self.encode_filters_slice, filter_id_map),
+#                     start,
+#                     stop,
+#                     ["variant_filter"],
+#                 )
+#             )
+#             work.append(
+#                 EncodingWork(
+#                     functools.partial(self.encode_contig_slice, contig_id_map),
+#                     start,
+#                     stop,
+#                     ["variant_contig"],
+#                 )
+#             )
+#             if "call_genotype" in self.schema.columns:
+#                 variables = [
+#                     "call_genotype",
+#                     "call_genotype_phased",
+#                     "call_genotype_mask",
+#                 ]
+#                 gt_memory = sum(
+#                     encoding_memory_requirements[name] for name in variables
+#                 )
+#                 work.append(
+#                     EncodingWork(
+#                         self.encode_genotypes_slice, start, stop, variables, gt_memory
+#                     )
+#                 )
 
-        used_memory = 0
-        # We need to keep some bounds on the queue size or the memory bounds algorithm
-        # below doesn't really work.
-        max_queued = 4 * max(1, worker_processes)
-        encoded_slices = collections.Counter()
+#         # Fail early if we can't fit a particular column into memory
+#         for wp in work:
+#             if wp.memory > max_memory:
+#                 raise ValueError(
+#                     f"Insufficient memory for {wp.columns}: "
+#                     f"{display_size(wp.memory)} > {display_size(max_memory)}"
+#                 )
 
-        with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
-            future = pwm.submit(self.encode_samples)
-            future_to_work = {future: EncodingWork(None, 0, 0, [])}
+#         progress_config = core.ProgressConfig(
+#             total=total_bytes,
+#             title="Encode",
+#             units="B",
+#             show=show_progress,
+#         )
 
-            def service_completed_futures():
-                nonlocal used_memory
+#         used_memory = 0
+#         # We need to keep some bounds on the queue size or the memory bounds algorithm
+#         # below doesn't really work.
+#         max_queued = 4 * max(1, worker_processes)
+#         encoded_slices = collections.Counter()
 
-                completed = pwm.wait_for_completed()
-                for future in completed:
-                    wp_done = future_to_work.pop(future)
-                    used_memory -= wp_done.memory
-                    logger.debug(
-                        f"Complete {wp_done}: used mem={display_size(used_memory)}"
-                    )
-                    for column in wp_done.columns:
-                        encoded_slices[column] += 1
-                        if encoded_slices[column] == len(slices):
-                            # Do this syncronously for simplicity. Should be
-                            # fine as the workers will probably be busy with
-                            # large encode tasks most of the time.
-                            self.finalise_array(column)
+#         with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
+#             future = pwm.submit(self.encode_samples)
+#             future_to_work = {future: EncodingWork(None, 0, 0, [])}
 
-            for wp in work:
-                while (
-                    used_memory + wp.memory > max_memory
-                    or len(future_to_work) > max_queued
-                ):
-                    logger.debug(
-                        f"Wait: mem_required={used_memory + wp.memory} "
-                        f"max_mem={max_memory} queued={len(future_to_work)} "
-                        f"max_queued={max_queued}"
-                    )
-                    service_completed_futures()
-                future = pwm.submit(wp.func, wp.start, wp.stop)
-                used_memory += wp.memory
-                logger.debug(f"Submit {wp}: used mem={display_size(used_memory)}")
-                future_to_work[future] = wp
+#             def service_completed_futures():
+#                 nonlocal used_memory
 
-            logger.debug("All work submitted")
-            while len(future_to_work) > 0:
-                service_completed_futures()
+#                 completed = pwm.wait_for_completed()
+#                 for future in completed:
+#                     wp_done = future_to_work.pop(future)
+#                     used_memory -= wp_done.memory
+#                     logger.debug(
+#                         f"Complete {wp_done}: used mem={display_size(used_memory)}"
+#                     )
+#                     for column in wp_done.columns:
+#                         encoded_slices[column] += 1
+#                         if encoded_slices[column] == len(slices):
+#                             # Do this syncronously for simplicity. Should be
+#                             # fine as the workers will probably be busy with
+#                             # large encode tasks most of the time.
+#                             self.finalise_array(column)
+
+#             for wp in work:
+#                 while (
+#                     used_memory + wp.memory > max_memory
+#                     or len(future_to_work) > max_queued
+#                 ):
+#                     logger.debug(
+#                         f"Wait: mem_required={used_memory + wp.memory} "
+#                         f"max_mem={max_memory} queued={len(future_to_work)} "
+#                         f"max_queued={max_queued}"
+#                     )
+#                     service_completed_futures()
+#                 future = pwm.submit(wp.func, wp.start, wp.stop)
+#                 used_memory += wp.memory
+#                 logger.debug(f"Submit {wp}: used mem={display_size(used_memory)}")
+#                 future_to_work[future] = wp
+
+#             logger.debug("All work submitted")
+#             while len(future_to_work) > 0:
+#                 service_completed_futures()
 
 
 def mkschema(if_path, out):
@@ -1911,13 +2145,41 @@ def encode(
     schema_path=None,
     variants_chunk_size=None,
     samples_chunk_size=None,
-    max_v_chunks=None,
+    max_variant_chunks=None,
     dimension_separator=None,
     max_memory=None,
     worker_processes=1,
     show_progress=False,
 ):
-    icf = IntermediateColumnarFormat(if_path)
+    encode_init(
+        if_path,
+        zarr_path,
+        1,
+        schema_path=schema_path,
+        variants_chunk_size=variants_chunk_size,
+        samples_chunk_size=samples_chunk_size,
+        max_variant_chunks=max_variant_chunks,
+        dimension_separator=dimension_separator,
+    )
+    encode_partition(zarr_path, 0)
+    encode_finalise(zarr_path)
+
+
+def encode_init(
+    icf_path,
+    zarr_path,
+    target_num_partitions,
+    *,
+    schema_path=None,
+    variants_chunk_size=None,
+    samples_chunk_size=None,
+    max_variant_chunks=None,
+    dimension_separator=None,
+    max_memory=None,
+    worker_processes=1,
+    show_progress=False,
+):
+    icf = IntermediateColumnarFormat(icf_path)
     if schema_path is None:
         schema = VcfZarrSchema.generate(
             icf,
@@ -1933,65 +2195,14 @@ def encode(
         with open(schema_path) as f:
             schema = VcfZarrSchema.fromjson(f.read())
     zarr_path = pathlib.Path(zarr_path)
-    if zarr_path.exists():
-        logger.warning(f"Deleting existing {zarr_path}")
-        shutil.rmtree(zarr_path)
-    vzw = VcfZarrWriter(zarr_path, icf, schema, dimension_separator=dimension_separator)
-    vzw.init()
-    vzw.encode(
-        max_v_chunks=max_v_chunks,
-        worker_processes=worker_processes,
-        max_memory=max_memory,
-        show_progress=show_progress,
+    vzw = VcfZarrWriter(zarr_path)
+    return vzw.init(
+        icf,
+        target_num_partitions=target_num_partitions,
+        schema=schema,
+        dimension_separator=dimension_separator,
+        max_variant_chunks=max_variant_chunks,
     )
-    vzw.finalise()
-
-
-def encode_init(
-    icf_path,
-    zarr_path,
-    target_num_partitions,
-    *,
-    schema_path=None,
-    variants_chunk_size=None,
-    samples_chunk_size=None,
-    max_v_chunks=None,
-    dimension_separator=None,
-    max_memory=None,
-    worker_processes=1,
-    show_progress=False,
-):
-    pass
-    # icf = IntermediateColumnarFormat(icf_path)
-    # if schema_path is None:
-    #     schema = VcfZarrSchema.generate(
-    #         icf,
-    #         variants_chunk_size=variants_chunk_size,
-    #         samples_chunk_size=samples_chunk_size,
-    #     )
-    # else:
-    #     logger.info(f"Reading schema from {schema_path}")
-    #     if variants_chunk_size is not None or samples_chunk_size is not None:
-    #         raise ValueError(
-    #             "Cannot specify schema along with chunk sizes"
-    #         )  # NEEDS TEST
-    #     with open(schema_path) as f:
-    #         schema = VcfZarrSchema.fromjson(f.read())
-    # zarr_path = pathlib.Path(zarr_path)
-    # if zarr_path.exists():
-    #     logger.warning(f"Deleting existing {zarr_path}")
-
-    #     shutil.rmtree(zarr_path)
-    # vzw = VcfZarrWriter(zarr_path, icf, schema,
-    # dimension_separator=dimension_separator)
-    # vzw.init()
-    # vzw.encode(
-    #     max_v_chunks=max_v_chunks,
-    #     worker_processes=worker_processes,
-    #     max_memory=max_memory,
-    #     show_progress=show_progress,
-    # )
-    # vzw.finalise()
 
 
 def encode_partition(zarr_path, partition, *, show_progress=False, worker_processes=1):

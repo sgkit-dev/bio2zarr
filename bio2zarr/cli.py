@@ -302,7 +302,7 @@ def encode(
         schema_path=schema,
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
-        max_v_chunks=max_variant_chunks,
+        max_variant_chunks=max_variant_chunks,
         worker_processes=worker_processes,
         max_memory=max_memory,
         show_progress=True,
@@ -342,7 +342,7 @@ def dencode_init(
         schema_path=schema,
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
-        max_v_chunks=max_variant_chunks,
+        max_variant_chunks=max_variant_chunks,
         show_progress=True,
     )
     click.echo(num_partitions)

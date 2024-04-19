@@ -27,7 +27,7 @@ DEFAULT_ENCODE_ARGS = dict(
     schema_path=None,
     variants_chunk_size=None,
     samples_chunk_size=None,
-    max_v_chunks=None,
+    max_variant_chunks=None,
     worker_processes=1,
     max_memory=None,
     show_progress=True,
@@ -37,7 +37,7 @@ DEFAULT_DENCODE_INIT_ARGS = dict(
     schema_path=None,
     variants_chunk_size=None,
     samples_chunk_size=None,
-    max_v_chunks=None,
+    max_variant_chunks=None,
     show_progress=True,
 )
 
