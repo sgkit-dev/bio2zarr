@@ -1,2 +1,11 @@
+bed_reader
+click
+cyvcf2
 jupyter-book
+msprime
+pysam
+sgkit
 sphinx-click
+tabulate
+tqdm
+zarr>=2.17
