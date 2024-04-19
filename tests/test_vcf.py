@@ -225,7 +225,7 @@ class TestDefaultSchema:
     def test_variant_contig(self, schema):
         assert schema["columns"]["variant_contig"] == {
             "name": "variant_contig",
-            "dtype": "i2",
+            "dtype": "i1",
             "shape": [9],
             "chunks": [10000],
             "dimensions": ["variants"],

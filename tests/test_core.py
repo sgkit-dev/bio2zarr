@@ -5,6 +5,55 @@ import zarr
 from bio2zarr import core
 
 
+class TestMinIntDtype:
+    @pytest.mark.parametrize(
+        ("min_value", "max_value", "dtype"),
+        [
+            (0, 1, "i1"),
+            (0, 0, "i1"),
+            (0, 127, "i1"),
+            (127, 128, "i2"),
+            (-127, 0, "i1"),
+            (-127, -126, "i1"),
+            (0, 2**15 - 1, "i2"),
+            (-(2**15), 2**15 - 1, "i2"),
+            (0, 2**15, "i4"),
+            (-(2**15), 2**15, "i4"),
+            (0, 2**31 - 1, "i4"),
+            (-(2**31), 2**31 - 1, "i4"),
+            (2**31 - 1, 2**31 - 1, "i4"),
+            (0, 2**31, "i8"),
+            (0, 2**32, "i8"),
+        ],
+    )
+    def test_values(self, min_value, max_value, dtype):
+        assert core.min_int_dtype(min_value, max_value) == dtype
+
+    @pytest.mark.parametrize(
+        ("min_value", "max_value"),
+        [
+            (0, 2**63),
+            (-(2**63) - 1, 0),
+            (0, 2**65),
+        ],
+    )
+    def test_overflow(self, min_value, max_value):
+        with pytest.raises(OverflowError, match="Integer cannot"):
+            core.min_int_dtype(min_value, max_value)
+
+    @pytest.mark.parametrize(
+        ("min_value", "max_value"),
+        [
+            (1, 0),
+            (-1, -2),
+            (2**31, 2**31 - 1),
+        ],
+    )
+    def test_bad_min_max(self, min_value, max_value):
+        with pytest.raises(ValueError, match="must be <="):
+            core.min_int_dtype(min_value, max_value)
+
+
 class TestParallelWorkManager:
     @pytest.mark.parametrize("total", [1, 10, 2**63])
     @pytest.mark.parametrize("workers", [0, 1])

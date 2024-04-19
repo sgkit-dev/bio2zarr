@@ -123,13 +123,7 @@ class VcfField:
         if self.vcf_type == "Float":
             ret = "f4"
         elif self.vcf_type == "Integer":
-            dtype = "i4"
-            for a_dtype in ["i1", "i2"]:
-                info = np.iinfo(a_dtype)
-                if info.min <= s.min_value and s.max_value <= info.max:
-                    dtype = a_dtype
-                    break
-            ret = dtype
+            ret = core.min_int_dtype(s.min_value, s.max_value)
         elif self.vcf_type == "Flag":
             ret = "bool"
         elif self.vcf_type == "Character":
@@ -186,6 +180,14 @@ class IcfMetadata:
             if field.category == "FORMAT":
                 fields.append(field)
         return fields
+
+    @property
+    def num_contigs(self):
+        return len(self.contig_names)
+
+    @property
+    def num_filters(self):
+        return len(self.filters)
 
     @property
     def num_records(self):
@@ -1388,24 +1390,22 @@ class VcfZarrSchema:
 
         alt_col = icf.columns["ALT"]
         max_alleles = alt_col.vcf_field.summary.max_number + 1
-        num_filters = len(icf.metadata.filters)
 
-        # # FIXME get dtype from lookup table
         colspecs = [
             fixed_field_spec(
                 name="variant_contig",
-                dtype="i2",  # FIXME
+                dtype=core.min_int_dtype(0, icf.metadata.num_contigs),
             ),
             fixed_field_spec(
                 name="variant_filter",
                 dtype="bool",
-                shape=(m, num_filters),
+                shape=(m, icf.metadata.num_filters),
                 dimensions=["variants", "filters"],
             ),
             fixed_field_spec(
                 name="variant_allele",
                 dtype="str",
-                shape=[m, max_alleles],
+                shape=(m, max_alleles),
                 dimensions=["variants", "alleles"],
             ),
             fixed_field_spec(

@@ -16,6 +16,16 @@ logger = logging.getLogger(__name__)
 numcodecs.blosc.use_threads = False
 
 
+def min_int_dtype(min_value, max_value):
+    if min_value > max_value:
+        raise ValueError("min_value must be <= max_value")
+    for a_dtype in ["i1", "i2", "i4", "i8"]:
+        info = np.iinfo(a_dtype)
+        if info.min <= min_value and max_value <= info.max:
+            return a_dtype
+    raise OverflowError("Integer cannot be represented")
+
+
 def chunk_aligned_slices(z, n, max_chunks=None):
     """
     Returns at n slices in the specified zarr array, aligned
