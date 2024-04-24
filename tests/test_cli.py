@@ -396,7 +396,7 @@ class TestWithMocks:
             **DEFAULT_ENCODE_ARGS,
         )
 
-    @mock.patch("bio2zarr.vcf.encode_init", return_value=10)
+    @mock.patch("bio2zarr.vcf.encode_init", return_value=(10, 1024))
     def test_dencode_init(self, mocked, tmp_path):
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
@@ -408,7 +408,7 @@ class TestWithMocks:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        assert result.stdout == "10\n"
+        assert result.stdout == "10\t1 KiB\n"
         assert len(result.stderr) == 0
         mocked.assert_called_once_with(
             str(icf_path),
@@ -564,7 +564,7 @@ class TestVcfEndToEnd:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        assert result.stdout.strip() == "3"
+        assert result.stdout.split()[0] == "3"
 
         for j in range(3):
             result = runner.invoke(

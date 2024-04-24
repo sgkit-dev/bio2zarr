@@ -2026,7 +2026,7 @@ class VcfZarrWriter:
     ):
         max_memory = parse_max_memory(max_memory)
         self.load_metadata()
-        num_partitions = len(self.num_partitions)
+        num_partitions = self.num_partitions
         per_worker_memory = self.get_max_encoding_memory()
         logger.info(
             f"Encoding Zarr over {num_partitions} partitions with "

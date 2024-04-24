@@ -64,7 +64,7 @@ class TestEncodeMaxMemory:
         with pytest.raises(ValueError, match="Insufficient memory"):
             vcf.encode(icf_path, zarr_path, max_memory=max_memory)
 
-    @pytest.mark.parametrize("max_memory", ["20MiB"])
+    @pytest.mark.parametrize("max_memory", ["150KiB", "200KiB"])
     def test_not_enough_memory_for_two(
         self, tmp_path, icf_path, zarr_path, caplog, max_memory
     ):

@@ -332,7 +332,17 @@ def dencode_init(
     verbose,
 ):
     """
-    TODO DOCUMENT
+    Initialise conversion of intermediate format to VCF Zarr. This will
+    set up the specified ZARR_PATH to perform this conversion over
+    NUM_PARTITIONS.
+
+    The output of this commmand is the actual number of partitions generated
+    (which may be less then the requested number, if there is not sufficient
+    chunks in the variants dimension) and a rough lower-bound on the amount
+    of memory required to encode a partition.
+
+    NOTE: the format of this output will likely change in subsequent releases;
+    it should not be considered machine-readable for now.
     """
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)
@@ -363,7 +373,10 @@ def dencode_init(
 @verbose
 def dencode_partition(zarr_path, partition, verbose):
     """
-    TODO DOCUMENT
+    Convert a partition from intermediate columnar format to VCF Zarr.
+    Must be called *after* the Zarr path has been initialised with dencode_init.
+    Partition indexes must be from 0 (inclusive) to the number of paritions
+    returned by dencode_init (exclusive).
     """
     setup_logging(verbose)
     vcf.encode_partition(zarr_path, partition)
@@ -374,10 +387,10 @@ def dencode_partition(zarr_path, partition, verbose):
 @verbose
 def dencode_finalise(zarr_path, verbose):
     """
-    TODO DOCUMENT
+    Final step for distributed conversion of ICF to VCF Zarr.
     """
     setup_logging(verbose)
-    vcf.encode_finalise(zarr_path)
+    vcf.encode_finalise(zarr_path, show_progress=True)
 
 
 @click.command(name="convert")
