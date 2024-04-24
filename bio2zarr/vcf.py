@@ -1318,6 +1318,20 @@ class ZarrColumnSpec:
 
         self.compressor["shuffle"] = shuffle
 
+    @property
+    def variant_chunk_nbytes(self):
+        """
+        Returns the nbytes for a single variant chunk of this array.
+        """
+        chunk_items = 1
+        for dim, size in enumerate(self.shape):
+            chunk_dim_size = size
+            if dim < len(self.chunks):
+                chunk_dim_size = self.chunks[dim]
+            chunk_items *= chunk_dim_size
+        dt = np.dtype(self.dtype)
+        return chunk_items * dt.itemsize
+
 
 ZARR_SCHEMA_FORMAT_VERSION = "0.2"
 
@@ -1763,13 +1777,11 @@ class VcfZarrWriter:
     def partition_array_path(self, partition_index, name):
         return self.partition_path(partition_index) / name
 
-    def encode_partition(
-        self, partition_index, *, show_progress=False, worker_processes=1
-    ):
+    def encode_partition(self, partition_index):
         self.load_metadata()
         partition_path = self.partition_path(partition_index)
         partition_path.mkdir(exist_ok=True)
-        logger.debug(f"Creating partition dir {partition_path}")
+        logger.info(f"Encoding partition {partition_index} to {partition_path}")
 
         self.encode_alleles_partition(partition_index)
         self.encode_id_partition(partition_index)
@@ -1972,165 +1984,58 @@ class VcfZarrWriter:
         zarr.consolidate_metadata(self.path)
 
     ######################
-    # Encode
+    # encode_all_partitions
     ######################
 
+    def get_max_encoding_memory(self):
+        """
+        Return the approximate maximum memory used to encode a variant chunk.
+        """
+        return max(
+            col.variant_chunk_nbytes for col in self.metadata.schema.columns.values()
+        )
 
-#     def encode(
-#         self,
-#         worker_processes=1,
-#         max_v_chunks=None,
-#         show_progress=False,
-#         max_memory=None,
-#     ):
-#         max_memory = parse_max_memory(max_memory)
+    def encode_all_partitions(
+        self, *, worker_processes=1, show_progress=False, max_memory=None
+    ):
+        max_memory = parse_max_memory(max_memory)
+        self.load_metadata()
+        num_partitions = len(self.metadata.partitions)
+        per_worker_memory = self.get_max_encoding_memory()
+        logger.info(
+            f"Encoding Zarr over {num_partitions} partitions with "
+            f"{worker_processes} workers and {display_size(per_worker_memory)} "
+            "per worker"
+        )
+        # Each partition requires per_worker_memory bytes, so to prevent more that
+        # max_memory being used, we clamp the number of workers
+        max_num_workers = max_memory // per_worker_memory
+        if max_num_workers < worker_processes:
+            logger.warning(
+                f"Limiting number of workers to {max_num_workers} to "
+                f"keep within specified memory budget of {display_size(max_memory)}"
+            )
+        if max_num_workers <= 0:
+            raise ValueError(
+                f"Insufficient memory to encode a partition:"
+                f"{display_size(per_worker_memory)} > {display_size(max_memory)}"
+            )
+        num_workers = min(max_num_workers, worker_processes)
 
-#         # TODO this will move into the setup logic later when we're making it possible
-#         # to split the work by slice
-#         num_slices = max(1, worker_processes * 4)
-#         # Using POS arbitrarily to get the array slices
-#         slices = core.chunk_aligned_slices(
-#             self.get_array("variant_position"), num_slices, max_chunks=max_v_chunks
-#         )
-#         truncated = slices[-1][-1]
-#         for array in self.root.values():
-#             if array.attrs["_ARRAY_DIMENSIONS"][0] == "variants":
-#                 shape = list(array.shape)
-#                 shape[0] = truncated
-#                 array.resize(shape)
+        total_bytes = 0
+        for col in self.schema.columns.values():
+            # Open the array definition to get the total size
+            total_bytes += zarr.open(self.arrays_path / col.name).nbytes
 
-#         total_bytes = 0
-#         encoding_memory_requirements = {}
-#         for col in self.schema.columns.values():
-#             array = self.get_array(col.name)
-#             # NOTE!! this is bad, we're potentially creating quite a large
-#             # numpy array for basically nothing. We can compute this.
-#             variant_chunk_size = array.blocks[0].nbytes
-#             encoding_memory_requirements[col.name] = variant_chunk_size
-#             logger.debug(
-#                 f"{col.name} requires at least {display_size(variant_chunk_size)} "
-#                 f"per worker"
-#             )
-#             total_bytes += array.nbytes
-
-#         filter_id_map = self.encode_filter_id()
-#         contig_id_map = self.encode_contig_id()
-
-#         work = []
-#         for start, stop in slices:
-#             for col in self.schema.columns.values():
-#                 if col.vcf_field is not None:
-#                     f = functools.partial(self.encode_array_slice, col)
-#                     work.append(
-#                         EncodingWork(
-#                             f,
-#                             start,
-#                             stop,
-#                             [col.name],
-#                             encoding_memory_requirements[col.name],
-#                         )
-#                     )
-#             work.append(
-#             EncodingWork(self.encode_alleles_slice, start, stop, ["variant_allele"])
-#             )
-#             work.append(
-#                 EncodingWork(
-#                 self.encode_id_slice, start, stop, ["variant_id", "variant_id_mask"]
-#                 )
-#             )
-#             work.append(
-#                 EncodingWork(
-#                     functools.partial(self.encode_filters_slice, filter_id_map),
-#                     start,
-#                     stop,
-#                     ["variant_filter"],
-#                 )
-#             )
-#             work.append(
-#                 EncodingWork(
-#                     functools.partial(self.encode_contig_slice, contig_id_map),
-#                     start,
-#                     stop,
-#                     ["variant_contig"],
-#                 )
-#             )
-#             if "call_genotype" in self.schema.columns:
-#                 variables = [
-#                     "call_genotype",
-#                     "call_genotype_phased",
-#                     "call_genotype_mask",
-#                 ]
-#                 gt_memory = sum(
-#                     encoding_memory_requirements[name] for name in variables
-#                 )
-#                 work.append(
-#                     EncodingWork(
-#                         self.encode_genotypes_slice, start, stop, variables, gt_memory
-#                     )
-#                 )
-
-#         # Fail early if we can't fit a particular column into memory
-#         for wp in work:
-#             if wp.memory > max_memory:
-#                 raise ValueError(
-#                     f"Insufficient memory for {wp.columns}: "
-#                     f"{display_size(wp.memory)} > {display_size(max_memory)}"
-#                 )
-
-#         progress_config = core.ProgressConfig(
-#             total=total_bytes,
-#             title="Encode",
-#             units="B",
-#             show=show_progress,
-#         )
-
-#         used_memory = 0
-#         # We need to keep some bounds on the queue size or the memory bounds algorithm
-#         # below doesn't really work.
-#         max_queued = 4 * max(1, worker_processes)
-#         encoded_slices = collections.Counter()
-
-#         with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
-#             future = pwm.submit(self.encode_samples)
-#             future_to_work = {future: EncodingWork(None, 0, 0, [])}
-
-#             def service_completed_futures():
-#                 nonlocal used_memory
-
-#                 completed = pwm.wait_for_completed()
-#                 for future in completed:
-#                     wp_done = future_to_work.pop(future)
-#                     used_memory -= wp_done.memory
-#                     logger.debug(
-#                         f"Complete {wp_done}: used mem={display_size(used_memory)}"
-#                     )
-#                     for column in wp_done.columns:
-#                         encoded_slices[column] += 1
-#                         if encoded_slices[column] == len(slices):
-#                             # Do this syncronously for simplicity. Should be
-#                             # fine as the workers will probably be busy with
-#                             # large encode tasks most of the time.
-#                             self.finalise_array(column)
-
-#             for wp in work:
-#                 while (
-#                     used_memory + wp.memory > max_memory
-#                     or len(future_to_work) > max_queued
-#                 ):
-#                     logger.debug(
-#                         f"Wait: mem_required={used_memory + wp.memory} "
-#                         f"max_mem={max_memory} queued={len(future_to_work)} "
-#                         f"max_queued={max_queued}"
-#                     )
-#                     service_completed_futures()
-#                 future = pwm.submit(wp.func, wp.start, wp.stop)
-#                 used_memory += wp.memory
-#                 logger.debug(f"Submit {wp}: used mem={display_size(used_memory)}")
-#                 future_to_work[future] = wp
-
-#             logger.debug("All work submitted")
-#             while len(future_to_work) > 0:
-#                 service_completed_futures()
+        progress_config = core.ProgressConfig(
+            total=total_bytes,
+            title="Encode",
+            units="B",
+            show=show_progress,
+        )
+        with core.ParallelWorkManager(num_workers, progress_config) as pwm:
+            for partition_index in range(num_partitions):
+                pwm.submit(self.encode_partition, partition_index)
 
 
 def mkschema(if_path, out):
@@ -2151,17 +2056,24 @@ def encode(
     worker_processes=1,
     show_progress=False,
 ):
+    # Rough heuristic to split work up enough to keep utilisation high
+    target_num_partitions = max(1, worker_processes * 4)
     encode_init(
         if_path,
         zarr_path,
-        1,
+        target_num_partitions,
         schema_path=schema_path,
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
         max_variant_chunks=max_variant_chunks,
         dimension_separator=dimension_separator,
     )
-    encode_partition(zarr_path, 0)
+    vzw = VcfZarrWriter(zarr_path)
+    vzw.encode_all_partitions(
+        worker_processes=worker_processes,
+        show_progress=show_progress,
+        max_memory=max_memory,
+    )
     encode_finalise(zarr_path)
 
 
