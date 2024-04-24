@@ -110,6 +110,7 @@ class BufferedArray:
                 sync_flush_2d_array(
                     self.buff[: self.buffer_row], self.array, self.array_offset
                 )
+            # FIXME the array.name doesn't seem to be working here for some reason
             logger.debug(
                 f"Flushed <{self.array.name} {self.array.shape} "
                 f"{self.array.dtype}> "
@@ -131,8 +132,7 @@ def sync_flush_2d_array(np_buffer, zarr_array, offset):
     # encoder implementations.
     s = slice(offset, offset + np_buffer.shape[0])
     samples_chunk_size = zarr_array.chunks[1]
-    # TODO use zarr chunks here to support non-uniform chunking later
-    # and for simplicity
+    # TODO use zarr chunks here for simplicity
     zarr_array_width = zarr_array.shape[1]
     start = 0
     while start < zarr_array_width:
@@ -192,7 +192,7 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         self.progress_config = progress_config
         self.progress_bar = tqdm.tqdm(
             total=progress_config.total,
-            desc=f"{progress_config.title:>7}",
+            desc=f"{progress_config.title:>8}",
             unit_scale=True,
             unit=progress_config.units,
             smoothing=0.1,

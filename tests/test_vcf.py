@@ -64,17 +64,16 @@ class TestEncodeMaxMemory:
         with pytest.raises(ValueError, match="Insufficient memory"):
             vcf.encode(icf_path, zarr_path, max_memory=max_memory)
 
-    @pytest.mark.parametrize("max_memory", [135, 269])
+    @pytest.mark.parametrize("max_memory", ["150KiB", "200KiB"])
     def test_not_enough_memory_for_two(
         self, tmp_path, icf_path, zarr_path, caplog, max_memory
     ):
         other_zarr_path = tmp_path / "zarr"
-        with caplog.at_level("DEBUG"):
+        with caplog.at_level("WARNING"):
             vcf.encode(
                 icf_path, other_zarr_path, max_memory=max_memory, worker_processes=2
             )
-        # This isn't a particularly strong test, but oh well.
-        assert "Wait: mem_required" in caplog.text
+        assert "Limiting number of workers to 1 to keep within" in caplog.text
         ds1 = sg.load_dataset(zarr_path)
         ds2 = sg.load_dataset(other_zarr_path)
         xt.assert_equal(ds1, ds2)

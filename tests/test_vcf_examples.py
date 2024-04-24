@@ -317,9 +317,11 @@ class TestSmallExample:
         ds2 = sg.load_dataset(out)
         xt.assert_equal(ds, ds2)
 
-    @pytest.mark.parametrize("max_v_chunks", [1, 2, 3])
+    @pytest.mark.parametrize("max_variant_chunks", [1, 2, 3])
     @pytest.mark.parametrize("variants_chunk_size", [1, 2, 3])
-    def test_max_v_chunks(self, ds, tmp_path, max_v_chunks, variants_chunk_size):
+    def test_max_variant_chunks(
+        self, ds, tmp_path, max_variant_chunks, variants_chunk_size
+    ):
         exploded = tmp_path / "example.exploded"
         vcf.explode(exploded, [self.data_path])
         out = tmp_path / "example.zarr"
@@ -327,11 +329,11 @@ class TestSmallExample:
             exploded,
             out,
             variants_chunk_size=variants_chunk_size,
-            max_v_chunks=max_v_chunks,
+            max_variant_chunks=max_variant_chunks,
         )
         ds2 = sg.load_dataset(out)
         xt.assert_equal(
-            ds.isel(variants=slice(None, variants_chunk_size * max_v_chunks)), ds2
+            ds.isel(variants=slice(None, variants_chunk_size * max_variant_chunks)), ds2
         )
 
     @pytest.mark.parametrize("worker_processes", [0, 1, 2])
@@ -892,5 +894,6 @@ def test_split_explode(tmp_path):
 
 def test_missing_filter(tmp_path):
     path = "tests/data/vcf/sample_missing_filter.vcf.gz"
+    zarr_path = tmp_path / "zarr"
     with pytest.raises(ValueError, match="Filter 'q10' was not defined in the header"):
-        vcf.convert([path], tmp_path)
+        vcf.convert([path], zarr_path)

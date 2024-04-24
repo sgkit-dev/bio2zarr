@@ -1,6 +1,7 @@
-# 0.0.6 2024-04-xx
+# 0.0.6 2024-04-24
 
 - Only use NOSHUFFLE by default on ``call_genotype`` and bool arrays.
+- Add initial implementation of distributed encode
 
 # 0.0.5 2024-04-17
 
