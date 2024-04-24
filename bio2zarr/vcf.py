@@ -1967,7 +1967,9 @@ class VcfZarrWriter:
             chunk_files = [
                 path for path in src.iterdir() if not path.name.startswith(".")
             ]
-            # TODO check for a count of then number of files
+            # TODO check for a count of then number of files. If we require a
+            # dimension_separator of "/" then we could make stronger assertions
+            # here, as we'd always have num_variant_chunks
             logger.debug(
                 f"Moving {len(chunk_files)} chunks for {name} partition {partition}"
             )
@@ -1976,11 +1978,23 @@ class VcfZarrWriter:
         # Finally, once all the chunks have moved into the arrays dir,
         # we move it out of wip
         os.rename(self.arrays_path / name, self.path / name)
+        core.update_progress(1)
 
-    def finalise(self):
+    def finalise(self, show_progress=False):
         self.load_metadata()
-        for name in self.metadata.schema.columns:
-            self.finalise_array(name)
+
+        progress_config = core.ProgressConfig(
+            total=len(self.metadata.schema.columns),
+            title="Finalise",
+            units="array",
+            show=show_progress,
+        )
+        # NOTE: it's not clear that adding more workers will make this quicker,
+        # as it's just going to be causing contention on the file system.
+        # Something to check empirically in some deployments.
+        with core.ParallelWorkManager(1, progress_config) as pwm:
+            for name in self.metadata.schema.columns:
+                pwm.submit(self.finalise_array, name)
         zarr.consolidate_metadata(self.path)
 
     ######################
@@ -2074,7 +2088,7 @@ def encode(
         show_progress=show_progress,
         max_memory=max_memory,
     )
-    encode_finalise(zarr_path)
+    vzw.finalise(show_progress)
 
 
 def encode_init(
@@ -2124,9 +2138,9 @@ def encode_partition(zarr_path, partition, *, show_progress=False, worker_proces
     )
 
 
-def encode_finalise(zarr_path):
+def encode_finalise(zarr_path, show_progress=False):
     writer = VcfZarrWriter(zarr_path)
-    writer.finalise()
+    writer.finalise(show_progress=show_progress)
 
 
 def convert(
@@ -2336,7 +2350,7 @@ def validate(vcf_path, zarr_path, show_progress=False):
     assert pos[start_index] == first_pos
     vcf = cyvcf2.VCF(vcf_path)
     if show_progress:
-        iterator = tqdm.tqdm(vcf, desc=" Verify", total=vcf.num_records)  # NEEDS TEST
+        iterator = tqdm.tqdm(vcf, desc="  Verify", total=vcf.num_records)  # NEEDS TEST
     else:
         iterator = vcf
     for j, row in enumerate(iterator, start_index):
