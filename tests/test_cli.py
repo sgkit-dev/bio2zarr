@@ -43,6 +43,8 @@ DEFAULT_DENCODE_INIT_ARGS = dict(
 
 DEFAULT_DENCODE_PARTITION_ARGS = dict()
 
+DEFAULT_DENCODE_FINALISE_ARGS = dict(show_progress=True)
+
 
 class TestWithMocks:
     vcf_path = "tests/data/vcf/sample.vcf.gz"
@@ -443,7 +445,7 @@ class TestWithMocks:
         assert result.exit_code == 0
         assert len(result.stdout) == 0
         assert len(result.stderr) == 0
-        mocked.assert_called_once_with(str(tmp_path))
+        mocked.assert_called_once_with(str(tmp_path), **DEFAULT_DENCODE_FINALISE_ARGS)
 
     @mock.patch("bio2zarr.vcf.convert")
     def test_convert_vcf(self, mocked):
