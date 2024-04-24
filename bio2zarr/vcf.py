@@ -1323,12 +1323,9 @@ class ZarrColumnSpec:
         """
         Returns the nbytes for a single variant chunk of this array.
         """
-        chunk_items = 1
-        for dim, size in enumerate(self.shape):
-            chunk_dim_size = size
-            if dim < len(self.chunks):
-                chunk_dim_size = self.chunks[dim]
-            chunk_items *= chunk_dim_size
+        chunk_items = self.chunks[0]
+        for size in self.shape[1:]:
+            chunk_items *= size
         dt = np.dtype(self.dtype)
         return chunk_items * dt.itemsize
 
@@ -1616,6 +1613,10 @@ class VcfZarrWriter:
     def schema(self):
         return self.metadata.schema
 
+    @property
+    def num_partitions(self):
+        return len(self.metadata.partitions)
+
     #######################
     # init
     #######################
@@ -1778,10 +1779,10 @@ class VcfZarrWriter:
         self.encode_id_partition(partition_index)
         self.encode_filters_partition(partition_index)
         self.encode_contig_partition(partition_index)
-        for col in self.metadata.schema.columns.values():
+        for col in self.schema.columns.values():
             if col.vcf_field is not None:
                 self.encode_array_partition(col, partition_index)
-        if "call_genotype" in self.metadata.schema.columns:
+        if "call_genotype" in self.schema.columns:
             self.encode_genotypes_partition(partition_index)
 
     def init_partition_array(self, partition_index, name):
@@ -1954,6 +1955,7 @@ class VcfZarrWriter:
             # Move all the files in partition dir to dest dir
             src = self.partition_array_path(partition, name)
             if not src.exists():
+                # Needs test
                 raise ValueError(f"Partition {partition} of {name} does not exist")
             dest = self.arrays_path / name
             # This is Zarr v2 specific. Chunks in v3 with start with "c" prefix.
@@ -1977,7 +1979,7 @@ class VcfZarrWriter:
         self.load_metadata()
 
         progress_config = core.ProgressConfig(
-            total=len(self.metadata.schema.columns),
+            total=len(self.schema.columns),
             title="Finalise",
             units="array",
             show=show_progress,
@@ -1991,7 +1993,7 @@ class VcfZarrWriter:
         # for multiple workers, or making a standard wrapper for tqdm
         # that allows us to have a consistent look and feel.
         with core.ParallelWorkManager(0, progress_config) as pwm:
-            for name in self.metadata.schema.columns:
+            for name in self.schema.columns:
                 pwm.submit(self.finalise_array, name)
         zarr.consolidate_metadata(self.path)
 
@@ -2003,16 +2005,28 @@ class VcfZarrWriter:
         """
         Return the approximate maximum memory used to encode a variant chunk.
         """
-        return max(
-            col.variant_chunk_nbytes for col in self.metadata.schema.columns.values()
+        max_encoding_mem = max(
+            col.variant_chunk_nbytes for col in self.schema.columns.values()
         )
+        gt_mem = 0
+        if "call_genotype" in self.schema.columns:
+            encoded_together = [
+                "call_genotype",
+                "call_genotype_phased",
+                "call_genotype_mask",
+            ]
+            gt_mem = sum(
+                self.schema.columns[col].variant_chunk_nbytes
+                for col in encoded_together
+            )
+        return max(max_encoding_mem, gt_mem)
 
     def encode_all_partitions(
         self, *, worker_processes=1, show_progress=False, max_memory=None
     ):
         max_memory = parse_max_memory(max_memory)
         self.load_metadata()
-        num_partitions = len(self.metadata.partitions)
+        num_partitions = len(self.num_partitions)
         per_worker_memory = self.get_max_encoding_memory()
         logger.info(
             f"Encoding Zarr over {num_partitions} partitions with "
@@ -2120,13 +2134,14 @@ def encode_init(
             schema = VcfZarrSchema.fromjson(f.read())
     zarr_path = pathlib.Path(zarr_path)
     vzw = VcfZarrWriter(zarr_path)
-    return vzw.init(
+    vzw.init(
         icf,
         target_num_partitions=target_num_partitions,
         schema=schema,
         dimension_separator=dimension_separator,
         max_variant_chunks=max_variant_chunks,
     )
+    return vzw.num_partitions, vzw.get_max_encoding_memory()
 
 
 def encode_partition(zarr_path, partition):

@@ -5,6 +5,7 @@ import shutil
 
 import click
 import coloredlogs
+import humanfriendly
 import numcodecs
 import tabulate
 
@@ -335,7 +336,7 @@ def dencode_init(
     """
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)
-    num_partitions = vcf.encode_init(
+    num_partitions, max_memory = vcf.encode_init(
         icf_path,
         zarr_path,
         target_num_partitions=num_partitions,
@@ -345,7 +346,15 @@ def dencode_init(
         max_variant_chunks=max_variant_chunks,
         show_progress=True,
     )
-    click.echo(num_partitions)
+    formatted_size = humanfriendly.format_size(max_memory, binary=True)
+    # NOTE adding the size to the stdout here so that users can parse it
+    # and use in their submission scripts. This is a first pass, and
+    # will most likely change as we see what works and doesn't.
+    # NOTE we probably want to format this as a table, which lists
+    # some other properties, line by line
+    # NOTE This size number is also not quite enough, you need a bit of
+    # headroom with it (probably 10% or so). We should include this.
+    click.echo(f"{num_partitions}\t{formatted_size}")
 
 
 @click.command

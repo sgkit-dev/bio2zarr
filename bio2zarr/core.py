@@ -110,6 +110,7 @@ class BufferedArray:
                 sync_flush_2d_array(
                     self.buff[: self.buffer_row], self.array, self.array_offset
                 )
+            # FIXME the array.name doesn't seem to be working here for some reason
             logger.debug(
                 f"Flushed <{self.array.name} {self.array.shape} "
                 f"{self.array.dtype}> "
