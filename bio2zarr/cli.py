@@ -357,7 +357,7 @@ def dencode_partition(zarr_path, partition, verbose):
     TODO DOCUMENT
     """
     setup_logging(verbose)
-    vcf.encode_partition(zarr_path, partition, show_progress=False)
+    vcf.encode_partition(zarr_path, partition)
 
 
 @click.command

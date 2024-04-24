@@ -41,6 +41,8 @@ DEFAULT_DENCODE_INIT_ARGS = dict(
     show_progress=True,
 )
 
+DEFAULT_DENCODE_PARTITION_ARGS = dict()
+
 
 class TestWithMocks:
     vcf_path = "tests/data/vcf/sample.vcf.gz"
@@ -395,7 +397,7 @@ class TestWithMocks:
         )
 
     @mock.patch("bio2zarr.vcf.encode_init", return_value=10)
-    def test_dencode(self, mocked, tmp_path):
+    def test_dencode_init(self, mocked, tmp_path):
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
         zarr_path = tmp_path / "zarr"
@@ -429,7 +431,7 @@ class TestWithMocks:
         assert len(result.stdout) == 0
         assert len(result.stderr) == 0
         mocked.assert_called_once_with(
-            str(zarr_path), 1, **DEFAULT_DEXPLODE_PARTITION_ARGS
+            str(zarr_path), 1, **DEFAULT_DENCODE_PARTITION_ARGS
         )
 
     @mock.patch("bio2zarr.vcf.encode_finalise")
@@ -541,6 +543,42 @@ class TestVcfEndToEnd:
             cli.vcf2zarr, f"encode {icf_path} {zarr_path}", catch_exceptions=False
         )
         assert result.exit_code == 0
+        result = runner.invoke(
+            cli.vcf2zarr, f"inspect {zarr_path}", catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        # Arbitrary check
+        assert "variant_position" in result.stdout
+
+    def test_dencode(self, tmp_path):
+        icf_path = tmp_path / "icf"
+        zarr_path = tmp_path / "zarr"
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcf2zarr, f"explode {self.vcf_path} {icf_path}", catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        result = runner.invoke(
+            cli.vcf2zarr,
+            f"dencode-init {icf_path} {zarr_path} 5 --variants-chunk-size=3",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert result.stdout.strip() == "3"
+
+        for j in range(3):
+            result = runner.invoke(
+                cli.vcf2zarr,
+                f"dencode-partition {zarr_path} {j}",
+                catch_exceptions=False,
+            )
+        assert result.exit_code == 0
+
+        result = runner.invoke(
+            cli.vcf2zarr, f"dencode-finalise {zarr_path}", catch_exceptions=False
+        )
+        assert result.exit_code == 0
+
         result = runner.invoke(
             cli.vcf2zarr, f"inspect {zarr_path}", catch_exceptions=False
         )

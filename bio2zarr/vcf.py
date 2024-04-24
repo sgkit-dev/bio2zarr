@@ -1540,15 +1540,6 @@ class VcfZarr:
         return data
 
 
-@dataclasses.dataclass
-class EncodingWork:
-    func: callable = dataclasses.field(repr=False)
-    start: int
-    stop: int
-    columns: list[str]
-    memory: int = 0
-
-
 def parse_max_memory(max_memory):
     if max_memory is None:
         # Effectively unbounded
@@ -1640,7 +1631,7 @@ class VcfZarrWriter:
     ):
         self.icf = icf
         if self.path.exists():
-            raise ValueError("Zarr path already exists")
+            raise ValueError("Zarr path already exists")  # NEEDS TEST
         partitions = VcfZarrPartition.generate_partitions(
             self.icf.num_records,
             schema.variants_chunk_size,
@@ -1807,6 +1798,7 @@ class VcfZarrWriter:
         wip_path = self.wip_partition_array_path(partition_index, name)
         final_path = self.partition_array_path(partition_index, name)
         if final_path.exists():
+            # NEEDS TEST
             logger.warning(f"Removing existing {final_path}")
             shutil.rmtree(final_path)
         # Atomic swap
@@ -1923,7 +1915,7 @@ class VcfZarrWriter:
                     var_filter.buff[j, lookup[f]] = True
                 except KeyError:
                     raise ValueError(
-                        f"Filter '{f}' was not defined " f"in the header."
+                        f"Filter '{f}' was not defined in the header."
                     ) from None
         var_filter.flush()
 
@@ -1956,6 +1948,7 @@ class VcfZarrWriter:
         logger.info(f"Finalising {name}")
         final_path = self.path / name
         if final_path.exists():
+            # NEEDS TEST
             raise ValueError(f"Array {name} already exists")
         for partition in range(len(self.metadata.partitions)):
             # Move all the files in partition dir to dest dir
@@ -1992,7 +1985,12 @@ class VcfZarrWriter:
         # NOTE: it's not clear that adding more workers will make this quicker,
         # as it's just going to be causing contention on the file system.
         # Something to check empirically in some deployments.
-        with core.ParallelWorkManager(1, progress_config) as pwm:
+        # FIXME we're just using worker_processes=0 here to hook into the
+        # SynchronousExecutor which is intended for testing purposes so
+        # that we get test coverage. Should fix this either by allowing
+        # for multiple workers, or making a standard wrapper for tqdm
+        # that allows us to have a consistent look and feel.
+        with core.ParallelWorkManager(0, progress_config) as pwm:
             for name in self.metadata.schema.columns:
                 pwm.submit(self.finalise_array, name)
         zarr.consolidate_metadata(self.path)
@@ -2131,11 +2129,9 @@ def encode_init(
     )
 
 
-def encode_partition(zarr_path, partition, *, show_progress=False, worker_processes=1):
+def encode_partition(zarr_path, partition):
     writer = VcfZarrWriter(zarr_path)
-    writer.encode_partition(
-        partition, show_progress=show_progress, worker_processes=worker_processes
-    )
+    writer.encode_partition(partition)
 
 
 def encode_finalise(zarr_path, show_progress=False):
