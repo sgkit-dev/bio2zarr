@@ -179,3 +179,19 @@ class TestChunkAlignedSlices:
         z = zarr.array(np.arange(5), chunks=1, dtype=int)
         result = core.chunk_aligned_slices(z, n)
         assert result == expected
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        # NOTE: this data was generated using du -sb on a Linux system.
+        # It *might* work in CI, but it may well not either, as it's
+        # probably dependent on a whole bunch of things. Expect to fail
+        # at some point.
+        ("tests/data", 4630726),
+        ("tests/data/vcf", 4618589),
+        ("tests/data/vcf/sample.vcf.gz", 1089),
+    ],
+)
+def test_du(path, expected):
+    assert core.du(path) == expected

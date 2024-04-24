@@ -3,6 +3,8 @@ import contextlib
 import dataclasses
 import logging
 import multiprocessing
+import os
+import os.path
 import threading
 import time
 
@@ -43,6 +45,22 @@ def chunk_aligned_slices(z, n, max_chunks=None):
         stop = min(stop, z.shape[0])
         slices.append((start, stop))
     return slices
+
+
+def du(path):
+    """
+    Return the total bytes stored at this path.
+    """
+    total = os.path.getsize(path)
+    # pathlib walk method doesn't exist until 3.12 :(
+    for root, dirs, files in os.walk(path):
+        for lst in [dirs, files]:
+            for name in lst:
+                fullname = os.path.join(root, name)
+                size = os.path.getsize(fullname)
+                total += size
+    logger.debug(f"du({path}) = {total}")
+    return total
 
 
 class SynchronousExecutor(cf.Executor):
