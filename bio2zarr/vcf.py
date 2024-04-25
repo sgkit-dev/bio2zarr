@@ -1548,10 +1548,8 @@ def parse_max_memory(max_memory):
 
 @dataclasses.dataclass
 class VcfZarrPartition:
-    start_index: int
-    stop_index: int
-    start_chunk: int
-    stop_chunk: int
+    start: int
+    stop: int
 
     @staticmethod
     def generate_partitions(num_records, chunk_size, num_partitions, max_chunks=None):
@@ -1565,9 +1563,7 @@ class VcfZarrPartition:
             stop_chunk = int(chunk_slice[-1]) + 1
             start_index = start_chunk * chunk_size
             stop_index = min(stop_chunk * chunk_size, num_records)
-            partitions.append(
-                VcfZarrPartition(start_index, stop_index, start_chunk, stop_chunk)
-            )
+            partitions.append(VcfZarrPartition(start_index, stop_index))
         return partitions
 
 
@@ -1590,7 +1586,7 @@ class VcfZarrWriterMetadata:
     def fromdict(d):
         if d["format_version"] != VZW_METADATA_FORMAT_VERSION:
             raise ValueError(
-                "VcfZarrWriter  format version mismatch: "
+                "VcfZarrWriter format version mismatch: "
                 f"{d['format_version']} != {VZW_METADATA_FORMAT_VERSION}"
             )
         ret = VcfZarrWriterMetadata(**d)
@@ -1675,7 +1671,7 @@ class VcfZarrWriter:
         root = zarr.group(store=store)
 
         for column in self.schema.columns.values():
-            self.init_array(root, column, partitions[-1].stop_index)
+            self.init_array(root, column, partitions[-1].stop)
 
         logger.info("Writing WIP metadata")
         with open(self.wip_path / "metadata.json", "w") as f:
@@ -1809,13 +1805,11 @@ class VcfZarrWriter:
         array = self.init_partition_array(partition_index, column.name)
 
         partition = self.metadata.partitions[partition_index]
-        ba = core.BufferedArray(array, partition.start_index)
+        ba = core.BufferedArray(array, partition.start)
         source_col = self.icf.columns[column.vcf_field]
         sanitiser = source_col.sanitiser_factory(ba.buff.shape)
 
-        for value in source_col.iter_values(
-            partition.start_index, partition.stop_index
-        ):
+        for value in source_col.iter_values(partition.start, partition.stop):
             # We write directly into the buffer in the sanitiser function
             # to make it easier to reason about dimension padding
             j = ba.next_buffer_row()
@@ -1831,14 +1825,12 @@ class VcfZarrWriter:
         )
 
         partition = self.metadata.partitions[partition_index]
-        gt = core.BufferedArray(gt_array, partition.start_index)
-        gt_mask = core.BufferedArray(gt_mask_array, partition.start_index)
-        gt_phased = core.BufferedArray(gt_phased_array, partition.start_index)
+        gt = core.BufferedArray(gt_array, partition.start)
+        gt_mask = core.BufferedArray(gt_mask_array, partition.start)
+        gt_phased = core.BufferedArray(gt_phased_array, partition.start)
 
         source_col = self.icf.columns["FORMAT/GT"]
-        for value in source_col.iter_values(
-            partition.start_index, partition.stop_index
-        ):
+        for value in source_col.iter_values(partition.start, partition.stop):
             j = gt.next_buffer_row()
             sanitise_value_int_2d(gt.buff, j, value[:, :-1])
             j = gt_phased.next_buffer_row()
@@ -1859,13 +1851,13 @@ class VcfZarrWriter:
         array_name = "variant_allele"
         alleles_array = self.init_partition_array(partition_index, array_name)
         partition = self.metadata.partitions[partition_index]
-        alleles = core.BufferedArray(alleles_array, partition.start_index)
+        alleles = core.BufferedArray(alleles_array, partition.start)
         ref_col = self.icf.columns["REF"]
         alt_col = self.icf.columns["ALT"]
 
         for ref, alt in zip(
-            ref_col.iter_values(partition.start_index, partition.stop_index),
-            alt_col.iter_values(partition.start_index, partition.stop_index),
+            ref_col.iter_values(partition.start, partition.stop),
+            alt_col.iter_values(partition.start, partition.stop),
         ):
             j = alleles.next_buffer_row()
             alleles.buff[j, :] = STR_FILL
@@ -1879,11 +1871,11 @@ class VcfZarrWriter:
         vid_array = self.init_partition_array(partition_index, "variant_id")
         vid_mask_array = self.init_partition_array(partition_index, "variant_id_mask")
         partition = self.metadata.partitions[partition_index]
-        vid = core.BufferedArray(vid_array, partition.start_index)
-        vid_mask = core.BufferedArray(vid_mask_array, partition.start_index)
+        vid = core.BufferedArray(vid_array, partition.start)
+        vid_mask = core.BufferedArray(vid_mask_array, partition.start)
         col = self.icf.columns["ID"]
 
-        for value in col.iter_values(partition.start_index, partition.stop_index):
+        for value in col.iter_values(partition.start, partition.stop):
             j = vid.next_buffer_row()
             k = vid_mask.next_buffer_row()
             assert j == k
@@ -1904,10 +1896,10 @@ class VcfZarrWriter:
         array_name = "variant_filter"
         array = self.init_partition_array(partition_index, array_name)
         partition = self.metadata.partitions[partition_index]
-        var_filter = core.BufferedArray(array, partition.start_index)
+        var_filter = core.BufferedArray(array, partition.start)
 
         col = self.icf.columns["FILTERS"]
-        for value in col.iter_values(partition.start_index, partition.stop_index):
+        for value in col.iter_values(partition.start, partition.stop):
             j = var_filter.next_buffer_row()
             var_filter.buff[j] = False
             for f in value:
@@ -1926,10 +1918,10 @@ class VcfZarrWriter:
         array_name = "variant_contig"
         array = self.init_partition_array(partition_index, array_name)
         partition = self.metadata.partitions[partition_index]
-        contig = core.BufferedArray(array, partition.start_index)
+        contig = core.BufferedArray(array, partition.start)
         col = self.icf.columns["CHROM"]
 
-        for value in col.iter_values(partition.start_index, partition.stop_index):
+        for value in col.iter_values(partition.start, partition.stop):
             j = contig.next_buffer_row()
             # Note: because we are using the indexes to define the lookups
             # and we always have an index, it seems that we the contig lookup

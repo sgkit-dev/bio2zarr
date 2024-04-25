@@ -98,6 +98,16 @@ class TestJsonVersions:
         ):
             vcf.IcfMetadata.fromdict(d)
 
+    @pytest.mark.parametrize("version", ["0.0", "1.0", "xxxxx", 0.1])
+    def test_encode_metadata_mismatch(self, tmpdir, icf_path, version):
+        zarr_path = tmpdir / "zarr"
+        vcf.encode_init(icf_path, zarr_path, 1)
+        with open(zarr_path / "wip" / "metadata.json") as f:
+            d = json.load(f)
+        d["format_version"] = version
+        with pytest.raises(ValueError, match="VcfZarrWriter format version mismatch"):
+            vcf.VcfZarrWriterMetadata.fromdict(d)
+
 
 class TestEncodeDimensionSeparator:
     @pytest.mark.parametrize("dimension_separator", [None, "/"])
