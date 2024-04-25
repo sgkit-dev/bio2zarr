@@ -1758,27 +1758,41 @@ class VcfZarrWriter:
     def partition_path(self, partition_index):
         return self.partitions_path / f"p{partition_index}"
 
+    def wip_partition_path(self, partition_index):
+        return self.partitions_path / f"wip_p{partition_index}"
+
     def wip_partition_array_path(self, partition_index, name):
-        return self.partition_path(partition_index) / f"wip_{name}"
+        return self.wip_partition_path(partition_index) / name
 
     def partition_array_path(self, partition_index, name):
         return self.partition_path(partition_index) / name
 
     def encode_partition(self, partition_index):
         self.load_metadata()
-        partition_path = self.partition_path(partition_index)
+        if partition_index < 0 or partition_index >= self.num_partitions:
+            raise ValueError(
+                "Partition index must be in the range 0 <= index < num_partitions"
+            )
+        partition_path = self.wip_partition_path(partition_index)
         partition_path.mkdir(exist_ok=True)
         logger.info(f"Encoding partition {partition_index} to {partition_path}")
 
-        self.encode_alleles_partition(partition_index)
         self.encode_id_partition(partition_index)
         self.encode_filters_partition(partition_index)
         self.encode_contig_partition(partition_index)
+        self.encode_alleles_partition(partition_index)
         for col in self.schema.columns.values():
             if col.vcf_field is not None:
                 self.encode_array_partition(col, partition_index)
         if "call_genotype" in self.schema.columns:
             self.encode_genotypes_partition(partition_index)
+
+        final_path = self.partition_path(partition_index)
+        logger.info(f"Finalising {partition_index} at {final_path}")
+        if final_path.exists():
+            logger.warning("Removing existing partition at {final_path}")
+            shutil.rmtree(final_path)
+        os.rename(partition_path, final_path)
 
     def init_partition_array(self, partition_index, name):
         wip_path = self.wip_partition_array_path(partition_index, name)
@@ -1791,14 +1805,6 @@ class VcfZarrWriter:
         return array
 
     def finalise_partition_array(self, partition_index, name):
-        wip_path = self.wip_partition_array_path(partition_index, name)
-        final_path = self.partition_array_path(partition_index, name)
-        if final_path.exists():
-            # NEEDS TEST
-            logger.warning(f"Removing existing {final_path}")
-            shutil.rmtree(final_path)
-        # Atomic swap
-        os.rename(wip_path, final_path)
         logger.debug(f"Encoded {name} partition {partition_index}")
 
     def encode_array_partition(self, column, partition_index):
@@ -1942,7 +1948,7 @@ class VcfZarrWriter:
         if final_path.exists():
             # NEEDS TEST
             raise ValueError(f"Array {name} already exists")
-        for partition in range(len(self.metadata.partitions)):
+        for partition in range(self.num_partitions):
             # Move all the files in partition dir to dest dir
             src = self.partition_array_path(partition, name)
             if not src.exists():
@@ -1969,6 +1975,13 @@ class VcfZarrWriter:
     def finalise(self, show_progress=False):
         self.load_metadata()
 
+        missing = []
+        for partition_id in range(self.num_partitions):
+            if not self.partition_path(partition_id).exists():
+                missing.append(partition_id)
+        if len(missing) > 0:
+            raise FileNotFoundError(f"Partitions not encoded: {missing}")
+
         progress_config = core.ProgressConfig(
             total=len(self.schema.columns),
             title="Finalise",
@@ -1986,6 +1999,9 @@ class VcfZarrWriter:
         with core.ParallelWorkManager(0, progress_config) as pwm:
             for name in self.schema.columns:
                 pwm.submit(self.finalise_array, name)
+        logger.debug(f"Removing {self.wip_path}")
+        shutil.rmtree(self.wip_path)
+        logger.info("Consolidating Zarr metadata")
         zarr.consolidate_metadata(self.path)
 
     ######################

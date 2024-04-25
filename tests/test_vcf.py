@@ -5,7 +5,7 @@ import sgkit as sg
 import xarray.testing as xt
 import zarr
 
-from bio2zarr import vcf, vcf_utils
+from bio2zarr import core, vcf, vcf_utils
 
 
 @pytest.fixture(scope="module")
@@ -383,3 +383,117 @@ class TestVcfDescriptions:
     #     ])
     # def test_filters(self, schema, filt, description):
     #     assert schema["filters"][field]["description"] == description
+
+
+class TestVcfZarrWriterExample:
+    arrays = (
+        "variant_contig",
+        "variant_filter",
+        "variant_id",
+        "variant_AA",
+        "variant_AC",
+        "variant_AF",
+        "variant_AN",
+        "variant_DB",
+        "variant_DP",
+        "variant_H2",
+        "variant_NS",
+        "variant_position",
+        "variant_quality",
+        "variant_allele",
+        "call_DP",
+        "call_GQ",
+        "call_genotype",
+        "call_genotype_phased",
+        "call_genotype_mask",
+        "call_HQ",
+    )
+
+    def test_init_paths(self, icf_path, tmp_path):
+        zarr_path = tmp_path / "x.zarr"
+        assert not zarr_path.exists()
+        num_partitions, _ = vcf.encode_init(
+            icf_path, zarr_path, 7, variants_chunk_size=3
+        )
+        assert num_partitions == 3
+        assert zarr_path.exists()
+        wip_path = zarr_path / "wip"
+        assert wip_path.exists()
+        wip_partitions_path = wip_path / "partitions"
+        assert wip_partitions_path.exists()
+        wip_arrays_path = wip_path / "arrays"
+        assert wip_arrays_path.exists()
+        for name in self.arrays:
+            array_path = wip_arrays_path / name
+            assert array_path.exists()
+        with open(wip_path / "metadata.json") as f:
+            d = json.loads(f.read())
+            # Basic test
+            assert len(d["partitions"]) == 3
+
+    def test_finalise_paths(self, icf_path, tmp_path):
+        zarr_path = tmp_path / "x.zarr"
+        assert not zarr_path.exists()
+        num_partitions, _ = vcf.encode_init(
+            icf_path, zarr_path, 7, variants_chunk_size=3
+        )
+        wip_path = zarr_path / "wip"
+        assert wip_path.exists()
+        for j in range(num_partitions):
+            vcf.encode_partition(zarr_path, j)
+            assert (wip_path / "partitions" / f"p{j}").exists()
+        vcf.encode_finalise(zarr_path)
+        assert zarr_path.exists()
+        assert not wip_path.exists()
+
+    def test_finalise_no_partitions_fails(self, icf_path, tmp_path):
+        zarr_path = tmp_path / "x.zarr"
+        vcf.encode_init(icf_path, zarr_path, 3, variants_chunk_size=3)
+        with pytest.raises(
+            FileNotFoundError, match="Partitions not encoded: \\[0, 1, 2\\]"
+        ):
+            vcf.encode_finalise(zarr_path)
+
+    @pytest.mark.parametrize("partition", [0, 1, 2])
+    def test_finalise_missing_partition_fails(self, icf_path, tmp_path, partition):
+        zarr_path = tmp_path / "x.zarr"
+        vcf.encode_init(icf_path, zarr_path, 3, variants_chunk_size=3)
+        for j in range(3):
+            if j != partition:
+                vcf.encode_partition(zarr_path, j)
+        with pytest.raises(
+            FileNotFoundError, match=f"Partitions not encoded: \\[{partition}\\]"
+        ):
+            vcf.encode_finalise(zarr_path)
+
+    @pytest.mark.parametrize("partition", [0, 1, 2])
+    def test_encode_partition(self, icf_path, tmp_path, partition):
+        zarr_path = tmp_path / "x.zarr"
+        vcf.encode_init(icf_path, zarr_path, 3, variants_chunk_size=3)
+        partition_path = zarr_path / "wip" / "partitions" / f"p{partition}"
+        assert not partition_path.exists()
+        vcf.encode_partition(zarr_path, partition)
+        assert partition_path.exists()
+
+    def test_double_encode_partition(self, icf_path, tmp_path, caplog):
+        partition = 1
+        zarr_path = tmp_path / "x.zarr"
+        vcf.encode_init(icf_path, zarr_path, 3, variants_chunk_size=3)
+        partition_path = zarr_path / "wip" / "partitions" / f"p{partition}"
+        assert not partition_path.exists()
+        vcf.encode_partition(zarr_path, partition)
+        assert partition_path.exists()
+        size = core.du(partition_path)
+        assert size > 0
+        with caplog.at_level("WARNING"):
+            vcf.encode_partition(zarr_path, partition)
+        assert "Removing existing partition at" in caplog.text
+        assert partition_path.exists()
+        assert core.du(partition_path) == size
+
+    @pytest.mark.parametrize("partition", [-1, 3, 100])
+    def test_encode_partition_out_of_range(self, icf_path, tmp_path, partition):
+        zarr_path = tmp_path / "x.zarr"
+        vcf.encode_init(icf_path, zarr_path, 3, variants_chunk_size=3)
+        with pytest.raises(ValueError, match="Partition index must be in the range"):
+            vcf.encode_partition(zarr_path, partition)
