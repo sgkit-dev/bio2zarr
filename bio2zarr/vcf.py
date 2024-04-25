@@ -6,6 +6,7 @@ import json
 import logging
 import math
 import os
+import os.path
 import pathlib
 import pickle
 import shutil
@@ -1509,14 +1510,12 @@ class VcfZarr:
     def __init__(self, path):
         if not (path / ".zmetadata").exists():
             raise ValueError("Not in VcfZarr format")  # NEEDS TEST
+        self.path = path
         self.root = zarr.open(path, mode="r")
-
-    def __repr__(self):
-        return repr(self.root)  # NEEDS TEST
 
     def summary_table(self):
         data = []
-        arrays = [(a.nbytes_stored, a) for _, a in self.root.arrays()]
+        arrays = [(core.du(self.path / a.basename), a) for _, a in self.root.arrays()]
         arrays.sort(key=lambda x: x[0])
         for stored, array in reversed(arrays):
             d = {
