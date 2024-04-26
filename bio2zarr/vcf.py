@@ -294,17 +294,18 @@ def scan_vcf(path, target_num_partitions):
 
 def check_overlap(partitions):
     for i in range(1, len(partitions)):
-        prev_partition = partitions[i - 1]
-        current_partition = partitions[i]
-        if (
-            prev_partition.region.contig == current_partition.region.contig
-            and prev_partition.region.end > current_partition.region.start
-        ):
-            raise ValueError(
-                f"Multiple VCFs have the region "
-                f"{prev_partition.region.contig}:{prev_partition.region.start}-"
-                f"{current_partition.region.end}"
-            )
+        prev_region = partitions[i - 1].region
+        current_region = partitions[i].region
+        if prev_region.contig == current_region.contig:
+            if prev_region.end is None:
+                logger.warning("Cannot check overlaps; issue #146")
+                continue
+            if prev_region.end > current_region.start:
+                raise ValueError(
+                    f"Multiple VCFs have the region "
+                    f"{prev_region.contig}:{prev_region.start}-"
+                    f"{current_region.end}"
+                )
 
 
 def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
@@ -453,7 +454,7 @@ def sanitise_value_float_2d(buff, j, value):
 
 def sanitise_int_array(value, ndmin, dtype):
     if isinstance(value, tuple):
-        value = [VCF_INT_MISSING if x is None else x for x in value]  #  NEEDS TEST
+        value = [VCF_INT_MISSING if x is None else x for x in value]  # NEEDS TEST
     value = np.array(value, ndmin=ndmin, copy=False)
     value[value == VCF_INT_MISSING] = -1
     value[value == VCF_INT_FILL] = -2
