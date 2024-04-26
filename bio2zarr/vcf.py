@@ -1975,7 +1975,9 @@ class VcfZarrWriter:
     def finalise(self, show_progress=False):
         self.load_metadata()
 
+        logger.info("Scanning {self.num_partitions} partitions")
         missing = []
+        # TODO may need a progress bar here
         for partition_id in range(self.num_partitions):
             if not self.partition_path(partition_id).exists():
                 missing.append(partition_id)
