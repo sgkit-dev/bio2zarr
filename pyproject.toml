@@ -46,6 +46,17 @@ vcf2zarr = "bio2zarr.cli:vcf2zarr"
 plink2zarr = "bio2zarr.cli:plink2zarr"
 vcf_partition = "bio2zarr.cli:vcf_partition"
 
+[project.optional-dependencies]
+dev = [
+  "msprime",
+  "pysam",
+  "pytest",
+  "pytest-coverage",
+  "pytest-xdist",
+  "sgkit",
+  "tqdm"
+]
+
 [tool.setuptools]
 packages = ["bio2zarr"]
 
