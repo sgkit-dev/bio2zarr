@@ -1,3 +1,5 @@
+[![CI](https://github.com/sgkit-dev/bio2zarr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sgkit-dev/bio2zarr/actions/workflows/ci.yml)
+
 # bio2zarr
 Convert bioinformatics file formats to Zarr
 
