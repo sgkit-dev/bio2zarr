@@ -3,8 +3,9 @@ import gzip
 import os
 import pathlib
 import struct
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import IO, Any, Dict, Optional, Sequence, Union
+from typing import IO, Any, Optional, Union
 
 import cyvcf2
 import humanfriendly
@@ -183,7 +184,7 @@ def get_first_locus_in_bin(csi: CSIIndex, bin: int) -> int:
 
 
 def read_csi(
-    file: PathType, storage_options: Optional[Dict[str, str]] = None
+    file: PathType, storage_options: Optional[dict[str, str]] = None
 ) -> CSIIndex:
     """Parse a CSI file into a `CSIIndex` object.
 
@@ -297,7 +298,7 @@ class TabixIndex:
 
 
 def read_tabix(
-    file: PathType, storage_options: Optional[Dict[str, str]] = None
+    file: PathType, storage_options: Optional[dict[str, str]] = None
 ) -> TabixIndex:
     """Parse a tabix file into a `TabixIndex` object.
 
