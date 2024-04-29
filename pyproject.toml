@@ -8,7 +8,7 @@ description = "Convert bioinformatics data to Zarr"
 readme = "README.md"
 license = {file = "LICENSE"}
 authors = [
-  {name = "sgkit Developers", email = "project@pystatgen.org"},
+  {name = "sgkit Developers", email = "project@sgkit.dev"},
 ]
 dependencies = [
   "numpy",
