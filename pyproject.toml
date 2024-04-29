@@ -1,10 +1,68 @@
+[build-system]
+requires = ["setuptools >= 69", "setuptools_scm[toml] >= 8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bio2zarr"
+description = "Convert bioinformatics data to Zarr"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+  {name = "sgkit Developers", email = "project@pystatgen.org"},
+]
+dependencies = [
+  "numpy",
+  "zarr >= 2.17",
+  "click",
+  "tabulate",
+  "tqdm",
+  "humanfriendly",
+  # cyvcf2 also pulls in coloredlogs and click",
+  # colouredlogs pulls in humanfriendly",
+  "cyvcf2",
+  "bed_reader",
+]
+requires-python = ">=3.9"
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: Apache, Software License",
+  "Operating System :: OS Independent",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Scientific/Engineering"
+]
+dynamic = ["version"]
+
+[project.urls]
+repository = "https://github.com/sgkit-dev/bio2zarr"
+documentation = "https://sgkit-dev.github.io/bio2zarr/intro.html"
+
+[project.scripts]
+vcf2zarr = "bio2zarr.cli:vcf2zarr"
+plink2zarr = "bio2zarr.cli:plink2zarr"
+vcf_partition = "bio2zarr.cli:vcf_partition"
+
+[tool.setuptools]
+packages = ["bio2zarr"]
+
+[tool.setuptools_scm]
+version_file = "bio2zarr/_version.py"
+
+[tool.pytest.ini_options]
+testpaths = "tests"
+addopts = "--cov=bio2zarr --cov-report term-missing"
+
 [tool.ruff]
+# Assume Python 3.9
+target-version = "py39"
+
 # Same as Black.
 line-length = 88
 indent-width = 4
-
-# Assume Python 3.8
-target-version = "py38"
 
 [tool.ruff.lint]
 select = ["E", "F", "B", "W", "I", "N", "UP", "A", "RUF", "PT"]
@@ -13,3 +71,15 @@ ignore = ["N806", "N802", "A001", "A002"]
 
 fixable = ["ALL"]
 unfixable = []
+
+[tool.ruff.lint.isort]
+known-third-party = [
+  "hypothesis",
+  "msprime",
+  "numpy",
+  "pandas",
+  "pytest",
+  "setuptools",
+  "sgkit",
+  "zarr"
+]

@@ -12,7 +12,7 @@ import pickle
 import shutil
 import sys
 import tempfile
-from typing import Any, List
+from typing import Any
 
 import cyvcf2
 import humanfriendly
@@ -746,9 +746,9 @@ class IcfFieldWriter:
     transformer: VcfValueTransformer
     compressor: Any
     max_buffered_bytes: int
-    buff: List[Any] = dataclasses.field(default_factory=list)
+    buff: list[Any] = dataclasses.field(default_factory=list)
     buffered_bytes: int = 0
-    chunk_index: List[int] = dataclasses.field(default_factory=lambda: [0])
+    chunk_index: list[int] = dataclasses.field(default_factory=lambda: [0])
     num_records: int = 0
 
     def append(self, val):
