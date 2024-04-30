@@ -1,4 +1,4 @@
-# 0.0.7 2024-04-xx
+# 0.0.7 2024-04-30
 - Change on-disk format of distributed encode and simplify
 - Check for all partitions nominally completed encoding before doing
   anything destructive in dencode-finalise
