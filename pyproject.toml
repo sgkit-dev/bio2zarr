@@ -53,7 +53,7 @@ dev = [
   "pytest",
   "pytest-coverage",
   "pytest-xdist",
-  "sgkit",
+  "sgkit>=0.8.0",
   "tqdm"
 ]
 
