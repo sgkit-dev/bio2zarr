@@ -14,7 +14,7 @@ DEFAULT_EXPLODE_ARGS = dict(
     show_progress=True,
 )
 
-DEFAULT_DEXPLODE_PARTITION_ARGS = dict(show_progress=False)
+DEFAULT_DEXPLODE_PARTITION_ARGS = dict()
 
 DEFAULT_DEXPLODE_INIT_ARGS = dict(
     worker_processes=1,
@@ -614,10 +614,10 @@ class TestVcfPartition:
             cli.vcf_partition, [path, "-n", "5"], catch_exceptions=False
         )
         assert list(result.stdout.splitlines()) == [
-            "20:1-278528",
+            "20:60001-278528",
             "20:278529-442368",
-            "20:442369-638976",
-            "20:638977-819200",
+            "20:442381-638976",
+            "20:638982-819200",
             "20:819201-",
         ]
 

@@ -325,12 +325,15 @@ def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
             all_partitions.append(partition)
         total_records += metadata.num_records
         metadata.num_records = 0
+        metadata.partitions = []
 
     icf_metadata, header = results[0]
     for metadata, _ in results[1:]:
         if metadata != icf_metadata:
             raise ValueError("Incompatible VCF chunks")
 
+    # Note: this will be infinity here if any of the chunks has an index
+    # that doesn't keep track of the number of records per-contig
     icf_metadata.num_records = total_records
 
     # Sort by contig (in the order they appear in the header) first,
@@ -1057,32 +1060,20 @@ class IntermediateColumnarFormatWriter:
             f"{num_records} records"
         )
 
-    def process_partition_slice(
-        self,
-        start,
-        stop,
-        *,
-        worker_processes=1,
-        show_progress=False,
-    ):
+    def explode(self, *, worker_processes=1, show_progress=False):
         self.load_metadata()
-        if start == 0 and stop == self.num_partitions:
-            num_records = self.metadata.num_records
-            if np.isinf(num_records):
-                logger.warning(
-                    "Total records unknown, cannot show progress; "
-                    "reindex VCFs with bcftools index to fix"
-                )
-                num_records = None
-        else:
-            # We only know the number of records if all partitions are done at once,
-            # and we signal this to tqdm by passing None as the total.
+        num_records = self.metadata.num_records
+        if np.isinf(num_records):
+            logger.warning(
+                "Total records unknown, cannot show progress; "
+                "reindex VCFs with bcftools index to fix"
+            )
             num_records = None
         num_columns = len(self.metadata.fields)
         num_samples = len(self.metadata.samples)
         logger.info(
             f"Exploding columns={num_columns} samples={num_samples}; "
-            f"partitions={stop - start} "
+            f"partitions={self.num_partitions} "
             f"variants={'unknown' if num_records is None else num_records}"
         )
         progress_config = core.ProgressConfig(
@@ -1092,30 +1083,16 @@ class IntermediateColumnarFormatWriter:
             show=show_progress,
         )
         with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
-            for j in range(start, stop):
+            for j in range(self.num_partitions):
                 pwm.submit(self.process_partition, j)
 
-    def explode(self, *, worker_processes=1, show_progress=False):
-        self.load_metadata()
-        return self.process_partition_slice(
-            0,
-            self.num_partitions,
-            worker_processes=worker_processes,
-            show_progress=show_progress,
-        )
-
-    def explode_partition(self, partition, *, show_progress=False, worker_processes=1):
+    def explode_partition(self, partition):
         self.load_metadata()
         if partition < 0 or partition >= self.num_partitions:
             raise ValueError(
                 "Partition index must be in the range 0 <= index < num_partitions"
             )
-        return self.process_partition_slice(
-            partition,
-            partition + 1,
-            worker_processes=worker_processes,
-            show_progress=show_progress,
-        )
+        self.process_partition(partition)
 
     def finalise(self):
         self.load_metadata()
@@ -1190,14 +1167,9 @@ def explode_init(
     )
 
 
-# NOTE only including worker_processes here so we can use the 0 option to get the
-# work done syncronously and so we can get test coverage on it. Should find a
-# better way to do this.
-def explode_partition(icf_path, partition, *, show_progress=False, worker_processes=1):
+def explode_partition(icf_path, partition):
     writer = IntermediateColumnarFormatWriter(icf_path)
-    writer.explode_partition(
-        partition, show_progress=show_progress, worker_processes=worker_processes
-    )
+    writer.explode_partition(partition)
 
 
 def explode_finalise(icf_path):
