@@ -1,7 +1,6 @@
 import collections
 import contextlib
 import dataclasses
-import functools
 import json
 import logging
 import math
@@ -159,7 +158,6 @@ ICF_DEFAULT_COMPRESSOR = numcodecs.Blosc(
 class IcfMetadata:
     samples: list
     contig_names: list
-    contig_record_counts: dict
     filters: list
     fields: list
     partitions: list = None
@@ -168,6 +166,7 @@ class IcfMetadata:
     compressor: dict = None
     column_chunk_size: int = None
     provenance: dict = None
+    num_records: int = -1
 
     @property
     def info_fields(self):
@@ -193,10 +192,6 @@ class IcfMetadata:
     def num_filters(self):
         return len(self.filters)
 
-    @property
-    def num_records(self):
-        return sum(self.contig_record_counts.values())
-
     @staticmethod
     def fromdict(d):
         if d["format_version"] != ICF_METADATA_FORMAT_VERSION:
@@ -215,6 +210,9 @@ class IcfMetadata:
 
     def asdict(self):
         return dataclasses.asdict(self)
+
+    def asjson(self):
+        return json.dumps(self.asdict(), indent=4)
 
 
 def fixed_vcf_field_definitions():
@@ -265,10 +263,10 @@ def scan_vcf(path, target_num_partitions):
         metadata = IcfMetadata(
             samples=vcf.samples,
             contig_names=vcf.seqnames,
-            contig_record_counts=indexed_vcf.contig_record_counts(),
             filters=filters,
             fields=fields,
             partitions=[],
+            num_records=sum(indexed_vcf.contig_record_counts().values()),
         )
         try:
             metadata.contig_lengths = vcf.seqlens
@@ -320,19 +318,20 @@ def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
     # We just take the first header, assuming the others
     # are compatible.
     all_partitions = []
-    contig_record_counts = collections.Counter()
+    total_records = 0
     for metadata, _ in results:
-        all_partitions.extend(metadata.partitions)
-        metadata.partitions.clear()
-        contig_record_counts += metadata.contig_record_counts
-        metadata.contig_record_counts.clear()
+        for partition in metadata.partitions:
+            logger.debug(f"Scanned partition {partition}")
+            all_partitions.append(partition)
+        total_records += metadata.num_records
+        metadata.num_records = 0
 
     icf_metadata, header = results[0]
     for metadata, _ in results[1:]:
         if metadata != icf_metadata:
             raise ValueError("Incompatible VCF chunks")
 
-    icf_metadata.contig_record_counts = dict(contig_record_counts)
+    icf_metadata.num_records = total_records
 
     # Sort by contig (in the order they appear in the header) first,
     # then by start coordinate
@@ -836,7 +835,6 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
             self.metadata = IcfMetadata.fromdict(json.load(f))
         with open(self.path / "header.txt") as f:
             self.vcf_header = f.read()
-
         self.compressor = numcodecs.get_codec(self.metadata.compressor)
         self.columns = {}
         partition_num_records = [
@@ -885,9 +883,9 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
             data.append(d)
         return data
 
-    @functools.cached_property
+    @property
     def num_records(self):
-        return sum(self.metadata.contig_record_counts.values())
+        return self.metadata.num_records
 
     @property
     def num_partitions(self):
@@ -1070,6 +1068,12 @@ class IntermediateColumnarFormatWriter:
         self.load_metadata()
         if start == 0 and stop == self.num_partitions:
             num_records = self.metadata.num_records
+            if np.isinf(num_records):
+                logger.warning(
+                    "Total records unknown, cannot show progress; "
+                    "reindex VCFs with bcftools index to fix"
+                )
+                num_records = None
         else:
             # We only know the number of records if all partitions are done at once,
             # and we signal this to tqdm by passing None as the total.
@@ -1121,7 +1125,13 @@ class IntermediateColumnarFormatWriter:
             partition_records = summary["num_records"]
             self.metadata.partitions[index].num_records = partition_records
             total_records += partition_records
-        assert total_records == self.metadata.num_records
+        if not np.isinf(self.metadata.num_records):
+            # Note: this is just telling us that there's a bug in the
+            # index based record counting code, but it doesn't actually
+            # matter much. We may want to just make this a warning if
+            # we hit regular problems.
+            assert total_records == self.metadata.num_records
+        self.metadata.num_records = total_records
 
         for field in self.metadata.fields:
             for summary in partition_summaries:
@@ -1129,7 +1139,7 @@ class IntermediateColumnarFormatWriter:
 
         logger.info("Finalising metadata")
         with open(self.path / "metadata.json", "w") as f:
-            json.dump(self.metadata.asdict(), f, indent=4)
+            f.write(self.metadata.asjson())
 
         logger.debug("Removing WIP directory")
         shutil.rmtree(self.wip_path)
