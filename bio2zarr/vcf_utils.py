@@ -76,6 +76,10 @@ def read_bytes_as_tuple(f: IO[Any], fmt: str) -> Sequence[Any]:
 
 @dataclass
 class Region:
+    """
+    A htslib style region, where coordinates are 1-based and inclusive.
+    """
+
     contig: str
     start: Optional[int] = None
     end: Optional[int] = None
@@ -86,7 +90,7 @@ class Region:
             assert self.start > 0
         if self.end is not None:
             self.end = int(self.end)
-            assert self.end > self.start
+            assert self.end >= self.start
 
     def __str__(self):
         s = f"{self.contig}"

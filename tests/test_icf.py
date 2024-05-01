@@ -147,7 +147,7 @@ class TestIcfWriterExample:
     def test_explode_partition(self, tmp_path, partition):
         icf_path = tmp_path / "x.icf"
         vcf.explode_init(icf_path, [self.data_path])
-        summary_file = icf_path / "wip" / f"p{partition}_summary.json"
+        summary_file = icf_path / "wip" / f"p{partition}.json"
         assert not summary_file.exists()
         vcf.explode_partition(icf_path, partition)
         assert summary_file.exists()
@@ -156,12 +156,12 @@ class TestIcfWriterExample:
         partition = 1
         icf_path = tmp_path / "x.icf"
         vcf.explode_init(icf_path, [self.data_path])
-        summary_file = icf_path / "wip" / f"p{partition}_summary.json"
+        summary_file = icf_path / "wip" / f"p{partition}.json"
         assert not summary_file.exists()
-        vcf.explode_partition(icf_path, partition, worker_processes=0)
+        vcf.explode_partition(icf_path, partition)
         with open(summary_file) as f:
             s1 = f.read()
-        vcf.explode_partition(icf_path, partition, worker_processes=0)
+        vcf.explode_partition(icf_path, partition)
         with open(summary_file) as f:
             s2 = f.read()
         assert s1 == s2
@@ -172,6 +172,16 @@ class TestIcfWriterExample:
         vcf.explode_init(icf_path, [self.data_path])
         with pytest.raises(ValueError, match="Partition index must be in the range"):
             vcf.explode_partition(icf_path, partition)
+
+    def test_explode_same_file_twice(self, tmp_path):
+        icf_path = tmp_path / "x.icf"
+        with pytest.raises(ValueError, match="Duplicate path provided"):
+            vcf.explode(icf_path, [self.data_path, self.data_path])
+
+    def test_explode_same_data_twice(self, tmp_path):
+        icf_path = tmp_path / "x.icf"
+        with pytest.raises(ValueError, match="Overlapping VCF regions"):
+            vcf.explode(icf_path, [self.data_path, "tests/data/vcf/sample.bcf"])
 
 
 class TestGeneratedFieldsExample:

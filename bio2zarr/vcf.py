@@ -144,6 +144,7 @@ class VcfPartition:
     num_records: int = -1
 
 
+# TODO bump this before current PR is done!
 ICF_METADATA_FORMAT_VERSION = "0.2"
 ICF_DEFAULT_COMPRESSOR = numcodecs.Blosc(
     cname="zstd", clevel=7, shuffle=numcodecs.Blosc.NOSHUFFLE
@@ -903,6 +904,40 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
         return len(self.columns)
 
 
+@dataclasses.dataclass
+class IcfPartitionMetadata:
+    num_records: int
+    last_position: int
+    field_summaries: dict
+
+    def asdict(self):
+        return dataclasses.asdict(self)
+
+    def asjson(self):
+        return json.dumps(self.asdict(), indent=4)
+
+    @staticmethod
+    def fromdict(d):
+        md = IcfPartitionMetadata(**d)
+        for k, v in md.field_summaries.items():
+            md.field_summaries[k] = VcfFieldSummary.fromdict(v)
+        return md
+
+
+def check_overlapping_partitions(partitions):
+    for i in range(1, len(partitions)):
+        prev_region = partitions[i - 1].region
+        current_region = partitions[i].region
+        if prev_region.contig == current_region.contig:
+            assert prev_region.end is not None
+            # Regions are *inclusive*
+            if prev_region.end >= current_region.start:
+                raise ValueError(
+                    f"Overlapping VCF regions in partitions {i - 1} and {i}: "
+                    f"{prev_region} and {current_region}"
+                )
+
+
 class IntermediateColumnarFormatWriter:
     def __init__(self, path):
         self.path = pathlib.Path(path)
@@ -974,11 +1009,8 @@ class IntermediateColumnarFormatWriter:
         not_found = []
         for j in range(self.num_partitions):
             try:
-                with open(self.wip_path / f"p{j}_summary.json") as f:
-                    summary = json.load(f)
-                    for k, v in summary["field_summaries"].items():
-                        summary["field_summaries"][k] = VcfFieldSummary.fromdict(v)
-                    summaries.append(summary)
+                with open(self.wip_path / f"p{j}.json") as f:
+                    summaries.append(IcfPartitionMetadata.fromdict(json.load(f)))
             except FileNotFoundError:
                 not_found.append(j)
         if len(not_found) > 0:
@@ -995,7 +1027,7 @@ class IntermediateColumnarFormatWriter:
 
     def process_partition(self, partition_index):
         self.load_metadata()
-        summary_path = self.wip_path / f"p{partition_index}_summary.json"
+        summary_path = self.wip_path / f"p{partition_index}.json"
         # If someone is rewriting a summary path (for whatever reason), make sure it
         # doesn't look like it's already been completed.
         # NOTE to do this properly we probably need to take a lock on this file - but
@@ -1016,6 +1048,7 @@ class IntermediateColumnarFormatWriter:
             else:
                 format_fields.append(field)
 
+        last_position = None
         with IcfPartitionWriter(
             self.metadata,
             self.path,
@@ -1025,6 +1058,7 @@ class IntermediateColumnarFormatWriter:
                 num_records = 0
                 for variant in ivcf.variants(partition.region):
                     num_records += 1
+                    last_position = variant.POS
                     tcw.append("CHROM", variant.CHROM)
                     tcw.append("POS", variant.POS)
                     tcw.append("QUAL", variant.QUAL)
@@ -1049,15 +1083,16 @@ class IntermediateColumnarFormatWriter:
                 f"flushing buffers"
             )
 
-        partition_metadata = {
-            "num_records": num_records,
-            "field_summaries": {k: v.asdict() for k, v in tcw.field_summaries.items()},
-        }
+        partition_metadata = IcfPartitionMetadata(
+            num_records=num_records,
+            last_position=last_position,
+            field_summaries=tcw.field_summaries,
+        )
         with open(summary_path, "w") as f:
-            json.dump(partition_metadata, f, indent=4)
+            f.write(partition_metadata.asjson())
         logger.info(
-            f"Finish p{partition_index} {partition.vcf_path}__{partition.region}="
-            f"{num_records} records"
+            f"Finish p{partition_index} {partition.vcf_path}__{partition.region} "
+            f"{num_records} records last_pos={last_position}"
         )
 
     def explode(self, *, worker_processes=1, show_progress=False):
@@ -1099,8 +1134,9 @@ class IntermediateColumnarFormatWriter:
         partition_summaries = self.load_partition_summaries()
         total_records = 0
         for index, summary in enumerate(partition_summaries):
-            partition_records = summary["num_records"]
+            partition_records = summary.num_records
             self.metadata.partitions[index].num_records = partition_records
+            self.metadata.partitions[index].region.end = summary.last_position
             total_records += partition_records
         if not np.isinf(self.metadata.num_records):
             # Note: this is just telling us that there's a bug in the
@@ -1110,9 +1146,11 @@ class IntermediateColumnarFormatWriter:
             assert total_records == self.metadata.num_records
         self.metadata.num_records = total_records
 
+        check_overlapping_partitions(self.metadata.partitions)
+
         for field in self.metadata.fields:
             for summary in partition_summaries:
-                field.summary.update(summary["field_summaries"][field.full_name])
+                field.summary.update(summary.field_summaries[field.full_name])
 
         logger.info("Finalising metadata")
         with open(self.path / "metadata.json", "w") as f:
@@ -1756,7 +1794,7 @@ class VcfZarrWriter:
         final_path = self.partition_path(partition_index)
         logger.info(f"Finalising {partition_index} at {final_path}")
         if final_path.exists():
-            logger.warning("Removing existing partition at {final_path}")
+            logger.warning(f"Removing existing partition at {final_path}")
             shutil.rmtree(final_path)
         os.rename(partition_path, final_path)
 

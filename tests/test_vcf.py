@@ -334,6 +334,8 @@ class TestDefaultSchema:
         [("1", 100, 200), ("1", 150, 250)],
         # Overlap by one position
         [("1", 100, 201), ("1", 200, 300)],
+        # End coord is *inclusive*
+        [("1", 100, 201), ("1", 201, 300)],
         # Contained overlap
         [("1", 100, 300), ("1", 150, 250)],
         # Exactly equal
@@ -345,8 +347,8 @@ def test_check_overlap(regions):
         vcf.VcfPartition("", region=vcf_utils.Region(contig, start, end))
         for contig, start, end in regions
     ]
-    with pytest.raises(ValueError, match="Multiple VCFs have the region"):
-        vcf.check_overlap(partitions)
+    with pytest.raises(ValueError, match="Overlapping VCF regions"):
+        vcf.check_overlapping_partitions(partitions)
 
 
 class TestVcfDescriptions:
