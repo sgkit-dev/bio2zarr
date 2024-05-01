@@ -443,19 +443,16 @@ class IndexedVcf(contextlib.AbstractContextManager):
             if var.POS >= start:
                 yield var
 
-    def _filter_empty(self, regions):
+    def _filter_empty_and_refine(self, regions):
         """
-        Return all regions in the specified list that have one or more records.
-
-        Sometimes with Tabix indexes these seem to crop up:
-
-        - https://github.com/sgkit-dev/bio2zarr/issues/45
-        - https://github.com/sgkit-dev/bio2zarr/issues/120
+        Return all regions in the specified list that have one or more records,
+        and refine the start coordinate of the region to be the actual first coord
         """
         ret = []
         for region in regions:
-            variants = self.variants(region)
-            if next(variants, None) is not None:
+            var = next(self.variants(region), None)
+            if var is not None:
+                region.start = var.POS
                 ret.append(region)
         return ret
 
@@ -535,4 +532,4 @@ class IndexedVcf(contextlib.AbstractContextManager):
             if self.index.record_counts[ri] > 0:
                 regions.append(Region(self.sequence_names[ri]))
 
-        return self._filter_empty(regions)
+        return self._filter_empty_and_refine(regions)

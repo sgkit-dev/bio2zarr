@@ -63,20 +63,20 @@ class TestIndexedVcf:
     @pytest.mark.parametrize(
         ("index_file", "expected"),
         [
-            ("sample.vcf.gz.tbi", ["19:1-", "20", "X"]),
-            ("sample_old_tabix.vcf.gz.tbi", ["19:1-", "20", "X"]),
-            ("sample.bcf.csi", ["19:1-", "20", "X"]),
-            ("sample_extra_contig.bcf.csi", ["19:1-", "20", "X"]),
-            ("sample_extra_contig.vcf.gz.csi", ["19:1-", "20", "X"]),
-            ("sample_no_genotypes.vcf.gz.csi", ["19:1-", "20", "X"]),
-            ("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi", ["20:1-", "21"]),
-            ("CEUTrio.20.21.gatk3.4.g.bcf.csi", ["20:1-", "21"]),
-            ("1kg_2020_chrM.vcf.gz.tbi", ["chrM:1-"]),
-            ("1kg_2020_chrM.vcf.gz.csi", ["chrM:1-"]),
-            ("1kg_2020_chrM.bcf.csi", ["chrM:1-"]),
-            ("1kg_2020_chr20_annotations.bcf.csi", ["chr20:49153-"]),
-            ("NA12878.prod.chr20snippet.g.vcf.gz.tbi", ["20:1-"]),
-            ("multi_contig.vcf.gz.tbi", ["0:1-"] + [str(j) for j in range(1, 5)]),
+            ("sample.vcf.gz.tbi", ["19:111-", "20:14370-", "X:10-"]),
+            ("sample_old_tabix.vcf.gz.tbi", ["19:111-", "20:14370-", "X:10-"]),
+            ("sample.bcf.csi", ["19:111-", "20:14370-", "X:10-"]),
+            ("sample_extra_contig.bcf.csi", ["19:111-", "20:14370-", "X:10-"]),
+            ("sample_extra_contig.vcf.gz.csi", ["19:111-", "20:14370-", "X:10-"]),
+            ("sample_no_genotypes.vcf.gz.csi", ["19:111-", "20:14370-", "X:10-"]),
+            ("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi", ["20:1-", "21:1-"]),
+            ("CEUTrio.20.21.gatk3.4.g.bcf.csi", ["20:1-", "21:1-"]),
+            ("1kg_2020_chrM.vcf.gz.tbi", ["chrM:26-"]),
+            ("1kg_2020_chrM.vcf.gz.csi", ["chrM:26-"]),
+            ("1kg_2020_chrM.bcf.csi", ["chrM:26-"]),
+            ("1kg_2020_chr20_annotations.bcf.csi", ["chr20:60070-"]),
+            ("NA12878.prod.chr20snippet.g.vcf.gz.tbi", ["20:60001-"]),
+            ("multi_contig.vcf.gz.tbi", [f"{j}:1-" for j in range(5)]),
         ],
     )
     def test_partition_into_one_part(self, index_file, expected):
@@ -148,7 +148,7 @@ class TestIndexedVcf:
         # An earlier version of the code returned this, i.e. with a duplicate
         # for 4 with end coord of 0
         # ["0:1-", "1", "2", "3", "4:1-0", "4:1-"]
-        expected = ["0:1-", "1", "2", "3", "4:1-"]
+        expected = ["0:1-", "1:1-", "2:1-", "3:1-", "4:1-"]
         assert [str(r) for r in regions] == expected
 
     @pytest.mark.parametrize(

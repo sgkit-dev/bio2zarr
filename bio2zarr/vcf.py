@@ -292,22 +292,6 @@ def scan_vcf(path, target_num_partitions):
         return metadata, vcf.raw_header
 
 
-def check_overlap(partitions):
-    for i in range(1, len(partitions)):
-        prev_region = partitions[i - 1].region
-        current_region = partitions[i].region
-        if prev_region.contig == current_region.contig:
-            if prev_region.end is None:
-                logger.warning("Cannot check overlaps; issue #146")
-                continue
-            if prev_region.end > current_region.start:
-                raise ValueError(
-                    f"Multiple VCFs have the region "
-                    f"{prev_region.contig}:{prev_region.start}-"
-                    f"{current_region.end}"
-                )
-
-
 def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
     logger.info(
         f"Scanning {len(paths)} VCFs attempting to split into {target_num_partitions}"
@@ -356,7 +340,6 @@ def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
     all_partitions.sort(
         key=lambda x: (contig_index_map[x.region.contig], x.region.start)
     )
-    check_overlap(all_partitions)
     icf_metadata.partitions = all_partitions
     logger.info(f"Scan complete, resulting in {len(all_partitions)} partitions.")
     return icf_metadata, header
