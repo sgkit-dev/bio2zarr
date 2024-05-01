@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from bio2zarr import vcf_utils
+from bio2zarr.vcf_utils import RECORD_COUNT_UNKNOWN
 
 data_path = pathlib.Path("tests/data/vcf/")
 
@@ -33,7 +34,17 @@ class TestIndexedVcf:
         ("index_file", "expected"),
         [
             ("sample.vcf.gz.tbi", {"19": 2, "20": 6, "X": 1}),
+            (
+                "sample_old_tabix.vcf.gz.tbi",
+                {
+                    "19": RECORD_COUNT_UNKNOWN,
+                    "20": RECORD_COUNT_UNKNOWN,
+                    "X": RECORD_COUNT_UNKNOWN,
+                },
+            ),
             ("sample.bcf.csi", {"19": 2, "20": 6, "X": 1}),
+            ("sample_extra_contig.vcf.gz.csi", {"19": 2, "20": 6, "X": 1}),
+            ("sample_extra_contig.bcf.csi", {"19": 2, "20": 6, "X": 1}),
             ("sample_no_genotypes.vcf.gz.csi", {"19": 2, "20": 6, "X": 1}),
             ("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi", {"20": 3450, "21": 16460}),
             ("CEUTrio.20.21.gatk3.4.g.bcf.csi", {"20": 3450, "21": 16460}),
@@ -53,7 +64,10 @@ class TestIndexedVcf:
         ("index_file", "expected"),
         [
             ("sample.vcf.gz.tbi", ["19:1-", "20", "X"]),
+            ("sample_old_tabix.vcf.gz.tbi", ["19:1-", "20", "X"]),
             ("sample.bcf.csi", ["19:1-", "20", "X"]),
+            ("sample_extra_contig.bcf.csi", ["19:1-", "20", "X"]),
+            ("sample_extra_contig.vcf.gz.csi", ["19:1-", "20", "X"]),
             ("sample_no_genotypes.vcf.gz.csi", ["19:1-", "20", "X"]),
             ("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi", ["20:1-", "21"]),
             ("CEUTrio.20.21.gatk3.4.g.bcf.csi", ["20:1-", "21"]),
@@ -75,6 +89,7 @@ class TestIndexedVcf:
         ("index_file", "num_expected", "total_records"),
         [
             ("sample.vcf.gz.tbi", 3, 9),
+            ("sample_old_tabix.vcf.gz.tbi", 3, 9),
             ("sample.bcf.csi", 3, 9),
             ("sample_no_genotypes.vcf.gz.csi", 3, 9),
             ("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi", 17, 19910),
@@ -103,6 +118,7 @@ class TestIndexedVcf:
         ("index_file", "total_records"),
         [
             ("sample.vcf.gz.tbi", 9),
+            ("sample_old_tabix.vcf.gz.tbi", 9),
             ("sample.bcf.csi", 9),
             ("sample_no_genotypes.vcf.gz.csi", 9),
             ("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi", 19910),

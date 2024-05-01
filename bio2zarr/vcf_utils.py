@@ -113,6 +113,9 @@ class CSIBin:
     chunks: Sequence[Chunk]
 
 
+RECORD_COUNT_UNKNOWN = np.inf
+
+
 @dataclass
 class CSIIndex:
     min_shift: int
@@ -221,7 +224,9 @@ def read_csi(
             for _ in range(n_ref):
                 n_bin = read_bytes_as_value(f, "<i")
                 seq_bins = []
-                record_count = -1
+                # Distinguish between counts that are zero because the sequence
+                # isn't there, vs counts that aren't in the index.
+                record_count = 0 if n_bin == 0 else RECORD_COUNT_UNKNOWN
                 for _ in range(n_bin):
                     bin, loffset, n_chunk = read_bytes_as_tuple(f, "<IQi")
                     chunks = []
@@ -337,7 +342,9 @@ def read_tabix(
             for _ in range(header.n_ref):
                 n_bin = read_bytes_as_value(f, "<i")
                 seq_bins = []
-                record_count = -1
+                # Distinguish between counts that are zero because the sequence
+                # isn't there, vs counts that aren't in the index.
+                record_count = 0 if n_bin == 0 else RECORD_COUNT_UNKNOWN
                 for _ in range(n_bin):
                     bin, n_chunk = read_bytes_as_tuple(f, "<Ii")
                     chunks = []
