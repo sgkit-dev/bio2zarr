@@ -41,3 +41,25 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install '.[dev]'
       - run: pytest
+
+  packaging:
+    name: Packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build twine validate-pyproject[all]
+      - name: Check and install package
+        run: |
+          validate-pyproject pyproject.toml
+          python -m build
+          python -m twine check --strict dist/*
+          python -m pip install dist/*.whl
+      - name: Check CLIs
+        run: |
+          vcf2zarr --help
