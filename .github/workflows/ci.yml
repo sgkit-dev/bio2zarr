@@ -17,10 +17,17 @@ jobs:
       - uses: pre-commit/action@v3.0.1
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        # Use macos-13 because pip binary packages for ARM aren't
+        # available for many dependencies
+        os: [macos-13, ubuntu-latest]
         python-version: ["3.9", "3.10", "3.11"]
+        exclude:
+          # Just run macos tests on one Python version
+          - os: macos-13
+            python-version: "3.9"
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python-version }}
