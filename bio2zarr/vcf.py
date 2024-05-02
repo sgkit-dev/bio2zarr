@@ -1148,9 +1148,7 @@ class IntermediateColumnarFormatWriter:
     def explode_partition(self, partition):
         self.load_metadata()
         if partition < 0 or partition >= self.num_partitions:
-            raise ValueError(
-                "Partition index must be in the range 0 <= index < num_partitions"
-            )
+            raise ValueError("Partition index not in the valid range")
         self.process_partition(partition)
 
     def finalise(self):
@@ -1801,9 +1799,7 @@ class VcfZarrWriter:
     def encode_partition(self, partition_index):
         self.load_metadata()
         if partition_index < 0 or partition_index >= self.num_partitions:
-            raise ValueError(
-                "Partition index must be in the range 0 <= index < num_partitions"
-            )
+            raise ValueError("Partition index not in the valid range")
         partition_path = self.wip_partition_path(partition_index)
         partition_path.mkdir(exist_ok=True)
         logger.info(f"Encoding partition {partition_index} to {partition_path}")

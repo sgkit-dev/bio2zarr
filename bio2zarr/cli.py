@@ -58,6 +58,13 @@ force = click.option(
     help="Force overwriting of existing directories",
 )
 
+one_based = click.option(
+    "--one-based",
+    is_flag=True,
+    flag_value=True,
+    help="Partition indexes are interpreted as one-based",
+)
+
 version = click.version_option(version=f"{provenance.__version__}")
 
 worker_processes = click.option(
@@ -226,13 +233,18 @@ def dexplode_init(
 @icf_path
 @partition
 @verbose
-def dexplode_partition(icf_path, partition, verbose):
+@one_based
+def dexplode_partition(icf_path, partition, verbose, one_based):
     """
-    Convert a VCF partition to intermediate columnar format. Must be called *after*
-    the ICF path has been initialised with dexplode_init. Partition indexes must be
-    from 0 (inclusive) to the number of paritions returned by dexplode_init (exclusive).
+    Convert a VCF partition to intermediate columnar format. Must be called
+    after the ICF path has been initialised with dexplode_init. By default,
+    partition indexes are from 0 to the number of partitions N (returned by
+    dexplode_init), exclusive. If the --one-based option is specifed,
+    partition indexes are in the range 1 to N, inclusive.
     """
     setup_logging(verbose)
+    if one_based:
+        partition -= 1
     vcf.explode_partition(icf_path, partition)
 
 
@@ -371,14 +383,17 @@ def dencode_init(
 @zarr_path
 @partition
 @verbose
-def dencode_partition(zarr_path, partition, verbose):
+@one_based
+def dencode_partition(zarr_path, partition, verbose, one_based):
     """
-    Convert a partition from intermediate columnar format to VCF Zarr.
-    Must be called *after* the Zarr path has been initialised with dencode_init.
-    Partition indexes must be from 0 (inclusive) to the number of paritions
-    returned by dencode_init (exclusive).
-    """
+    Convert a partition from intermediate columnar format to VCF Zarr. Must be
+    called after the Zarr path has been initialised with dencode_init. By
+    default, partition indexes are from 0 to the number of partitions N
+    (returned by dencode_init), exclusive. If the --one-based option is
+    specifed, partition indexes are in the range 1 to N, inclusive."""
     setup_logging(verbose)
+    if one_based:
+        partition -= 1
     vcf.encode_partition(zarr_path, partition)
 
 
