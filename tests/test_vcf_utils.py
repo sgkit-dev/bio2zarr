@@ -47,6 +47,10 @@ class TestIndexedVcf:
             ("sample_extra_contig.bcf.csi", {"19": 2, "20": 6, "X": 1}),
             ("sample_no_genotypes.vcf.gz.csi", {"19": 2, "20": 6, "X": 1}),
             ("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi", {"20": 3450, "21": 16460}),
+            (
+                "CEUTrio.20.21.gatk3.4.g.old_tabix.vcf.bgz.tbi",
+                {"20": RECORD_COUNT_UNKNOWN, "21": RECORD_COUNT_UNKNOWN},
+            ),
             ("CEUTrio.20.21.gatk3.4.g.bcf.csi", {"20": 3450, "21": 16460}),
             ("1kg_2020_chrM.vcf.gz.tbi", {"chrM": 23}),
             ("1kg_2020_chrM.vcf.gz.csi", {"chrM": 23}),
@@ -70,6 +74,7 @@ class TestIndexedVcf:
             ("sample_extra_contig.vcf.gz.csi", ["19:111-", "20:14370-", "X:10-"]),
             ("sample_no_genotypes.vcf.gz.csi", ["19:111-", "20:14370-", "X:10-"]),
             ("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi", ["20:1-", "21:1-"]),
+            ("CEUTrio.20.21.gatk3.4.g.old_tabix.vcf.bgz.tbi", ["20:1-", "21:1-"]),
             ("CEUTrio.20.21.gatk3.4.g.bcf.csi", ["20:1-", "21:1-"]),
             ("1kg_2020_chrM.vcf.gz.tbi", ["chrM:26-"]),
             ("1kg_2020_chrM.vcf.gz.csi", ["chrM:26-"]),
@@ -93,6 +98,7 @@ class TestIndexedVcf:
             ("sample.bcf.csi", 3, 9),
             ("sample_no_genotypes.vcf.gz.csi", 3, 9),
             ("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi", 17, 19910),
+            ("CEUTrio.20.21.gatk3.4.g.old_tabix.vcf.bgz.tbi", 17, 19910),
             ("CEUTrio.20.21.gatk3.4.g.bcf.csi", 3, 19910),
             ("1kg_2020_chrM.vcf.gz.tbi", 1, 23),
             ("1kg_2020_chrM.vcf.gz.csi", 1, 23),
@@ -122,6 +128,7 @@ class TestIndexedVcf:
             ("sample.bcf.csi", 9),
             ("sample_no_genotypes.vcf.gz.csi", 9),
             ("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi", 19910),
+            ("CEUTrio.20.21.gatk3.4.g.old_tabix.vcf.bgz.tbi", 19910),
             ("CEUTrio.20.21.gatk3.4.g.bcf.csi", 19910),
             ("1kg_2020_chrM.vcf.gz.tbi", 23),
             ("1kg_2020_chrM.vcf.gz.csi", 23),
@@ -159,8 +166,15 @@ class TestIndexedVcf:
             "100 kB",
         ],
     )
-    def test_target_part_size(self, target_part_size):
-        indexed_vcf = self.get_instance("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi")
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi",
+            "CEUTrio.20.21.gatk3.4.g.old_tabix.vcf.bgz.tbi",
+        ],
+    )
+    def test_target_part_size(self, target_part_size, filename):
+        indexed_vcf = self.get_instance(filename)
         regions = indexed_vcf.partition_into_regions(target_part_size=target_part_size)
         assert len(regions) == 5
         part_variant_counts = [indexed_vcf.count_variants(region) for region in regions]
