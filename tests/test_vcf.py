@@ -140,28 +140,28 @@ class TestSchemaJsonRoundTrip:
         icf = vcf.IntermediateColumnarFormat(icf_path)
         self.assert_json_round_trip(vcf.VcfZarrSchema.generate(icf))
 
-    def test_generated_no_columns(self, icf_path):
+    def test_generated_no_fields(self, icf_path):
         icf = vcf.IntermediateColumnarFormat(icf_path)
         schema = vcf.VcfZarrSchema.generate(icf)
-        schema.columns.clear()
+        schema.fields.clear()
         self.assert_json_round_trip(schema)
 
     def test_generated_no_samples(self, icf_path):
         icf = vcf.IntermediateColumnarFormat(icf_path)
         schema = vcf.VcfZarrSchema.generate(icf)
-        schema.sample_id.clear()
+        schema.samples.clear()
         self.assert_json_round_trip(schema)
 
     def test_generated_change_dtype(self, icf_path):
         icf = vcf.IntermediateColumnarFormat(icf_path)
         schema = vcf.VcfZarrSchema.generate(icf)
-        schema.columns["variant_position"].dtype = "i8"
+        schema.fields["variant_position"].dtype = "i8"
         self.assert_json_round_trip(schema)
 
     def test_generated_change_compressor(self, icf_path):
         icf = vcf.IntermediateColumnarFormat(icf_path)
         schema = vcf.VcfZarrSchema.generate(icf)
-        schema.columns["variant_position"].compressor = {"cname": "FAKE"}
+        schema.fields["variant_position"].compressor = {"cname": "FAKE"}
         self.assert_json_round_trip(schema)
 
 
@@ -173,7 +173,7 @@ class TestSchemaEncode:
         zarr_path = tmp_path / "zarr"
         icf = vcf.IntermediateColumnarFormat(icf_path)
         schema = vcf.VcfZarrSchema.generate(icf)
-        for var in schema.columns.values():
+        for var in schema.fields.values():
             var.compressor["cname"] = cname
             var.compressor["clevel"] = clevel
             var.compressor["shuffle"] = shuffle
@@ -182,7 +182,7 @@ class TestSchemaEncode:
             f.write(schema.asjson())
         vcf.encode(icf_path, zarr_path, schema_path=schema_path)
         root = zarr.open(zarr_path)
-        for var in schema.columns.values():
+        for var in schema.fields.values():
             a = root[var.name]
             assert a.compressor.cname == cname
             assert a.compressor.clevel == clevel
@@ -193,7 +193,7 @@ class TestSchemaEncode:
         zarr_path = tmp_path / "zarr"
         icf = vcf.IntermediateColumnarFormat(icf_path)
         schema = vcf.VcfZarrSchema.generate(icf)
-        schema.columns["call_genotype"].dtype = dtype
+        schema.fields["call_genotype"].dtype = dtype
         schema_path = tmp_path / "schema"
         with open(schema_path, "w") as f:
             f.write(schema.asjson())
@@ -219,20 +219,25 @@ class TestDefaultSchema:
             "filters",
         ]
 
-    def test_sample_id(self, schema):
-        assert schema["sample_id"] == ["NA00001", "NA00002", "NA00003"]
+    def test_samples(self, schema):
+        assert schema["samples"] == [
+            {"id": s} for s in ["NA00001", "NA00002", "NA00003"]
+        ]
 
-    def test_contig_id(self, schema):
-        assert schema["contig_id"] == ["19", "20", "X"]
+    def test_contigs(self, schema):
+        assert schema["contigs"] == [
+            {"id": s, "length": None} for s in ["19", "20", "X"]
+        ]
 
-    def test_contig_length(self, schema):
-        assert schema["contig_length"] is None
-
-    def test_filter_id(self, schema):
-        assert schema["filter_id"] == ["PASS", "s50", "q10"]
+    def test_filters(self, schema):
+        assert schema["filters"] == [
+            {"id": "PASS", "description": "All filters passed"},
+            {"id": "s50", "description": "Less than 50% of samples have data"},
+            {"id": "q10", "description": "Quality below 10"},
+        ]
 
     def test_variant_contig(self, schema):
-        assert schema["columns"]["variant_contig"] == {
+        assert schema["fields"]["variant_contig"] == {
             "name": "variant_contig",
             "dtype": "i1",
             "shape": [9],
@@ -251,7 +256,7 @@ class TestDefaultSchema:
         }
 
     def test_call_genotype(self, schema):
-        assert schema["columns"]["call_genotype"] == {
+        assert schema["fields"]["call_genotype"] == {
             "name": "call_genotype",
             "dtype": "i1",
             "shape": [9, 3, 2],
@@ -270,7 +275,7 @@ class TestDefaultSchema:
         }
 
     def test_call_genotype_mask(self, schema):
-        assert schema["columns"]["call_genotype_mask"] == {
+        assert schema["fields"]["call_genotype_mask"] == {
             "name": "call_genotype_mask",
             "dtype": "bool",
             "shape": [9, 3, 2],
@@ -289,7 +294,7 @@ class TestDefaultSchema:
         }
 
     def test_call_genotype_phased(self, schema):
-        assert schema["columns"]["call_genotype_mask"] == {
+        assert schema["fields"]["call_genotype_mask"] == {
             "name": "call_genotype_mask",
             "dtype": "bool",
             "shape": [9, 3, 2],
@@ -308,7 +313,7 @@ class TestDefaultSchema:
         }
 
     def test_call_GQ(self, schema):
-        assert schema["columns"]["call_GQ"] == {
+        assert schema["fields"]["call_GQ"] == {
             "name": "call_GQ",
             "dtype": "i1",
             "shape": [9, 3],
@@ -373,7 +378,7 @@ class TestVcfDescriptions:
         ],
     )
     def test_fields(self, schema, field, description):
-        assert schema["columns"][field]["description"] == description
+        assert schema["fields"][field]["description"] == description
 
     # This information is not in the schema yet,
     # https://github.com/sgkit-dev/bio2zarr/issues/123

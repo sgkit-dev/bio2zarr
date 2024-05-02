@@ -13,7 +13,7 @@ class TestSmallExample:
     data_path = "tests/data/vcf/sample.vcf.gz"
 
     # fmt: off
-    columns = (
+    fields = (
         'ALT', 'CHROM', 'FILTERS', 'FORMAT/DP', 'FORMAT/GQ',
         'FORMAT/GT', 'FORMAT/HQ', 'ID', 'INFO/AA', 'INFO/AC',
         'INFO/AF', 'INFO/AN', 'INFO/DB', 'INFO/DP', 'INFO/H2',
@@ -46,14 +46,14 @@ class TestSmallExample:
     def test_summary_table(self, icf):
         data = icf.summary_table()
         cols = [d["name"] for d in data]
-        assert tuple(sorted(cols)) == self.columns
+        assert tuple(sorted(cols)) == self.fields
 
     def test_inspect(self, icf):
         assert icf.summary_table() == vcf.inspect(icf.path)
 
     def test_mapping_methods(self, icf):
-        assert len(icf) == len(self.columns)
-        assert icf["ALT"] is icf.columns["ALT"]
+        assert len(icf) == len(self.fields)
+        assert icf["ALT"] is icf.fields["ALT"]
         assert list(iter(icf)) == list(iter(icf))
 
     def test_num_partitions(self, icf):
@@ -94,7 +94,7 @@ class TestIcfWriterExample:
     data_path = "tests/data/vcf/sample.vcf.gz"
 
     # fmt: off
-    columns = (
+    fields = (
         'ALT', 'CHROM', 'FILTERS', 'FORMAT/DP', 'FORMAT/GQ',
         'FORMAT/GT', 'FORMAT/HQ', 'ID', 'INFO/AA', 'INFO/AC',
         'INFO/AF', 'INFO/AN', 'INFO/DB', 'INFO/DP', 'INFO/H2',
@@ -110,7 +110,7 @@ class TestIcfWriterExample:
         assert icf_path.exists()
         wip_path = icf_path / "wip"
         assert wip_path.exists()
-        for column in self.columns:
+        for column in self.fields:
             col_path = icf_path / column
             assert col_path.exists()
             assert col_path.is_dir()
@@ -228,7 +228,7 @@ class TestGeneratedFieldsExample:
         ],
     )
     def test_info_schemas(self, schema, name, dtype, shape, dimensions):
-        v = schema.columns[name]
+        v = schema.fields[name]
         assert v.dtype == dtype
         assert tuple(v.shape) == shape
         assert v.dimensions == dimensions
