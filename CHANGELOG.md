@@ -1,4 +1,11 @@
-# 0.0.7 2024-04-30
+# 0.0.9 2024-05-02
+
+- Change on-disk format for explode and schema
+- Support older tabix indexes
+- Fix some bugs in explode
+
+# 0.0.8 2024-04-30
+
 - Change on-disk format of distributed encode and simplify
 - Check for all partitions nominally completed encoding before doing
   anything destructive in dencode-finalise
