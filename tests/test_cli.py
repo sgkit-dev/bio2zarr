@@ -611,7 +611,7 @@ class TestVcfPartition:
 
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf_partition, [path, "-n", "5"], catch_exceptions=False
+            cli.vcfpartition, [path, "-n", "5"], catch_exceptions=False
         )
         assert list(result.stdout.splitlines()) == [
             "20:60001-278528",
@@ -623,7 +623,7 @@ class TestVcfPartition:
 
 
 @pytest.mark.parametrize(
-    "cmd", [main.bio2zarr, cli.vcf2zarr, cli.plink2zarr, cli.vcf_partition]
+    "cmd", [main.bio2zarr, cli.vcf2zarr, cli.plink2zarr, cli.vcfpartition]
 )
 def test_version(cmd):
     runner = ct.CliRunner(mix_stderr=False)

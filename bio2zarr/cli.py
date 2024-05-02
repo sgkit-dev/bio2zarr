@@ -529,7 +529,7 @@ plink2zarr.add_command(convert_plink)
 @click.option("-i", "--index", type=click.Path(), default=None)
 @click.option("-n", "--num-parts", type=int, default=None)
 # @click.option("-s", "--part-size", type=int, default=None)
-def vcf_partition(vcf_path, index, num_parts):
+def vcfpartition(vcf_path, index, num_parts):
     indexed_vcf = vcf_utils.IndexedVcf(vcf_path, index)
     regions = indexed_vcf.partition_into_regions(num_parts=num_parts)
     click.echo("\n".join(map(str, regions)))

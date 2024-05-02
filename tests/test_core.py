@@ -1,3 +1,5 @@
+import sys
+
 import numpy as np
 import pytest
 import zarr
@@ -54,6 +56,7 @@ class TestMinIntDtype:
             core.min_int_dtype(min_value, max_value)
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="Issue #75")
 class TestParallelWorkManager:
     @pytest.mark.parametrize("total", [1, 10, 2**63])
     @pytest.mark.parametrize("workers", [0, 1])
@@ -181,6 +184,7 @@ class TestChunkAlignedSlices:
         assert result == expected
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="Only valid on Linux")
 @pytest.mark.parametrize(
     ("path", "expected"),
     [

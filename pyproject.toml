@@ -26,7 +26,10 @@ requires-python = ">=3.9"
 classifiers = [
   "Development Status :: 3 - Alpha",
   "License :: OSI Approved :: Apache Software License",
-  "Operating System :: OS Independent",
+  "Operating System :: POSIX",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS",
+  "Operating System :: MacOS :: MacOS X",
   "Intended Audience :: Science/Research",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
@@ -43,8 +46,7 @@ documentation = "https://sgkit-dev.github.io/bio2zarr/intro.html"
 
 [project.scripts]
 vcf2zarr = "bio2zarr.cli:vcf2zarr"
-plink2zarr = "bio2zarr.cli:plink2zarr"
-vcf_partition = "bio2zarr.cli:vcf_partition"
+vcfpartition = "bio2zarr.cli:vcfpartition"
 
 [project.optional-dependencies]
 dev = [
