@@ -188,8 +188,8 @@ class TestChunkAlignedSlices:
         # It *might* work in CI, but it may well not either, as it's
         # probably dependent on a whole bunch of things. Expect to fail
         # at some point.
-        ("tests/data", 4630726),
-        ("tests/data/vcf", 4618589),
+        ("tests/data", 4960266),
+        ("tests/data/vcf", 4948129),
         ("tests/data/vcf/sample.vcf.gz", 1089),
     ],
 )

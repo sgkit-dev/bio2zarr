@@ -76,6 +76,10 @@ def read_bytes_as_tuple(f: IO[Any], fmt: str) -> Sequence[Any]:
 
 @dataclass
 class Region:
+    """
+    A htslib style region, where coordinates are 1-based and inclusive.
+    """
+
     contig: str
     start: Optional[int] = None
     end: Optional[int] = None
@@ -86,7 +90,7 @@ class Region:
             assert self.start > 0
         if self.end is not None:
             self.end = int(self.end)
-            assert self.end > self.start
+            assert self.end >= self.start
 
     def __str__(self):
         s = f"{self.contig}"
@@ -111,6 +115,9 @@ class CSIBin:
     bin: int
     loffset: int
     chunks: Sequence[Chunk]
+
+
+RECORD_COUNT_UNKNOWN = np.inf
 
 
 @dataclass
@@ -221,7 +228,9 @@ def read_csi(
             for _ in range(n_ref):
                 n_bin = read_bytes_as_value(f, "<i")
                 seq_bins = []
-                record_count = -1
+                # Distinguish between counts that are zero because the sequence
+                # isn't there, vs counts that aren't in the index.
+                record_count = 0 if n_bin == 0 else RECORD_COUNT_UNKNOWN
                 for _ in range(n_bin):
                     bin, loffset, n_chunk = read_bytes_as_tuple(f, "<IQi")
                     chunks = []
@@ -337,7 +346,9 @@ def read_tabix(
             for _ in range(header.n_ref):
                 n_bin = read_bytes_as_value(f, "<i")
                 seq_bins = []
-                record_count = -1
+                # Distinguish between counts that are zero because the sequence
+                # isn't there, vs counts that aren't in the index.
+                record_count = 0 if n_bin == 0 else RECORD_COUNT_UNKNOWN
                 for _ in range(n_bin):
                     bin, n_chunk = read_bytes_as_tuple(f, "<Ii")
                     chunks = []
@@ -436,19 +447,16 @@ class IndexedVcf(contextlib.AbstractContextManager):
             if var.POS >= start:
                 yield var
 
-    def _filter_empty(self, regions):
+    def _filter_empty_and_refine(self, regions):
         """
-        Return all regions in the specified list that have one or more records.
-
-        Sometimes with Tabix indexes these seem to crop up:
-
-        - https://github.com/sgkit-dev/bio2zarr/issues/45
-        - https://github.com/sgkit-dev/bio2zarr/issues/120
+        Return all regions in the specified list that have one or more records,
+        and refine the start coordinate of the region to be the actual first coord
         """
         ret = []
         for region in regions:
-            variants = self.variants(region)
-            if next(variants, None) is not None:
+            var = next(self.variants(region), None)
+            if var is not None:
+                region.start = var.POS
                 ret.append(region)
         return ret
 
@@ -528,4 +536,4 @@ class IndexedVcf(contextlib.AbstractContextManager):
             if self.index.record_counts[ri] > 0:
                 regions.append(Region(self.sequence_names[ri]))
 
-        return self._filter_empty(regions)
+        return self._filter_empty_and_refine(regions)

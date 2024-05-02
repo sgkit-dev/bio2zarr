@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from bio2zarr import vcf_utils
+from bio2zarr.vcf_utils import RECORD_COUNT_UNKNOWN
 
 data_path = pathlib.Path("tests/data/vcf/")
 
@@ -33,9 +34,23 @@ class TestIndexedVcf:
         ("index_file", "expected"),
         [
             ("sample.vcf.gz.tbi", {"19": 2, "20": 6, "X": 1}),
+            (
+                "sample_old_tabix.vcf.gz.tbi",
+                {
+                    "19": RECORD_COUNT_UNKNOWN,
+                    "20": RECORD_COUNT_UNKNOWN,
+                    "X": RECORD_COUNT_UNKNOWN,
+                },
+            ),
             ("sample.bcf.csi", {"19": 2, "20": 6, "X": 1}),
+            ("sample_extra_contig.vcf.gz.csi", {"19": 2, "20": 6, "X": 1}),
+            ("sample_extra_contig.bcf.csi", {"19": 2, "20": 6, "X": 1}),
             ("sample_no_genotypes.vcf.gz.csi", {"19": 2, "20": 6, "X": 1}),
             ("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi", {"20": 3450, "21": 16460}),
+            (
+                "CEUTrio.20.21.gatk3.4.g.old_tabix.vcf.bgz.tbi",
+                {"20": RECORD_COUNT_UNKNOWN, "21": RECORD_COUNT_UNKNOWN},
+            ),
             ("CEUTrio.20.21.gatk3.4.g.bcf.csi", {"20": 3450, "21": 16460}),
             ("1kg_2020_chrM.vcf.gz.tbi", {"chrM": 23}),
             ("1kg_2020_chrM.vcf.gz.csi", {"chrM": 23}),
@@ -52,17 +67,21 @@ class TestIndexedVcf:
     @pytest.mark.parametrize(
         ("index_file", "expected"),
         [
-            ("sample.vcf.gz.tbi", ["19:1-", "20", "X"]),
-            ("sample.bcf.csi", ["19:1-", "20", "X"]),
-            ("sample_no_genotypes.vcf.gz.csi", ["19:1-", "20", "X"]),
-            ("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi", ["20:1-", "21"]),
-            ("CEUTrio.20.21.gatk3.4.g.bcf.csi", ["20:1-", "21"]),
-            ("1kg_2020_chrM.vcf.gz.tbi", ["chrM:1-"]),
-            ("1kg_2020_chrM.vcf.gz.csi", ["chrM:1-"]),
-            ("1kg_2020_chrM.bcf.csi", ["chrM:1-"]),
-            ("1kg_2020_chr20_annotations.bcf.csi", ["chr20:49153-"]),
-            ("NA12878.prod.chr20snippet.g.vcf.gz.tbi", ["20:1-"]),
-            ("multi_contig.vcf.gz.tbi", ["0:1-"] + [str(j) for j in range(1, 5)]),
+            ("sample.vcf.gz.tbi", ["19:111-", "20:14370-", "X:10-"]),
+            ("sample_old_tabix.vcf.gz.tbi", ["19:111-", "20:14370-", "X:10-"]),
+            ("sample.bcf.csi", ["19:111-", "20:14370-", "X:10-"]),
+            ("sample_extra_contig.bcf.csi", ["19:111-", "20:14370-", "X:10-"]),
+            ("sample_extra_contig.vcf.gz.csi", ["19:111-", "20:14370-", "X:10-"]),
+            ("sample_no_genotypes.vcf.gz.csi", ["19:111-", "20:14370-", "X:10-"]),
+            ("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi", ["20:1-", "21:1-"]),
+            ("CEUTrio.20.21.gatk3.4.g.old_tabix.vcf.bgz.tbi", ["20:1-", "21:1-"]),
+            ("CEUTrio.20.21.gatk3.4.g.bcf.csi", ["20:1-", "21:1-"]),
+            ("1kg_2020_chrM.vcf.gz.tbi", ["chrM:26-"]),
+            ("1kg_2020_chrM.vcf.gz.csi", ["chrM:26-"]),
+            ("1kg_2020_chrM.bcf.csi", ["chrM:26-"]),
+            ("1kg_2020_chr20_annotations.bcf.csi", ["chr20:60070-"]),
+            ("NA12878.prod.chr20snippet.g.vcf.gz.tbi", ["20:60001-"]),
+            ("multi_contig.vcf.gz.tbi", [f"{j}:1-" for j in range(5)]),
         ],
     )
     def test_partition_into_one_part(self, index_file, expected):
@@ -75,9 +94,11 @@ class TestIndexedVcf:
         ("index_file", "num_expected", "total_records"),
         [
             ("sample.vcf.gz.tbi", 3, 9),
+            ("sample_old_tabix.vcf.gz.tbi", 3, 9),
             ("sample.bcf.csi", 3, 9),
             ("sample_no_genotypes.vcf.gz.csi", 3, 9),
             ("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi", 17, 19910),
+            ("CEUTrio.20.21.gatk3.4.g.old_tabix.vcf.bgz.tbi", 17, 19910),
             ("CEUTrio.20.21.gatk3.4.g.bcf.csi", 3, 19910),
             ("1kg_2020_chrM.vcf.gz.tbi", 1, 23),
             ("1kg_2020_chrM.vcf.gz.csi", 1, 23),
@@ -103,9 +124,11 @@ class TestIndexedVcf:
         ("index_file", "total_records"),
         [
             ("sample.vcf.gz.tbi", 9),
+            ("sample_old_tabix.vcf.gz.tbi", 9),
             ("sample.bcf.csi", 9),
             ("sample_no_genotypes.vcf.gz.csi", 9),
             ("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi", 19910),
+            ("CEUTrio.20.21.gatk3.4.g.old_tabix.vcf.bgz.tbi", 19910),
             ("CEUTrio.20.21.gatk3.4.g.bcf.csi", 19910),
             ("1kg_2020_chrM.vcf.gz.tbi", 23),
             ("1kg_2020_chrM.vcf.gz.csi", 23),
@@ -132,7 +155,7 @@ class TestIndexedVcf:
         # An earlier version of the code returned this, i.e. with a duplicate
         # for 4 with end coord of 0
         # ["0:1-", "1", "2", "3", "4:1-0", "4:1-"]
-        expected = ["0:1-", "1", "2", "3", "4:1-"]
+        expected = ["0:1-", "1:1-", "2:1-", "3:1-", "4:1-"]
         assert [str(r) for r in regions] == expected
 
     @pytest.mark.parametrize(
@@ -143,8 +166,15 @@ class TestIndexedVcf:
             "100 kB",
         ],
     )
-    def test_target_part_size(self, target_part_size):
-        indexed_vcf = self.get_instance("CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi")
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "CEUTrio.20.21.gatk3.4.g.vcf.bgz.tbi",
+            "CEUTrio.20.21.gatk3.4.g.old_tabix.vcf.bgz.tbi",
+        ],
+    )
+    def test_target_part_size(self, target_part_size, filename):
+        indexed_vcf = self.get_instance(filename)
         regions = indexed_vcf.partition_into_regions(target_part_size=target_part_size)
         assert len(regions) == 5
         part_variant_counts = [indexed_vcf.count_variants(region) for region in regions]

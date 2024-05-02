@@ -1,7 +1,6 @@
 import collections
 import contextlib
 import dataclasses
-import functools
 import json
 import logging
 import math
@@ -145,29 +144,41 @@ class VcfPartition:
     num_records: int = -1
 
 
-ICF_METADATA_FORMAT_VERSION = "0.2"
+ICF_METADATA_FORMAT_VERSION = "0.3"
 ICF_DEFAULT_COMPRESSOR = numcodecs.Blosc(
     cname="zstd", clevel=7, shuffle=numcodecs.Blosc.NOSHUFFLE
 )
 
-# TODO refactor this to have embedded Contig dataclass, Filters
-# and Samples dataclasses to allow for more information to be
-# retained and forward compatibility.
+
+@dataclasses.dataclass
+class Contig:
+    id: str
+    length: int = None
+
+
+@dataclasses.dataclass
+class Sample:
+    id: str
+
+
+@dataclasses.dataclass
+class Filter:
+    id: str
+    description: str = ""
 
 
 @dataclasses.dataclass
 class IcfMetadata:
     samples: list
-    contig_names: list
-    contig_record_counts: dict
+    contigs: list
     filters: list
     fields: list
     partitions: list = None
-    contig_lengths: list = None
     format_version: str = None
     compressor: dict = None
     column_chunk_size: int = None
     provenance: dict = None
+    num_records: int = -1
 
     @property
     def info_fields(self):
@@ -187,15 +198,11 @@ class IcfMetadata:
 
     @property
     def num_contigs(self):
-        return len(self.contig_names)
+        return len(self.contigs)
 
     @property
     def num_filters(self):
         return len(self.filters)
-
-    @property
-    def num_records(self):
-        return sum(self.contig_record_counts.values())
 
     @staticmethod
     def fromdict(d):
@@ -204,17 +211,22 @@ class IcfMetadata:
                 "Intermediate columnar metadata format version mismatch: "
                 f"{d['format_version']} != {ICF_METADATA_FORMAT_VERSION}"
             )
-        fields = [VcfField.fromdict(fd) for fd in d["fields"]]
         partitions = [VcfPartition(**pd) for pd in d["partitions"]]
         for p in partitions:
             p.region = vcf_utils.Region(**p.region)
         d = d.copy()
-        d["fields"] = fields
         d["partitions"] = partitions
+        d["fields"] = [VcfField.fromdict(fd) for fd in d["fields"]]
+        d["samples"] = [Sample(**sd) for sd in d["samples"]]
+        d["filters"] = [Filter(**fd) for fd in d["filters"]]
+        d["contigs"] = [Contig(**cd) for cd in d["contigs"]]
         return IcfMetadata(**d)
 
     def asdict(self):
         return dataclasses.asdict(self)
+
+    def asjson(self):
+        return json.dumps(self.asdict(), indent=4)
 
 
 def fixed_vcf_field_definitions():
@@ -243,15 +255,22 @@ def fixed_vcf_field_definitions():
 def scan_vcf(path, target_num_partitions):
     with vcf_utils.IndexedVcf(path) as indexed_vcf:
         vcf = indexed_vcf.vcf
-        filters = [
-            h["ID"]
-            for h in vcf.header_iter()
-            if h["HeaderType"] == "FILTER" and isinstance(h["ID"], str)
-        ]
+        filters = []
+        pass_index = -1
+        for h in vcf.header_iter():
+            if h["HeaderType"] == "FILTER" and isinstance(h["ID"], str):
+                try:
+                    description = h["Description"].strip('"')
+                except KeyError:
+                    description = ""
+                if h["ID"] == "PASS":
+                    pass_index = len(filters)
+                filters.append(Filter(h["ID"], description))
+
         # Ensure PASS is the first filter if present
-        if "PASS" in filters:
-            filters.remove("PASS")
-            filters.insert(0, "PASS")
+        if pass_index > 0:
+            pass_filter = filters.pop(pass_index)
+            filters.insert(0, pass_filter)
 
         fields = fixed_vcf_field_definitions()
         for h in vcf.header_iter():
@@ -262,18 +281,22 @@ def scan_vcf(path, target_num_partitions):
                     field.vcf_number = "."
                 fields.append(field)
 
+        try:
+            contig_lengths = vcf.seqlens
+        except AttributeError:
+            contig_lengths = [None for _ in vcf.seqnames]
+
         metadata = IcfMetadata(
-            samples=vcf.samples,
-            contig_names=vcf.seqnames,
-            contig_record_counts=indexed_vcf.contig_record_counts(),
+            samples=[Sample(sample_id) for sample_id in vcf.samples],
+            contigs=[
+                Contig(contig_id, length)
+                for contig_id, length in zip(vcf.seqnames, contig_lengths)
+            ],
             filters=filters,
             fields=fields,
             partitions=[],
+            num_records=sum(indexed_vcf.contig_record_counts().values()),
         )
-        try:
-            metadata.contig_lengths = vcf.seqlens
-        except AttributeError:
-            pass
 
         regions = indexed_vcf.partition_into_regions(num_parts=target_num_partitions)
         logger.info(
@@ -290,22 +313,6 @@ def scan_vcf(path, target_num_partitions):
             )
         core.update_progress(1)
         return metadata, vcf.raw_header
-
-
-def check_overlap(partitions):
-    for i in range(1, len(partitions)):
-        prev_region = partitions[i - 1].region
-        current_region = partitions[i].region
-        if prev_region.contig == current_region.contig:
-            if prev_region.end is None:
-                logger.warning("Cannot check overlaps; issue #146")
-                continue
-            if prev_region.end > current_region.start:
-                raise ValueError(
-                    f"Multiple VCFs have the region "
-                    f"{prev_region.contig}:{prev_region.start}-"
-                    f"{current_region.end}"
-                )
 
 
 def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
@@ -336,27 +343,30 @@ def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
     # We just take the first header, assuming the others
     # are compatible.
     all_partitions = []
-    contig_record_counts = collections.Counter()
+    total_records = 0
     for metadata, _ in results:
-        all_partitions.extend(metadata.partitions)
-        metadata.partitions.clear()
-        contig_record_counts += metadata.contig_record_counts
-        metadata.contig_record_counts.clear()
+        for partition in metadata.partitions:
+            logger.debug(f"Scanned partition {partition}")
+            all_partitions.append(partition)
+        total_records += metadata.num_records
+        metadata.num_records = 0
+        metadata.partitions = []
 
     icf_metadata, header = results[0]
     for metadata, _ in results[1:]:
         if metadata != icf_metadata:
             raise ValueError("Incompatible VCF chunks")
 
-    icf_metadata.contig_record_counts = dict(contig_record_counts)
+    # Note: this will be infinity here if any of the chunks has an index
+    # that doesn't keep track of the number of records per-contig
+    icf_metadata.num_records = total_records
 
     # Sort by contig (in the order they appear in the header) first,
     # then by start coordinate
-    contig_index_map = {contig: j for j, contig in enumerate(metadata.contig_names)}
+    contig_index_map = {contig.id: j for j, contig in enumerate(metadata.contigs)}
     all_partitions.sort(
         key=lambda x: (contig_index_map[x.region.contig], x.region.start)
     )
-    check_overlap(all_partitions)
     icf_metadata.partitions = all_partitions
     logger.info(f"Scan complete, resulting in {len(all_partitions)} partitions.")
     return icf_metadata, header
@@ -853,19 +863,18 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
             self.metadata = IcfMetadata.fromdict(json.load(f))
         with open(self.path / "header.txt") as f:
             self.vcf_header = f.read()
-
         self.compressor = numcodecs.get_codec(self.metadata.compressor)
-        self.columns = {}
+        self.fields = {}
         partition_num_records = [
             partition.num_records for partition in self.metadata.partitions
         ]
         # Allow us to find which partition a given record is in
         self.partition_record_index = np.cumsum([0, *partition_num_records])
         for field in self.metadata.fields:
-            self.columns[field.full_name] = IntermediateColumnarFormatField(self, field)
+            self.fields[field.full_name] = IntermediateColumnarFormatField(self, field)
         logger.info(
             f"Loaded IntermediateColumnarFormat(partitions={self.num_partitions}, "
-            f"records={self.num_records}, columns={self.num_columns})"
+            f"records={self.num_records}, fields={self.num_fields})"
         )
 
     def __repr__(self):
@@ -876,17 +885,17 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
         )
 
     def __getitem__(self, key):
-        return self.columns[key]
+        return self.fields[key]
 
     def __iter__(self):
-        return iter(self.columns)
+        return iter(self.fields)
 
     def __len__(self):
-        return len(self.columns)
+        return len(self.fields)
 
     def summary_table(self):
         data = []
-        for name, col in self.columns.items():
+        for name, col in self.fields.items():
             summary = col.vcf_field.summary
             d = {
                 "name": name,
@@ -902,9 +911,9 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
             data.append(d)
         return data
 
-    @functools.cached_property
+    @property
     def num_records(self):
-        return sum(self.metadata.contig_record_counts.values())
+        return self.metadata.num_records
 
     @property
     def num_partitions(self):
@@ -915,8 +924,42 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
         return len(self.metadata.samples)
 
     @property
-    def num_columns(self):
-        return len(self.columns)
+    def num_fields(self):
+        return len(self.fields)
+
+
+@dataclasses.dataclass
+class IcfPartitionMetadata:
+    num_records: int
+    last_position: int
+    field_summaries: dict
+
+    def asdict(self):
+        return dataclasses.asdict(self)
+
+    def asjson(self):
+        return json.dumps(self.asdict(), indent=4)
+
+    @staticmethod
+    def fromdict(d):
+        md = IcfPartitionMetadata(**d)
+        for k, v in md.field_summaries.items():
+            md.field_summaries[k] = VcfFieldSummary.fromdict(v)
+        return md
+
+
+def check_overlapping_partitions(partitions):
+    for i in range(1, len(partitions)):
+        prev_region = partitions[i - 1].region
+        current_region = partitions[i].region
+        if prev_region.contig == current_region.contig:
+            assert prev_region.end is not None
+            # Regions are *inclusive*
+            if prev_region.end >= current_region.start:
+                raise ValueError(
+                    f"Overlapping VCF regions in partitions {i - 1} and {i}: "
+                    f"{prev_region} and {current_region}"
+                )
 
 
 class IntermediateColumnarFormatWriter:
@@ -990,11 +1033,8 @@ class IntermediateColumnarFormatWriter:
         not_found = []
         for j in range(self.num_partitions):
             try:
-                with open(self.wip_path / f"p{j}_summary.json") as f:
-                    summary = json.load(f)
-                    for k, v in summary["field_summaries"].items():
-                        summary["field_summaries"][k] = VcfFieldSummary.fromdict(v)
-                    summaries.append(summary)
+                with open(self.wip_path / f"p{j}.json") as f:
+                    summaries.append(IcfPartitionMetadata.fromdict(json.load(f)))
             except FileNotFoundError:
                 not_found.append(j)
         if len(not_found) > 0:
@@ -1011,7 +1051,7 @@ class IntermediateColumnarFormatWriter:
 
     def process_partition(self, partition_index):
         self.load_metadata()
-        summary_path = self.wip_path / f"p{partition_index}_summary.json"
+        summary_path = self.wip_path / f"p{partition_index}.json"
         # If someone is rewriting a summary path (for whatever reason), make sure it
         # doesn't look like it's already been completed.
         # NOTE to do this properly we probably need to take a lock on this file - but
@@ -1032,6 +1072,7 @@ class IntermediateColumnarFormatWriter:
             else:
                 format_fields.append(field)
 
+        last_position = None
         with IcfPartitionWriter(
             self.metadata,
             self.path,
@@ -1041,6 +1082,7 @@ class IntermediateColumnarFormatWriter:
                 num_records = 0
                 for variant in ivcf.variants(partition.region):
                     num_records += 1
+                    last_position = variant.POS
                     tcw.append("CHROM", variant.CHROM)
                     tcw.append("POS", variant.POS)
                     tcw.append("QUAL", variant.QUAL)
@@ -1065,37 +1107,32 @@ class IntermediateColumnarFormatWriter:
                 f"flushing buffers"
             )
 
-        partition_metadata = {
-            "num_records": num_records,
-            "field_summaries": {k: v.asdict() for k, v in tcw.field_summaries.items()},
-        }
+        partition_metadata = IcfPartitionMetadata(
+            num_records=num_records,
+            last_position=last_position,
+            field_summaries=tcw.field_summaries,
+        )
         with open(summary_path, "w") as f:
-            json.dump(partition_metadata, f, indent=4)
+            f.write(partition_metadata.asjson())
         logger.info(
-            f"Finish p{partition_index} {partition.vcf_path}__{partition.region}="
-            f"{num_records} records"
+            f"Finish p{partition_index} {partition.vcf_path}__{partition.region} "
+            f"{num_records} records last_pos={last_position}"
         )
 
-    def process_partition_slice(
-        self,
-        start,
-        stop,
-        *,
-        worker_processes=1,
-        show_progress=False,
-    ):
+    def explode(self, *, worker_processes=1, show_progress=False):
         self.load_metadata()
-        if start == 0 and stop == self.num_partitions:
-            num_records = self.metadata.num_records
-        else:
-            # We only know the number of records if all partitions are done at once,
-            # and we signal this to tqdm by passing None as the total.
+        num_records = self.metadata.num_records
+        if np.isinf(num_records):
+            logger.warning(
+                "Total records unknown, cannot show progress; "
+                "reindex VCFs with bcftools index to fix"
+            )
             num_records = None
-        num_columns = len(self.metadata.fields)
+        num_fields = len(self.metadata.fields)
         num_samples = len(self.metadata.samples)
         logger.info(
-            f"Exploding columns={num_columns} samples={num_samples}; "
-            f"partitions={stop - start} "
+            f"Exploding fields={num_fields} samples={num_samples}; "
+            f"partitions={self.num_partitions} "
             f"variants={'unknown' if num_records is None else num_records}"
         )
         progress_config = core.ProgressConfig(
@@ -1105,48 +1142,43 @@ class IntermediateColumnarFormatWriter:
             show=show_progress,
         )
         with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
-            for j in range(start, stop):
+            for j in range(self.num_partitions):
                 pwm.submit(self.process_partition, j)
 
-    def explode(self, *, worker_processes=1, show_progress=False):
-        self.load_metadata()
-        return self.process_partition_slice(
-            0,
-            self.num_partitions,
-            worker_processes=worker_processes,
-            show_progress=show_progress,
-        )
-
-    def explode_partition(self, partition, *, show_progress=False, worker_processes=1):
+    def explode_partition(self, partition):
         self.load_metadata()
         if partition < 0 or partition >= self.num_partitions:
             raise ValueError(
                 "Partition index must be in the range 0 <= index < num_partitions"
             )
-        return self.process_partition_slice(
-            partition,
-            partition + 1,
-            worker_processes=worker_processes,
-            show_progress=show_progress,
-        )
+        self.process_partition(partition)
 
     def finalise(self):
         self.load_metadata()
         partition_summaries = self.load_partition_summaries()
         total_records = 0
         for index, summary in enumerate(partition_summaries):
-            partition_records = summary["num_records"]
+            partition_records = summary.num_records
             self.metadata.partitions[index].num_records = partition_records
+            self.metadata.partitions[index].region.end = summary.last_position
             total_records += partition_records
-        assert total_records == self.metadata.num_records
+        if not np.isinf(self.metadata.num_records):
+            # Note: this is just telling us that there's a bug in the
+            # index based record counting code, but it doesn't actually
+            # matter much. We may want to just make this a warning if
+            # we hit regular problems.
+            assert total_records == self.metadata.num_records
+        self.metadata.num_records = total_records
+
+        check_overlapping_partitions(self.metadata.partitions)
 
         for field in self.metadata.fields:
             for summary in partition_summaries:
-                field.summary.update(summary["field_summaries"][field.full_name])
+                field.summary.update(summary.field_summaries[field.full_name])
 
         logger.info("Finalising metadata")
         with open(self.path / "metadata.json", "w") as f:
-            json.dump(self.metadata.asdict(), f, indent=4)
+            f.write(self.metadata.asjson())
 
         logger.debug("Removing WIP directory")
         shutil.rmtree(self.wip_path)
@@ -1197,14 +1229,9 @@ def explode_init(
     )
 
 
-# NOTE only including worker_processes here so we can use the 0 option to get the
-# work done syncronously and so we can get test coverage on it. Should find a
-# better way to do this.
-def explode_partition(icf_path, partition, *, show_progress=False, worker_processes=1):
+def explode_partition(icf_path, partition):
     writer = IntermediateColumnarFormatWriter(icf_path)
-    writer.explode_partition(
-        partition, show_progress=show_progress, worker_processes=worker_processes
-    )
+    writer.explode_partition(partition)
 
 
 def explode_finalise(icf_path):
@@ -1332,7 +1359,7 @@ class ZarrColumnSpec:
         return chunk_items * dt.itemsize
 
 
-ZARR_SCHEMA_FORMAT_VERSION = "0.2"
+ZARR_SCHEMA_FORMAT_VERSION = "0.3"
 
 
 @dataclasses.dataclass
@@ -1341,11 +1368,10 @@ class VcfZarrSchema:
     samples_chunk_size: int
     variants_chunk_size: int
     dimensions: list
-    sample_id: list
-    contig_id: list
-    contig_length: list
-    filter_id: list
-    columns: dict
+    samples: list
+    contigs: list
+    filters: list
+    fields: dict
 
     def asdict(self):
         return dataclasses.asdict(self)
@@ -1361,8 +1387,11 @@ class VcfZarrSchema:
                 f"{d['format_version']} != {ZARR_SCHEMA_FORMAT_VERSION}"
             )
         ret = VcfZarrSchema(**d)
-        ret.columns = {
-            key: ZarrColumnSpec(**value) for key, value in d["columns"].items()
+        ret.samples = [Sample(**sd) for sd in d["samples"]]
+        ret.contigs = [Contig(**sd) for sd in d["contigs"]]
+        ret.filters = [Filter(**sd) for sd in d["filters"]]
+        ret.fields = {
+            key: ZarrColumnSpec(**value) for key, value in d["fields"].items()
         }
         return ret
 
@@ -1406,7 +1435,7 @@ class VcfZarrSchema:
                 chunks=[variants_chunk_size],
             )
 
-        alt_col = icf.columns["ALT"]
+        alt_col = icf.fields["ALT"]
         max_alleles = alt_col.vcf_field.summary.max_number + 1
 
         colspecs = [
@@ -1498,12 +1527,11 @@ class VcfZarrSchema:
             format_version=ZARR_SCHEMA_FORMAT_VERSION,
             samples_chunk_size=samples_chunk_size,
             variants_chunk_size=variants_chunk_size,
-            columns={col.name: col for col in colspecs},
+            fields={col.name: col for col in colspecs},
             dimensions=["variants", "samples", "ploidy", "alleles", "filters"],
-            sample_id=icf.metadata.samples,
-            contig_id=icf.metadata.contig_names,
-            contig_length=icf.metadata.contig_lengths,
-            filter_id=icf.metadata.filters,
+            samples=icf.metadata.samples,
+            contigs=icf.metadata.contigs,
+            filters=icf.metadata.filters,
         )
 
 
@@ -1671,7 +1699,7 @@ class VcfZarrWriter:
         store = zarr.DirectoryStore(self.arrays_path)
         root = zarr.group(store=store)
 
-        for column in self.schema.columns.values():
+        for column in self.schema.fields.values():
             self.init_array(root, column, partitions[-1].stop)
 
         logger.info("Writing WIP metadata")
@@ -1680,13 +1708,13 @@ class VcfZarrWriter:
         return len(partitions)
 
     def encode_samples(self, root):
-        if not np.array_equal(self.schema.sample_id, self.icf.metadata.samples):
+        if self.schema.samples != self.icf.metadata.samples:
             raise ValueError(
                 "Subsetting or reordering samples not supported currently"
             )  # NEEDS TEST
         array = root.array(
             "sample_id",
-            self.schema.sample_id,
+            [sample.id for sample in self.schema.samples],
             dtype="str",
             compressor=DEFAULT_ZARR_COMPRESSOR,
             chunks=(self.schema.samples_chunk_size,),
@@ -1697,24 +1725,26 @@ class VcfZarrWriter:
     def encode_contig_id(self, root):
         array = root.array(
             "contig_id",
-            self.schema.contig_id,
+            [contig.id for contig in self.schema.contigs],
             dtype="str",
             compressor=DEFAULT_ZARR_COMPRESSOR,
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
-        if self.schema.contig_length is not None:
+        if all(contig.length is not None for contig in self.schema.contigs):
             array = root.array(
                 "contig_length",
-                self.schema.contig_length,
+                [contig.length for contig in self.schema.contigs],
                 dtype=np.int64,
                 compressor=DEFAULT_ZARR_COMPRESSOR,
             )
             array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
 
     def encode_filter_id(self, root):
+        # TODO need a way to store description also
+        # https://github.com/sgkit-dev/vcf-zarr-spec/issues/19
         array = root.array(
             "filter_id",
-            self.schema.filter_id,
+            [filt.id for filt in self.schema.filters],
             dtype="str",
             compressor=DEFAULT_ZARR_COMPRESSOR,
         )
@@ -1782,16 +1812,16 @@ class VcfZarrWriter:
         self.encode_filters_partition(partition_index)
         self.encode_contig_partition(partition_index)
         self.encode_alleles_partition(partition_index)
-        for col in self.schema.columns.values():
+        for col in self.schema.fields.values():
             if col.vcf_field is not None:
                 self.encode_array_partition(col, partition_index)
-        if "call_genotype" in self.schema.columns:
+        if "call_genotype" in self.schema.fields:
             self.encode_genotypes_partition(partition_index)
 
         final_path = self.partition_path(partition_index)
         logger.info(f"Finalising {partition_index} at {final_path}")
         if final_path.exists():
-            logger.warning("Removing existing partition at {final_path}")
+            logger.warning(f"Removing existing partition at {final_path}")
             shutil.rmtree(final_path)
         os.rename(partition_path, final_path)
 
@@ -1813,7 +1843,7 @@ class VcfZarrWriter:
 
         partition = self.metadata.partitions[partition_index]
         ba = core.BufferedArray(array, partition.start)
-        source_col = self.icf.columns[column.vcf_field]
+        source_col = self.icf.fields[column.vcf_field]
         sanitiser = source_col.sanitiser_factory(ba.buff.shape)
 
         for value in source_col.iter_values(partition.start, partition.stop):
@@ -1836,7 +1866,7 @@ class VcfZarrWriter:
         gt_mask = core.BufferedArray(gt_mask_array, partition.start)
         gt_phased = core.BufferedArray(gt_phased_array, partition.start)
 
-        source_col = self.icf.columns["FORMAT/GT"]
+        source_col = self.icf.fields["FORMAT/GT"]
         for value in source_col.iter_values(partition.start, partition.stop):
             j = gt.next_buffer_row()
             sanitise_value_int_2d(gt.buff, j, value[:, :-1])
@@ -1859,8 +1889,8 @@ class VcfZarrWriter:
         alleles_array = self.init_partition_array(partition_index, array_name)
         partition = self.metadata.partitions[partition_index]
         alleles = core.BufferedArray(alleles_array, partition.start)
-        ref_col = self.icf.columns["REF"]
-        alt_col = self.icf.columns["ALT"]
+        ref_col = self.icf.fields["REF"]
+        alt_col = self.icf.fields["ALT"]
 
         for ref, alt in zip(
             ref_col.iter_values(partition.start, partition.stop),
@@ -1880,7 +1910,7 @@ class VcfZarrWriter:
         partition = self.metadata.partitions[partition_index]
         vid = core.BufferedArray(vid_array, partition.start)
         vid_mask = core.BufferedArray(vid_mask_array, partition.start)
-        col = self.icf.columns["ID"]
+        col = self.icf.fields["ID"]
 
         for value in col.iter_values(partition.start, partition.stop):
             j = vid.next_buffer_row()
@@ -1899,13 +1929,13 @@ class VcfZarrWriter:
         self.finalise_partition_array(partition_index, "variant_id_mask")
 
     def encode_filters_partition(self, partition_index):
-        lookup = {filt: index for index, filt in enumerate(self.schema.filter_id)}
+        lookup = {filt.id: index for index, filt in enumerate(self.schema.filters)}
         array_name = "variant_filter"
         array = self.init_partition_array(partition_index, array_name)
         partition = self.metadata.partitions[partition_index]
         var_filter = core.BufferedArray(array, partition.start)
 
-        col = self.icf.columns["FILTERS"]
+        col = self.icf.fields["FILTERS"]
         for value in col.iter_values(partition.start, partition.stop):
             j = var_filter.next_buffer_row()
             var_filter.buff[j] = False
@@ -1921,12 +1951,12 @@ class VcfZarrWriter:
         self.finalise_partition_array(partition_index, array_name)
 
     def encode_contig_partition(self, partition_index):
-        lookup = {contig: index for index, contig in enumerate(self.schema.contig_id)}
+        lookup = {contig.id: index for index, contig in enumerate(self.schema.contigs)}
         array_name = "variant_contig"
         array = self.init_partition_array(partition_index, array_name)
         partition = self.metadata.partitions[partition_index]
         contig = core.BufferedArray(array, partition.start)
-        col = self.icf.columns["CHROM"]
+        col = self.icf.fields["CHROM"]
 
         for value in col.iter_values(partition.start, partition.stop):
             j = contig.next_buffer_row()
@@ -1986,7 +2016,7 @@ class VcfZarrWriter:
             raise FileNotFoundError(f"Partitions not encoded: {missing}")
 
         progress_config = core.ProgressConfig(
-            total=len(self.schema.columns),
+            total=len(self.schema.fields),
             title="Finalise",
             units="array",
             show=show_progress,
@@ -2000,7 +2030,7 @@ class VcfZarrWriter:
         # for multiple workers, or making a standard wrapper for tqdm
         # that allows us to have a consistent look and feel.
         with core.ParallelWorkManager(0, progress_config) as pwm:
-            for name in self.schema.columns:
+            for name in self.schema.fields:
                 pwm.submit(self.finalise_array, name)
         logger.debug(f"Removing {self.wip_path}")
         shutil.rmtree(self.wip_path)
@@ -2016,18 +2046,17 @@ class VcfZarrWriter:
         Return the approximate maximum memory used to encode a variant chunk.
         """
         max_encoding_mem = max(
-            col.variant_chunk_nbytes for col in self.schema.columns.values()
+            col.variant_chunk_nbytes for col in self.schema.fields.values()
         )
         gt_mem = 0
-        if "call_genotype" in self.schema.columns:
+        if "call_genotype" in self.schema.fields:
             encoded_together = [
                 "call_genotype",
                 "call_genotype_phased",
                 "call_genotype_mask",
             ]
             gt_mem = sum(
-                self.schema.columns[col].variant_chunk_nbytes
-                for col in encoded_together
+                self.schema.fields[col].variant_chunk_nbytes for col in encoded_together
             )
         return max(max_encoding_mem, gt_mem)
 
@@ -2059,7 +2088,7 @@ class VcfZarrWriter:
         num_workers = min(max_num_workers, worker_processes)
 
         total_bytes = 0
-        for col in self.schema.columns.values():
+        for col in self.schema.fields.values():
             # Open the array definition to get the total size
             total_bytes += zarr.open(self.arrays_path / col.name).nbytes
 

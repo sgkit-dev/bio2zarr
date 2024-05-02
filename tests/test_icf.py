@@ -13,7 +13,7 @@ class TestSmallExample:
     data_path = "tests/data/vcf/sample.vcf.gz"
 
     # fmt: off
-    columns = (
+    fields = (
         'ALT', 'CHROM', 'FILTERS', 'FORMAT/DP', 'FORMAT/GQ',
         'FORMAT/GT', 'FORMAT/HQ', 'ID', 'INFO/AA', 'INFO/AC',
         'INFO/AF', 'INFO/AN', 'INFO/DB', 'INFO/DP', 'INFO/H2',
@@ -46,14 +46,14 @@ class TestSmallExample:
     def test_summary_table(self, icf):
         data = icf.summary_table()
         cols = [d["name"] for d in data]
-        assert tuple(sorted(cols)) == self.columns
+        assert tuple(sorted(cols)) == self.fields
 
     def test_inspect(self, icf):
         assert icf.summary_table() == vcf.inspect(icf.path)
 
     def test_mapping_methods(self, icf):
-        assert len(icf) == len(self.columns)
-        assert icf["ALT"] is icf.columns["ALT"]
+        assert len(icf) == len(self.fields)
+        assert icf["ALT"] is icf.fields["ALT"]
         assert list(iter(icf)) == list(iter(icf))
 
     def test_num_partitions(self, icf):
@@ -94,7 +94,7 @@ class TestIcfWriterExample:
     data_path = "tests/data/vcf/sample.vcf.gz"
 
     # fmt: off
-    columns = (
+    fields = (
         'ALT', 'CHROM', 'FILTERS', 'FORMAT/DP', 'FORMAT/GQ',
         'FORMAT/GT', 'FORMAT/HQ', 'ID', 'INFO/AA', 'INFO/AC',
         'INFO/AF', 'INFO/AN', 'INFO/DB', 'INFO/DP', 'INFO/H2',
@@ -110,7 +110,7 @@ class TestIcfWriterExample:
         assert icf_path.exists()
         wip_path = icf_path / "wip"
         assert wip_path.exists()
-        for column in self.columns:
+        for column in self.fields:
             col_path = icf_path / column
             assert col_path.exists()
             assert col_path.is_dir()
@@ -147,7 +147,7 @@ class TestIcfWriterExample:
     def test_explode_partition(self, tmp_path, partition):
         icf_path = tmp_path / "x.icf"
         vcf.explode_init(icf_path, [self.data_path])
-        summary_file = icf_path / "wip" / f"p{partition}_summary.json"
+        summary_file = icf_path / "wip" / f"p{partition}.json"
         assert not summary_file.exists()
         vcf.explode_partition(icf_path, partition)
         assert summary_file.exists()
@@ -156,12 +156,12 @@ class TestIcfWriterExample:
         partition = 1
         icf_path = tmp_path / "x.icf"
         vcf.explode_init(icf_path, [self.data_path])
-        summary_file = icf_path / "wip" / f"p{partition}_summary.json"
+        summary_file = icf_path / "wip" / f"p{partition}.json"
         assert not summary_file.exists()
-        vcf.explode_partition(icf_path, partition, worker_processes=0)
+        vcf.explode_partition(icf_path, partition)
         with open(summary_file) as f:
             s1 = f.read()
-        vcf.explode_partition(icf_path, partition, worker_processes=0)
+        vcf.explode_partition(icf_path, partition)
         with open(summary_file) as f:
             s2 = f.read()
         assert s1 == s2
@@ -172,6 +172,16 @@ class TestIcfWriterExample:
         vcf.explode_init(icf_path, [self.data_path])
         with pytest.raises(ValueError, match="Partition index must be in the range"):
             vcf.explode_partition(icf_path, partition)
+
+    def test_explode_same_file_twice(self, tmp_path):
+        icf_path = tmp_path / "x.icf"
+        with pytest.raises(ValueError, match="Duplicate path provided"):
+            vcf.explode(icf_path, [self.data_path, self.data_path])
+
+    def test_explode_same_data_twice(self, tmp_path):
+        icf_path = tmp_path / "x.icf"
+        with pytest.raises(ValueError, match="Overlapping VCF regions"):
+            vcf.explode(icf_path, [self.data_path, "tests/data/vcf/sample.bcf"])
 
 
 class TestGeneratedFieldsExample:
@@ -218,7 +228,7 @@ class TestGeneratedFieldsExample:
         ],
     )
     def test_info_schemas(self, schema, name, dtype, shape, dimensions):
-        v = schema.columns[name]
+        v = schema.fields[name]
         assert v.dtype == dtype
         assert tuple(v.shape) == shape
         assert v.dimensions == dimensions

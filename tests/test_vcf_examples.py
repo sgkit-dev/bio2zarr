@@ -832,6 +832,7 @@ class TestSplitFileErrors:
     "name",
     [
         "sample.vcf.gz",
+        "sample_old_tabix.vcf.gz",
         "sample_no_genotypes.vcf.gz",
         "1kg_2020_chrM.vcf.gz",
         "field_type_combos.vcf.gz",
@@ -880,7 +881,7 @@ def test_split_explode(tmp_path):
         vcf.explode_partition(out, j)
     vcf.explode_finalise(out)
     pcvcf = vcf.IntermediateColumnarFormat(out)
-    assert pcvcf.columns["POS"].vcf_field.summary.asdict() == {
+    assert pcvcf.fields["POS"].vcf_field.summary.asdict() == {
         "num_chunks": 3,
         "compressed_size": 587,
         "uncompressed_size": 1008,
