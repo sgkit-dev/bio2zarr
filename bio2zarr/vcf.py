@@ -382,8 +382,8 @@ def sanitise_value_bool(buff, j, value):
 def sanitise_value_float_scalar(buff, j, value):
     x = value
     if value is None:
-        x = FLOAT32_MISSING
-    buff[j] = x
+        x = [FLOAT32_MISSING]
+    buff[j] = x[0]
 
 
 def sanitise_value_int_scalar(buff, j, value):
@@ -392,7 +392,7 @@ def sanitise_value_int_scalar(buff, j, value):
         # print("MISSING", INT_MISSING, INT_FILL)
         x = [INT_MISSING]
     else:
-        x = sanitise_int_array([value], ndmin=1, dtype=np.int32)
+        x = sanitise_int_array(value, ndmin=1, dtype=np.int32)
     buff[j] = x[0]
 
 
