@@ -28,6 +28,8 @@ jobs:
           # Just run macos tests on one Python version
           - os: macos-13
             python-version: "3.9"
+          - os: macos-13
+            python-version: "3.10"
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python-version }}
