@@ -39,9 +39,14 @@ all: 1kg_2020_chr20.bcf.csi \
 # 1000 genomes phase 1
 1KG_P1_ALL_URL=http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/phase1/analysis_results/integrated_call_sets/ALL.chr6.integrated_phase1_v3.20101123.snps_indels_svs.genotypes.vcf.gz
 
+old_tabix:
+	rm -fR tabix old_tabix
+	git clone https://github.com/samtools/tabix.git
+	cd tabix && make
+	cp tabix/tabix ./old_tabix
 
 %.vcf.gz.tbi: %.vcf.gz
-	tabix $<
+	./old_tabix $<
 
 %.2.split: %
 	./split.sh $< 2
