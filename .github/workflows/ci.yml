@@ -60,6 +60,11 @@ jobs:
           python -m build
           python -m twine check --strict dist/*
           python -m pip install dist/*.whl
-      - name: Check CLIs
+      - name: Check vcf2zarr CLI
         run: |
           vcf2zarr --help
+          python -m bio2zarr vcf2zarr --help
+      - name: Check vcfpartition CLI
+        run: |
+          vcfpartition --help
+          python -m bio2zarr vcfpartition --help
