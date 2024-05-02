@@ -2056,8 +2056,7 @@ class VcfZarrWriter:
                 "call_genotype_mask",
             ]
             gt_mem = sum(
-                self.schema.fields[col].variant_chunk_nbytes
-                for col in encoded_together
+                self.schema.fields[col].variant_chunk_nbytes for col in encoded_together
             )
         return max(max_encoding_mem, gt_mem)
 
