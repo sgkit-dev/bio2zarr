@@ -29,6 +29,13 @@ class TestIndexedVcf:
             with vcf_utils.IndexedVcf(data_path / "no-such-file.bcf"):
                 pass
 
+    def test_indels_filtered(self):
+        with vcf_utils.IndexedVcf(data_path / "chr_m_indels.vcf.gz") as vfile:
+            # Hand-picked example that results in filtering
+            region = vcf_utils.Region("chrM", 300, 314)
+            pos = [var.POS for var in vfile.variants(region)]
+            assert pos == [307, 308, 309, 312, 313, 314]
+
     # values computed using bcftools index -s
     @pytest.mark.parametrize(
         ("index_file", "expected"),
@@ -58,6 +65,7 @@ class TestIndexedVcf:
             ("1kg_2020_chr20_annotations.bcf.csi", {"chr20": 21}),
             ("NA12878.prod.chr20snippet.g.vcf.gz.tbi", {"20": 301778}),
             ("multi_contig.vcf.gz.tbi", {str(j): 933 for j in range(5)}),
+            ("chr_m_indels.vcf.gz.csi", {"chrM": 155}),
         ],
     )
     def test_contig_record_counts(self, index_file, expected):
@@ -82,6 +90,7 @@ class TestIndexedVcf:
             ("1kg_2020_chr20_annotations.bcf.csi", ["chr20:60070-"]),
             ("NA12878.prod.chr20snippet.g.vcf.gz.tbi", ["20:60001-"]),
             ("multi_contig.vcf.gz.tbi", [f"{j}:1-" for j in range(5)]),
+            ("chr_m_indels.vcf.gz.csi", ["chrM:26-"]),
         ],
     )
     def test_partition_into_one_part(self, index_file, expected):
@@ -106,6 +115,7 @@ class TestIndexedVcf:
             ("1kg_2020_chr20_annotations.bcf.csi", 1, 21),
             ("NA12878.prod.chr20snippet.g.vcf.gz.tbi", 59, 301778),
             ("multi_contig.vcf.gz.tbi", 5, 5 * 933),
+            ("chr_m_indels.vcf.gz.csi", 1, 155),
         ],
     )
     def test_partition_into_max_parts(self, index_file, num_expected, total_records):

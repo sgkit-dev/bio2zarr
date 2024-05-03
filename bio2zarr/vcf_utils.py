@@ -441,9 +441,9 @@ class IndexedVcf(contextlib.AbstractContextManager):
         return sum(1 for _ in self.variants(region))
 
     def variants(self, region):
-        # Need to filter because of indels overlapping the region
         start = 1 if region.start is None else region.start
         for var in self.vcf(str(region)):
+            # Need to filter because of indels overlapping the region
             if var.POS >= start:
                 yield var
 
