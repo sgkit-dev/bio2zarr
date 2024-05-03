@@ -1,0 +1,86 @@
+name: CD
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+  release:
+    types: [published]
+
+jobs:
+  packaging:
+    if: github.repository_owner == 'sgkit-dev'
+    name: Packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build twine validate-pyproject[all]
+      - name: Check and install package
+        run: |
+          validate-pyproject pyproject.toml
+          python -m build
+          python -m twine check --strict dist/*
+          python -m pip install dist/*.whl
+      - name: Check vcf2zarr CLI
+        run: |
+          vcf2zarr --help
+          python -m bio2zarr vcf2zarr --help
+      - name: Check vcfpartition CLI
+        run: |
+          vcfpartition --help
+          python -m bio2zarr vcfpartition --help
+      - name: Store the distribution packages
+        uses: actions/upload-artifact@v3
+        with:
+          name: python-package-distributions
+          path: dist/
+
+  publish-to-pypi:
+    if: github.repository_owner == 'sgkit-dev' && github.event_name == 'release'
+    needs:
+      - packaging
+    runs-on: ubuntu-latest
+
+    environment:
+      name: pypi
+      url: https://pypi.org/p/bio2zarr
+    permissions:
+      id-token: write  # IMPORTANT: mandatory for trusted publishing
+
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: python-package-distributions
+        path: dist/
+    - uses: pypa/gh-action-pypi-publish@release/v1
+
+
+  publish-to-testpypi:
+    if: github.repository_owner == 'sgkit-dev' && github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags')
+    needs:
+      - packaging
+    runs-on: ubuntu-latest
+
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/bio2zarr
+
+    permissions:
+      id-token: write  # IMPORTANT: mandatory for trusted publishing
+
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: python-package-distributions
+        path: dist/
+    - uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        repository-url: https://test.pypi.org/legacy/
