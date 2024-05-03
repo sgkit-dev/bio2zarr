@@ -502,5 +502,5 @@ class TestVcfZarrWriterExample:
     def test_encode_partition_out_of_range(self, icf_path, tmp_path, partition):
         zarr_path = tmp_path / "x.zarr"
         vcf.encode_init(icf_path, zarr_path, 3, variants_chunk_size=3)
-        with pytest.raises(ValueError, match="Partition index must be in the range"):
+        with pytest.raises(ValueError, match="Partition index not in the valid range"):
             vcf.encode_partition(zarr_path, partition)

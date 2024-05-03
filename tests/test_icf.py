@@ -170,7 +170,7 @@ class TestIcfWriterExample:
     def test_explode_partition_out_of_range(self, tmp_path, partition):
         icf_path = tmp_path / "x.icf"
         vcf.explode_init(icf_path, [self.data_path])
-        with pytest.raises(ValueError, match="Partition index must be in the range"):
+        with pytest.raises(ValueError, match="Partition index not in the valid range"):
             vcf.explode_partition(icf_path, partition)
 
     def test_explode_same_file_twice(self, tmp_path):

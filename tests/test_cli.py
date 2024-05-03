@@ -315,6 +315,23 @@ class TestWithMocks:
         )
 
     @mock.patch("bio2zarr.vcf.explode_partition")
+    def test_vcf_dexplode_partition_one_based(self, mocked, tmp_path):
+        runner = ct.CliRunner(mix_stderr=False)
+        icf_path = tmp_path / "icf"
+        icf_path.mkdir()
+        result = runner.invoke(
+            cli.vcf2zarr,
+            f"dexplode-partition {icf_path} 1 --one-based",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert len(result.stdout) == 0
+        assert len(result.stderr) == 0
+        mocked.assert_called_once_with(
+            str(icf_path), 0, **DEFAULT_DEXPLODE_PARTITION_ARGS
+        )
+
+    @mock.patch("bio2zarr.vcf.explode_partition")
     def test_vcf_dexplode_partition_missing_dir(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         icf_path = tmp_path / "icf"
@@ -436,6 +453,23 @@ class TestWithMocks:
             str(zarr_path), 1, **DEFAULT_DENCODE_PARTITION_ARGS
         )
 
+    @mock.patch("bio2zarr.vcf.encode_partition")
+    def test_vcf_dencode_partition_one_based(self, mocked, tmp_path):
+        runner = ct.CliRunner(mix_stderr=False)
+        zarr_path = tmp_path / "zarr"
+        zarr_path.mkdir()
+        result = runner.invoke(
+            cli.vcf2zarr,
+            f"dencode-partition {zarr_path} 1 --one-based",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert len(result.stdout) == 0
+        assert len(result.stderr) == 0
+        mocked.assert_called_once_with(
+            str(zarr_path), 0, **DEFAULT_DENCODE_PARTITION_ARGS
+        )
+
     @mock.patch("bio2zarr.vcf.encode_finalise")
     def test_vcf_dencode_finalise(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
@@ -489,7 +523,8 @@ class TestWithMocks:
 class TestVcfEndToEnd:
     vcf_path = "tests/data/vcf/sample.vcf.gz"
 
-    def test_dexplode(self, tmp_path):
+    @pytest.mark.parametrize("one_based", [False, True])
+    def test_dexplode(self, tmp_path, one_based):
         icf_path = tmp_path / "icf"
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
@@ -501,11 +536,11 @@ class TestVcfEndToEnd:
         assert result.stdout.strip() == "3"
 
         for j in range(3):
-            result = runner.invoke(
-                cli.vcf2zarr,
-                f"dexplode-partition {icf_path} {j}",
-                catch_exceptions=False,
-            )
+            if one_based:
+                cmd = f"dexplode-partition {icf_path} {j + 1} --one-based"
+            else:
+                cmd = f"dexplode-partition {icf_path} {j}"
+            result = runner.invoke(cli.vcf2zarr, cmd, catch_exceptions=False)
             assert result.exit_code == 0
         result = runner.invoke(
             cli.vcf2zarr, f"dexplode-finalise {icf_path}", catch_exceptions=False
@@ -552,7 +587,8 @@ class TestVcfEndToEnd:
         # Arbitrary check
         assert "variant_position" in result.stdout
 
-    def test_dencode(self, tmp_path):
+    @pytest.mark.parametrize("one_based", [False, True])
+    def test_dencode(self, tmp_path, one_based):
         icf_path = tmp_path / "icf"
         zarr_path = tmp_path / "zarr"
         runner = ct.CliRunner(mix_stderr=False)
@@ -569,12 +605,12 @@ class TestVcfEndToEnd:
         assert result.stdout.split()[0] == "3"
 
         for j in range(3):
-            result = runner.invoke(
-                cli.vcf2zarr,
-                f"dencode-partition {zarr_path} {j}",
-                catch_exceptions=False,
-            )
-        assert result.exit_code == 0
+            if one_based:
+                cmd = f"dencode-partition {zarr_path} {j + 1} --one-based"
+            else:
+                cmd = f"dencode-partition {zarr_path} {j}"
+            result = runner.invoke(cli.vcf2zarr, cmd, catch_exceptions=False)
+            assert result.exit_code == 0
 
         result = runner.invoke(
             cli.vcf2zarr, f"dencode-finalise {zarr_path}", catch_exceptions=False
