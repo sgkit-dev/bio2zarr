@@ -1,5 +1,6 @@
 import json
 
+import pysam
 import pytest
 import sgkit as sg
 import xarray.testing as xt
@@ -504,3 +505,64 @@ class TestVcfZarrWriterExample:
         vcf.encode_init(icf_path, zarr_path, 3, variants_chunk_size=3)
         with pytest.raises(ValueError, match="Partition index not in the valid range"):
             vcf.encode_partition(zarr_path, partition)
+
+
+class TestClobberFixedFields:
+    def generate_vcf(self, path, info_field=None, format_field=None, num_rows=1):
+        with open(path, "w") as out:
+            print("##fileformat=VCFv4.2", file=out)
+            print('##FILTER=<ID=PASS,Description="All filters passed">', file=out)
+            print("##contig=<ID=1>", file=out)
+            if info_field is not None:
+                print(
+                    f'##INFO=<ID={info_field},Number=1,Type=Float,Description="">',
+                    file=out,
+                )
+            if format_field is not None:
+                print(
+                    f'##FORMAT=<ID={format_field},Number=1,Type=Float,Description="">',
+                    file=out,
+                )
+            header = "\t".join(
+                ["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"]
+            )
+            print(header, file=out)
+            for k in range(num_rows):
+                pos = str(k + 1)
+                print("\t".join(["1", pos, "A", "T", ".", ".", ".", "."]), file=out)
+
+        print(open(path).read())
+        # This also compresses the input file
+        pysam.tabix_index(str(path), preset="vcf")
+
+    @pytest.mark.parametrize(
+        "field",
+        [
+            "contig",
+            "id",
+            "id_mask",
+            "position",
+            "allele",
+            "filter",
+            "quality",
+        ],
+    )
+    def test_variant_fields(self, tmp_path, field):
+        vcf_file = tmp_path / "test.vcf"
+        self.generate_vcf(vcf_file, info_field=field)
+        with pytest.raises(ValueError, match=f"INFO field name.*{field}"):
+            vcf.explode(tmp_path / "x.icf", [tmp_path / "test.vcf.gz"])
+
+    @pytest.mark.parametrize(
+        "field",
+        [
+            "genotype",
+            "genotype_phased",
+            "genotype_mask",
+        ],
+    )
+    def test_call_fields(self, tmp_path, field):
+        vcf_file = tmp_path / "test.vcf"
+        self.generate_vcf(vcf_file, format_field=field)
+        with pytest.raises(ValueError, match=f"FORMAT field name.*{field}"):
+            vcf.explode(tmp_path / "x.icf", [tmp_path / "test.vcf.gz"])
