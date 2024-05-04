@@ -962,6 +962,26 @@ def check_overlapping_partitions(partitions):
                 )
 
 
+def check_field_clobbering(icf_metadata):
+    info_field_names = set(field.name for field in icf_metadata.info_fields)
+    fixed_variant_fields = set(
+        ["contig", "id", "id_mask", "position", "allele", "filter", "quality"]
+    )
+    intersection = info_field_names & fixed_variant_fields
+    if len(intersection) > 0:
+        raise ValueError(
+            f"INFO field name(s) clashing with VCF Zarr spec: {intersection}"
+        )
+
+    format_field_names = set(field.name for field in icf_metadata.format_fields)
+    fixed_variant_fields = set(["genotype", "genotype_phased", "genotype_mask"])
+    intersection = format_field_names & fixed_variant_fields
+    if len(intersection) > 0:
+        raise ValueError(
+            f"FORMAT field name(s) clashing with VCF Zarr spec: {intersection}"
+        )
+
+
 class IntermediateColumnarFormatWriter:
     def __init__(self, path):
         self.path = pathlib.Path(path)
@@ -996,6 +1016,7 @@ class IntermediateColumnarFormatWriter:
             show_progress=show_progress,
             target_num_partitions=target_num_partitions,
         )
+        check_field_clobbering(icf_metadata)
         self.metadata = icf_metadata
         self.metadata.format_version = ICF_METADATA_FORMAT_VERSION
         self.metadata.compressor = compressor.get_config()
