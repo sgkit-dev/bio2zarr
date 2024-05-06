@@ -1,3 +1,4 @@
+import json
 from unittest import mock
 
 import click.testing as ct
@@ -529,11 +530,11 @@ class TestVcfEndToEnd:
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.vcf2zarr,
-            f"dexplode-init {self.vcf_path} {icf_path} 5",
+            f"dexplode-init {self.vcf_path} {icf_path} 5 --json",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        assert result.stdout.strip() == "3"
+        assert json.loads(result.stdout)["partitions"] == 3
 
         for j in range(3):
             if one_based:
@@ -598,11 +599,11 @@ class TestVcfEndToEnd:
         assert result.exit_code == 0
         result = runner.invoke(
             cli.vcf2zarr,
-            f"dencode-init {icf_path} {zarr_path} 5 --variants-chunk-size=3",
+            f"dencode-init {icf_path} {zarr_path} 5 --variants-chunk-size=3 --json",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        assert result.stdout.split()[0] == "3"
+        assert json.loads(result.stdout)["partitions"] == 3
 
         for j in range(3):
             if one_based:

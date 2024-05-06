@@ -5,7 +5,6 @@ import shutil
 
 import click
 import coloredlogs
-import humanfriendly
 import numcodecs
 import tabulate
 
@@ -63,6 +62,13 @@ one_based = click.option(
     is_flag=True,
     flag_value=True,
     help="Partition indexes are interpreted as one-based",
+)
+
+json = click.option(
+    "--json",
+    is_flag=True,
+    flag_value=True,
+    help="Output summary data in JSON format",
 )
 
 version = click.version_option(version=f"{provenance.__version__}")
@@ -166,6 +172,16 @@ def get_compressor(cname):
     return numcodecs.get_codec(config)
 
 
+def show_work_summary(work_summary, json):
+    if json:
+        output = work_summary.asjson()
+    else:
+        data = work_summary.asdict()
+        output = tabulate.tabulate(list(data.items()), tablefmt="plain")
+        # output = "\n".join(f"{k}\t{v}" for k, v in data.items())
+    click.echo(output)
+
+
 @click.command
 @vcfs
 @new_icf_path
@@ -199,6 +215,7 @@ def explode(
 @force
 @column_chunk_size
 @compressor
+@json
 @verbose
 @worker_processes
 def dexplode_init(
@@ -208,6 +225,7 @@ def dexplode_init(
     force,
     column_chunk_size,
     compressor,
+    json,
     verbose,
     worker_processes,
 ):
@@ -217,7 +235,7 @@ def dexplode_init(
     """
     setup_logging(verbose)
     check_overwrite_dir(icf_path, force)
-    num_partitions = vcf.explode_init(
+    work_summary = vcf.explode_init(
         icf_path,
         vcfs,
         target_num_partitions=num_partitions,
@@ -226,7 +244,7 @@ def dexplode_init(
         compressor=get_compressor(compressor),
         show_progress=True,
     )
-    click.echo(num_partitions)
+    show_work_summary(work_summary, json)
 
 
 @click.command
@@ -331,6 +349,7 @@ def encode(
 @variants_chunk_size
 @samples_chunk_size
 @max_variant_chunks
+@json
 @verbose
 def dencode_init(
     icf_path,
@@ -341,6 +360,7 @@ def dencode_init(
     variants_chunk_size,
     samples_chunk_size,
     max_variant_chunks,
+    json,
     verbose,
 ):
     """
@@ -358,7 +378,7 @@ def dencode_init(
     """
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)
-    num_partitions, max_memory = vcf.encode_init(
+    work_summary = vcf.encode_init(
         icf_path,
         zarr_path,
         target_num_partitions=num_partitions,
@@ -368,15 +388,7 @@ def dencode_init(
         max_variant_chunks=max_variant_chunks,
         show_progress=True,
     )
-    formatted_size = humanfriendly.format_size(max_memory, binary=True)
-    # NOTE adding the size to the stdout here so that users can parse it
-    # and use in their submission scripts. This is a first pass, and
-    # will most likely change as we see what works and doesn't.
-    # NOTE we probably want to format this as a table, which lists
-    # some other properties, line by line
-    # NOTE This size number is also not quite enough, you need a bit of
-    # headroom with it (probably 10% or so). We should include this.
-    click.echo(f"{num_partitions}\t{formatted_size}")
+    show_work_summary(work_summary, json)
 
 
 @click.command

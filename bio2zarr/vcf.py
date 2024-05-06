@@ -204,6 +204,10 @@ class IcfMetadata:
     def num_filters(self):
         return len(self.filters)
 
+    @property
+    def num_samples(self):
+        return len(self.samples)
+
     @staticmethod
     def fromdict(d):
         if d["format_version"] != ICF_METADATA_FORMAT_VERSION:
@@ -982,6 +986,19 @@ def check_field_clobbering(icf_metadata):
         )
 
 
+@dataclasses.dataclass
+class IcfWriteSummary:
+    partitions: int
+    samples: int
+    variants: int
+
+    def asdict(self):
+        return dataclasses.asdict(self)
+
+    def asjson(self):
+        return json.dumps(self.asdict(), indent=4)
+
+
 class IntermediateColumnarFormatWriter:
     def __init__(self, path):
         self.path = pathlib.Path(path)
@@ -1038,7 +1055,11 @@ class IntermediateColumnarFormatWriter:
         logger.info("Writing WIP metadata")
         with open(self.wip_path / "metadata.json", "w") as f:
             json.dump(self.metadata.asdict(), f, indent=4)
-        return self.num_partitions
+        return IcfWriteSummary(
+            partitions=self.num_partitions,
+            variants=icf_metadata.num_records,
+            samples=icf_metadata.num_samples,
+        )
 
     def mkdirs(self):
         num_dirs = len(self.metadata.fields)
@@ -1371,6 +1392,7 @@ class ZarrColumnSpec:
         """
         Returns the nbytes for a single variant chunk of this array.
         """
+        # TODO WARNING IF this is a string
         chunk_items = self.chunks[0]
         for size in self.shape[1:]:
             chunk_items *= size
@@ -1643,6 +1665,21 @@ class VcfZarrWriterMetadata:
         return ret
 
 
+@dataclasses.dataclass
+class VcfZarrWriteSummary:
+    partitions: int
+    samples: int
+    variants: int
+    chunks: int
+    max_encoding_memory: str
+
+    def asdict(self):
+        return dataclasses.asdict(self)
+
+    def asjson(self):
+        return json.dumps(self.asdict(), indent=4)
+
+
 class VcfZarrWriter:
     def __init__(self, path):
         self.path = pathlib.Path(path)
@@ -1718,13 +1755,22 @@ class VcfZarrWriter:
         store = zarr.DirectoryStore(self.arrays_path)
         root = zarr.group(store=store)
 
-        for column in self.schema.fields.values():
-            self.init_array(root, column, partitions[-1].stop)
+        total_chunks = 0
+        for field in self.schema.fields.values():
+            a = self.init_array(root, field, partitions[-1].stop)
+            total_chunks += a.nchunks
 
         logger.info("Writing WIP metadata")
         with open(self.wip_path / "metadata.json", "w") as f:
             json.dump(self.metadata.asdict(), f, indent=4)
-        return len(partitions)
+
+        return VcfZarrWriteSummary(
+            variants=self.icf.num_records,
+            samples=self.icf.num_samples,
+            partitions=self.num_partitions,
+            chunks=total_chunks,
+            max_encoding_memory=display_size(self.get_max_encoding_memory()),
+        )
 
     def encode_samples(self, root):
         if self.schema.samples != self.icf.metadata.samples:
@@ -1794,6 +1840,7 @@ class VcfZarrWriter:
             }
         )
         logger.debug(f"Initialised {a}")
+        return a
 
     #######################
     # encode_partition
@@ -2062,6 +2109,9 @@ class VcfZarrWriter:
         """
         Return the approximate maximum memory used to encode a variant chunk.
         """
+        # NOTE This size number is also not quite enough, you need a bit of
+        # headroom with it (probably 10% or so). We should include this.
+        # FIXME this is actively wrong for String columns. See if we can do better.
         max_encoding_mem = max(
             col.variant_chunk_nbytes for col in self.schema.fields.values()
         )
@@ -2190,14 +2240,13 @@ def encode_init(
             schema = VcfZarrSchema.fromjson(f.read())
     zarr_path = pathlib.Path(zarr_path)
     vzw = VcfZarrWriter(zarr_path)
-    vzw.init(
+    return vzw.init(
         icf,
         target_num_partitions=target_num_partitions,
         schema=schema,
         dimension_separator=dimension_separator,
         max_variant_chunks=max_variant_chunks,
     )
-    return vzw.num_partitions, vzw.get_max_encoding_memory()
 
 
 def encode_partition(zarr_path, partition):
