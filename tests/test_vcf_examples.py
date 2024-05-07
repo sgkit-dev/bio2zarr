@@ -872,13 +872,13 @@ def test_split_explode(tmp_path):
         "tests/data/vcf/sample.vcf.gz.3.split/X.vcf.gz",
     ]
     out = tmp_path / "test.explode"
-    num_partitions = vcf.explode_init(out, paths, target_num_partitions=15)
-    assert num_partitions == 3
+    work_summary = vcf.explode_init(out, paths, target_num_partitions=15)
+    assert work_summary.num_partitions == 3
 
     with pytest.raises(FileNotFoundError):
         pcvcf = vcf.IntermediateColumnarFormat(out)
 
-    for j in range(num_partitions):
+    for j in range(work_summary.num_partitions):
         vcf.explode_partition(out, j)
     vcf.explode_finalise(out)
     pcvcf = vcf.IntermediateColumnarFormat(out)
