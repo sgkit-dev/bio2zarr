@@ -1392,11 +1392,15 @@ class ZarrColumnSpec:
         """
         Returns the nbytes for a single variant chunk of this array.
         """
-        # TODO WARNING IF this is a string
         chunk_items = self.chunks[0]
         for size in self.shape[1:]:
             chunk_items *= size
         dt = np.dtype(self.dtype)
+        if dt.kind == "O":
+            logger.warning(
+                f"Field {self.name} is a string; max memory usage may "
+                "be a significant underestimate"
+            )
         return chunk_items * dt.itemsize
 
 
@@ -1890,13 +1894,15 @@ class VcfZarrWriter:
         os.rename(partition_path, final_path)
 
     def init_partition_array(self, partition_index, name):
-        wip_path = self.wip_partition_array_path(partition_index, name)
         # Create an empty array like the definition
         src = self.arrays_path / name
         # Overwrite any existing WIP files
+        wip_path = self.wip_partition_array_path(partition_index, name)
         shutil.copytree(src, wip_path, dirs_exist_ok=True)
-        array = zarr.open(wip_path)
-        logger.debug(f"Opened empty array {array} @ {wip_path}")
+        store = zarr.DirectoryStore(self.wip_partition_path(partition_index))
+        wip_root = zarr.group(store=store)
+        array = wip_root[name]
+        logger.debug(f"Opened empty array {array.name} <{array.dtype}> @ {wip_path}")
         return array
 
     def finalise_partition_array(self, partition_index, name):
@@ -2109,12 +2115,9 @@ class VcfZarrWriter:
         """
         Return the approximate maximum memory used to encode a variant chunk.
         """
-        # NOTE This size number is also not quite enough, you need a bit of
-        # headroom with it (probably 10% or so). We should include this.
-        # FIXME this is actively wrong for String columns. See if we can do better.
-        max_encoding_mem = max(
-            col.variant_chunk_nbytes for col in self.schema.fields.values()
-        )
+        max_encoding_mem = 0
+        for col in self.schema.fields.values():
+            max_encoding_mem = max(max_encoding_mem, col.variant_chunk_nbytes)
         gt_mem = 0
         if "call_genotype" in self.schema.fields:
             encoded_together = [
