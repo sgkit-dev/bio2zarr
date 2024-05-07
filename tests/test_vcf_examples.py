@@ -873,12 +873,12 @@ def test_split_explode(tmp_path):
     ]
     out = tmp_path / "test.explode"
     work_summary = vcf.explode_init(out, paths, target_num_partitions=15)
-    assert work_summary.partitions == 3
+    assert work_summary.num_partitions == 3
 
     with pytest.raises(FileNotFoundError):
         pcvcf = vcf.IntermediateColumnarFormat(out)
 
-    for j in range(work_summary.partitions):
+    for j in range(work_summary.num_partitions):
         vcf.explode_partition(out, j)
     vcf.explode_finalise(out)
     pcvcf = vcf.IntermediateColumnarFormat(out)

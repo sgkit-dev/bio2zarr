@@ -988,9 +988,9 @@ def check_field_clobbering(icf_metadata):
 
 @dataclasses.dataclass
 class IcfWriteSummary:
-    partitions: int
-    samples: int
-    variants: int
+    num_partitions: int
+    num_samples: int
+    num_variants: int
 
     def asdict(self):
         return dataclasses.asdict(self)
@@ -1056,9 +1056,9 @@ class IntermediateColumnarFormatWriter:
         with open(self.wip_path / "metadata.json", "w") as f:
             json.dump(self.metadata.asdict(), f, indent=4)
         return IcfWriteSummary(
-            partitions=self.num_partitions,
-            variants=icf_metadata.num_records,
-            samples=icf_metadata.num_samples,
+            num_partitions=self.num_partitions,
+            num_variants=icf_metadata.num_records,
+            num_samples=icf_metadata.num_samples,
         )
 
     def mkdirs(self):
@@ -1667,10 +1667,10 @@ class VcfZarrWriterMetadata:
 
 @dataclasses.dataclass
 class VcfZarrWriteSummary:
-    partitions: int
-    samples: int
-    variants: int
-    chunks: int
+    num_partitions: int
+    num_samples: int
+    num_variants: int
+    num_chunks: int
     max_encoding_memory: str
 
     def asdict(self):
@@ -1765,10 +1765,10 @@ class VcfZarrWriter:
             json.dump(self.metadata.asdict(), f, indent=4)
 
         return VcfZarrWriteSummary(
-            variants=self.icf.num_records,
-            samples=self.icf.num_samples,
-            partitions=self.num_partitions,
-            chunks=total_chunks,
+            num_variants=self.icf.num_records,
+            num_samples=self.icf.num_samples,
+            num_partitions=self.num_partitions,
+            num_chunks=total_chunks,
             max_encoding_memory=display_size(self.get_max_encoding_memory()),
         )
 

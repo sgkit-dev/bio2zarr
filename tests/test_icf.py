@@ -106,7 +106,7 @@ class TestIcfWriterExample:
         icf_path = tmp_path / "x.icf"
         assert not icf_path.exists()
         summary = vcf.explode_init(icf_path, [self.data_path])
-        assert summary.partitions == 3
+        assert summary.num_partitions == 3
         assert icf_path.exists()
         wip_path = icf_path / "wip"
         assert wip_path.exists()
@@ -120,7 +120,7 @@ class TestIcfWriterExample:
         wip_path = icf_path / "wip"
         summary = vcf.explode_init(icf_path, [self.data_path])
         assert icf_path.exists()
-        for j in range(summary.partitions):
+        for j in range(summary.num_partitions):
             vcf.explode_partition(icf_path, j)
         assert wip_path.exists()
         vcf.explode_finalise(icf_path)
@@ -271,7 +271,7 @@ class TestInitProperties:
     def run_dexplode(self, tmp_path, **kwargs):
         icf_path = tmp_path / "icf"
         summary = vcf.explode_init(icf_path, [self.data_path], **kwargs)
-        for j in range(summary.partitions):
+        for j in range(summary.num_partitions):
             vcf.explode_partition(icf_path, j)
         vcf.explode_finalise(icf_path)
         return vcf.IntermediateColumnarFormat(icf_path)

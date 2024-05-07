@@ -1,3 +1,4 @@
+import dataclasses
 import json
 from unittest import mock
 
@@ -45,6 +46,17 @@ DEFAULT_DENCODE_INIT_ARGS = dict(
 DEFAULT_DENCODE_PARTITION_ARGS = dict()
 
 DEFAULT_DENCODE_FINALISE_ARGS = dict(show_progress=True)
+
+
+@dataclasses.dataclass
+class FakeWorkSummary:
+    num_partitions: int
+
+    def asdict(self):
+        return dataclasses.asdict(self)
+
+    def asjson(self):
+        return json.dumps(self.asdict())
 
 
 class TestWithMocks:
@@ -263,7 +275,7 @@ class TestWithMocks:
         assert "'no_such_file' does not exist" in result.stderr
         mocked.assert_not_called()
 
-    @mock.patch("bio2zarr.vcf.explode_init", return_value=5)
+    @mock.patch("bio2zarr.vcf.explode_init", return_value=FakeWorkSummary(5))
     def test_vcf_dexplode_init(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         icf_path = tmp_path / "icf"
@@ -274,7 +286,7 @@ class TestWithMocks:
         )
         assert result.exit_code == 0
         assert len(result.stderr) == 0
-        assert result.stdout == "5\n"
+        assert list(result.stdout.split()) == ["num_partitions", "5"]
         mocked.assert_called_once_with(
             str(icf_path),
             (self.vcf_path,),
@@ -416,7 +428,7 @@ class TestWithMocks:
             **DEFAULT_ENCODE_ARGS,
         )
 
-    @mock.patch("bio2zarr.vcf.encode_init", return_value=(10, 1024))
+    @mock.patch("bio2zarr.vcf.encode_init", return_value=FakeWorkSummary(10))
     def test_dencode_init(self, mocked, tmp_path):
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
@@ -428,7 +440,7 @@ class TestWithMocks:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        assert result.stdout == "10\t1 KiB\n"
+        assert list(result.stdout.split()) == ["num_partitions", "10"]
         assert len(result.stderr) == 0
         mocked.assert_called_once_with(
             str(icf_path),
@@ -534,7 +546,7 @@ class TestVcfEndToEnd:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        assert json.loads(result.stdout)["partitions"] == 3
+        assert json.loads(result.stdout)["num_partitions"] == 3
 
         for j in range(3):
             if one_based:
@@ -603,7 +615,7 @@ class TestVcfEndToEnd:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        assert json.loads(result.stdout)["partitions"] == 3
+        assert json.loads(result.stdout)["num_partitions"] == 3
 
         for j in range(3):
             if one_based:

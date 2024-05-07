@@ -421,7 +421,7 @@ class TestVcfZarrWriterExample:
         zarr_path = tmp_path / "x.zarr"
         assert not zarr_path.exists()
         summary = vcf.encode_init(icf_path, zarr_path, 7, variants_chunk_size=3)
-        assert summary.partitions == 3
+        assert summary.num_partitions == 3
         assert zarr_path.exists()
         wip_path = zarr_path / "wip"
         assert wip_path.exists()
@@ -443,7 +443,7 @@ class TestVcfZarrWriterExample:
         summary = vcf.encode_init(icf_path, zarr_path, 7, variants_chunk_size=3)
         wip_path = zarr_path / "wip"
         assert wip_path.exists()
-        for j in range(summary.partitions):
+        for j in range(summary.num_partitions):
             vcf.encode_partition(zarr_path, j)
             assert (wip_path / "partitions" / f"p{j}").exists()
         vcf.encode_finalise(zarr_path)
@@ -527,7 +527,7 @@ class TestClobberFixedFields:
                 pos = str(k + 1)
                 print("\t".join(["1", pos, "A", "T", ".", ".", ".", "."]), file=out)
 
-        print(open(path).read())
+        # print(open(path).read())
         # This also compresses the input file
         pysam.tabix_index(str(path), preset="vcf")
 

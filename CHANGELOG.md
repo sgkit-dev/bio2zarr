@@ -1,3 +1,6 @@
+# 0.0.10 2024-05-XX
+- Change output format of dexplode-init and dencode-init
+
 # 0.0.9 2024-05-02
 
 - Change on-disk format for explode and schema
