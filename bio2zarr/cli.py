@@ -423,17 +423,25 @@ def dencode_finalise(zarr_path, verbose):
 @click.command(name="convert")
 @vcfs
 @new_zarr_path
+@force
 @variants_chunk_size
 @samples_chunk_size
 @verbose
 @worker_processes
 def convert_vcf(
-    vcfs, zarr_path, variants_chunk_size, samples_chunk_size, verbose, worker_processes
+    vcfs,
+    zarr_path,
+    force,
+    variants_chunk_size,
+    samples_chunk_size,
+    verbose,
+    worker_processes,
 ):
     """
     Convert input VCF(s) directly to vcfzarr (not recommended for large files).
     """
     setup_logging(verbose)
+    check_overwrite_dir(zarr_path, force)
     vcf.convert(
         vcfs,
         zarr_path,

@@ -2273,7 +2273,7 @@ def convert(
     # TODO add arguments to control location of tmpdir
 ):
     with tempfile.TemporaryDirectory(prefix="vcf2zarr") as tmp:
-        if_dir = pathlib.Path(tmp) / "if"
+        if_dir = pathlib.Path(tmp) / "icf"
         explode(
             if_dir,
             vcfs,
