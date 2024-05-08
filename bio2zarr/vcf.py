@@ -1397,7 +1397,7 @@ class ZarrColumnSpec:
         for size in self.shape[1:]:
             chunk_items *= size
         dt = np.dtype(self.dtype)
-        if dt.kind == "O":
+        if dt.kind == "O" and "samples" in self.dimensions:
             logger.warning(
                 f"Field {self.name} is a string; max memory usage may "
                 "be a significant underestimate"
