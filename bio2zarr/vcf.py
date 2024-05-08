@@ -1413,7 +1413,6 @@ class VcfZarrSchema:
     format_version: str
     samples_chunk_size: int
     variants_chunk_size: int
-    dimensions: list
     samples: list
     contigs: list
     filters: list
@@ -1575,7 +1574,6 @@ class VcfZarrSchema:
             samples_chunk_size=samples_chunk_size,
             variants_chunk_size=variants_chunk_size,
             fields=colspecs,
-            dimensions=["variants", "samples", "ploidy", "alleles", "filters"],
             samples=icf.metadata.samples,
             contigs=icf.metadata.contigs,
             filters=icf.metadata.filters,
@@ -1786,9 +1784,7 @@ class VcfZarrWriter:
 
     def encode_samples(self, root):
         if self.schema.samples != self.icf.metadata.samples:
-            raise ValueError(
-                "Subsetting or reordering samples not supported currently"
-            )  # NEEDS TEST
+            raise ValueError("Subsetting or reordering samples not supported currently")
         array = root.array(
             "sample_id",
             [sample.id for sample in self.schema.samples],

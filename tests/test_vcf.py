@@ -218,15 +218,6 @@ class TestDefaultSchema:
         assert schema.samples_chunk_size == 1000
         assert schema.variants_chunk_size == 10000
 
-    def test_dimensions(self, schema):
-        assert schema.dimensions == [
-            "variants",
-            "samples",
-            "ploidy",
-            "alleles",
-            "filters",
-        ]
-
     def test_samples(self, schema):
         assert schema.asdict()["samples"] == [
             {"id": s} for s in ["NA00001", "NA00002", "NA00003"]
@@ -569,3 +560,30 @@ class TestClobberFixedFields:
         self.generate_vcf(vcf_file, format_field=field)
         with pytest.raises(ValueError, match=f"FORMAT field name.*{field}"):
             vcf.explode(tmp_path / "x.icf", [tmp_path / "test.vcf.gz"])
+
+
+class TestBadSchemaChanges:
+    # [{'id': 'NA00001'}, {'id': 'NA00002'}, {'id': 'NA00003'}],
+    @pytest.mark.parametrize(
+        "samples",
+        [
+            [],
+            [{"id": "NA00001"}, {"id": "NA00003"}],
+            [{"id": "NA00001"}, {"id": "NA00002"}, {"id": "NA00004"}],
+            [
+                {"id": "NA00001"},
+                {"id": "NA00002"},
+                {"id": "NA00003"},
+                {"id": "NA00004"},
+            ],
+            [{"id": "NA00001"}, {"id": "NA00003"}, {"id": "NA00002"}],
+        ],
+    )
+    def test_removed_samples(self, tmp_path, schema, icf_path, samples):
+        d = schema.asdict()
+        d["samples"] = samples
+        schema_path = tmp_path / "schema.json"
+        with open(schema_path, "w") as f:
+            json.dump(d, f)
+        with pytest.raises(ValueError, match="Subsetting or reordering samples"):
+            vcf.encode(icf_path, tmp_path / "z", schema_path=schema_path)
