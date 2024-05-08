@@ -1311,6 +1311,7 @@ class ZarrColumnSpec:
         self.shape = tuple(self.shape)
         self.chunks = tuple(self.chunks)
         self.dimensions = tuple(self.dimensions)
+        self.filters = tuple(self.filters)
 
     @staticmethod
     def new(**kwargs):
@@ -1404,7 +1405,7 @@ class ZarrColumnSpec:
         return chunk_items * dt.itemsize
 
 
-ZARR_SCHEMA_FORMAT_VERSION = "0.3"
+ZARR_SCHEMA_FORMAT_VERSION = "0.4"
 
 
 @dataclasses.dataclass
@@ -1416,7 +1417,10 @@ class VcfZarrSchema:
     samples: list
     contigs: list
     filters: list
-    fields: dict
+    fields: list
+
+    def field_map(self):
+        return {field.name: field for field in self.fields}
 
     def asdict(self):
         return dataclasses.asdict(self)
@@ -1435,9 +1439,7 @@ class VcfZarrSchema:
         ret.samples = [Sample(**sd) for sd in d["samples"]]
         ret.contigs = [Contig(**sd) for sd in d["contigs"]]
         ret.filters = [Filter(**sd) for sd in d["filters"]]
-        ret.fields = {
-            key: ZarrColumnSpec(**value) for key, value in d["fields"].items()
-        }
+        ret.fields = [ZarrColumnSpec(**sd) for sd in d["fields"]]
         return ret
 
     @staticmethod
@@ -1572,7 +1574,7 @@ class VcfZarrSchema:
             format_version=ZARR_SCHEMA_FORMAT_VERSION,
             samples_chunk_size=samples_chunk_size,
             variants_chunk_size=variants_chunk_size,
-            fields={col.name: col for col in colspecs},
+            fields=colspecs,
             dimensions=["variants", "samples", "ploidy", "alleles", "filters"],
             samples=icf.metadata.samples,
             contigs=icf.metadata.contigs,
@@ -1701,6 +1703,12 @@ class VcfZarrWriter:
     def num_partitions(self):
         return len(self.metadata.partitions)
 
+    def has_genotypes(self):
+        for field in self.schema.fields:
+            if field.name == "call_genotype":
+                return True
+        return False
+
     #######################
     # init
     #######################
@@ -1760,7 +1768,7 @@ class VcfZarrWriter:
         root = zarr.group(store=store)
 
         total_chunks = 0
-        for field in self.schema.fields.values():
+        for field in self.schema.fields:
             a = self.init_array(root, field, partitions[-1].stop)
             total_chunks += a.nchunks
 
@@ -1880,10 +1888,10 @@ class VcfZarrWriter:
         self.encode_filters_partition(partition_index)
         self.encode_contig_partition(partition_index)
         self.encode_alleles_partition(partition_index)
-        for col in self.schema.fields.values():
+        for col in self.schema.fields:
             if col.vcf_field is not None:
                 self.encode_array_partition(col, partition_index)
-        if "call_genotype" in self.schema.fields:
+        if self.has_genotypes():
             self.encode_genotypes_partition(partition_index)
 
         final_path = self.partition_path(partition_index)
@@ -2100,8 +2108,8 @@ class VcfZarrWriter:
         # for multiple workers, or making a standard wrapper for tqdm
         # that allows us to have a consistent look and feel.
         with core.ParallelWorkManager(0, progress_config) as pwm:
-            for name in self.schema.fields:
-                pwm.submit(self.finalise_array, name)
+            for field in self.schema.fields:
+                pwm.submit(self.finalise_array, field.name)
         logger.debug(f"Removing {self.wip_path}")
         shutil.rmtree(self.wip_path)
         logger.info("Consolidating Zarr metadata")
@@ -2116,17 +2124,14 @@ class VcfZarrWriter:
         Return the approximate maximum memory used to encode a variant chunk.
         """
         max_encoding_mem = 0
-        for col in self.schema.fields.values():
+        for col in self.schema.fields:
             max_encoding_mem = max(max_encoding_mem, col.variant_chunk_nbytes)
         gt_mem = 0
-        if "call_genotype" in self.schema.fields:
-            encoded_together = [
-                "call_genotype",
-                "call_genotype_phased",
-                "call_genotype_mask",
-            ]
+        if self.has_genotypes:
             gt_mem = sum(
-                self.schema.fields[col].variant_chunk_nbytes for col in encoded_together
+                field.variant_chunk_nbytes
+                for field in self.schema.fields
+                if field.name.startswith("call_genotype")
             )
         return max(max_encoding_mem, gt_mem)
 
@@ -2158,7 +2163,7 @@ class VcfZarrWriter:
         num_workers = min(max_num_workers, worker_processes)
 
         total_bytes = 0
-        for col in self.schema.fields.values():
+        for col in self.schema.fields:
             # Open the array definition to get the total size
             total_bytes += zarr.open(self.arrays_path / col.name).nbytes
 

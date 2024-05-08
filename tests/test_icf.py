@@ -228,7 +228,7 @@ class TestGeneratedFieldsExample:
         ],
     )
     def test_info_schemas(self, schema, name, dtype, shape, dimensions):
-        v = schema.fields[name]
+        v = schema.field_map()[name]
         assert v.dtype == dtype
         assert tuple(v.shape) == shape
         assert v.dimensions == dimensions

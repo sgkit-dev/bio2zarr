@@ -32,7 +32,7 @@ def schema_path(icf_path, tmp_path_factory):
 @pytest.fixture(scope="module")
 def schema(schema_path):
     with open(schema_path) as f:
-        return json.load(f)
+        return vcf.VcfZarrSchema.fromjson(f.read())
 
 
 @pytest.fixture(scope="module")
@@ -83,7 +83,7 @@ class TestEncodeMaxMemory:
 class TestJsonVersions:
     @pytest.mark.parametrize("version", ["0.1", "1.0", "xxxxx", 0.2])
     def test_zarr_schema_mismatch(self, schema, version):
-        d = dict(schema)
+        d = schema.asdict()
         d["format_version"] = version
         with pytest.raises(ValueError, match="Zarr schema format version mismatch"):
             vcf.VcfZarrSchema.fromdict(d)
@@ -156,13 +156,13 @@ class TestSchemaJsonRoundTrip:
     def test_generated_change_dtype(self, icf_path):
         icf = vcf.IntermediateColumnarFormat(icf_path)
         schema = vcf.VcfZarrSchema.generate(icf)
-        schema.fields["variant_position"].dtype = "i8"
+        schema.field_map()["variant_position"].dtype = "i8"
         self.assert_json_round_trip(schema)
 
     def test_generated_change_compressor(self, icf_path):
         icf = vcf.IntermediateColumnarFormat(icf_path)
         schema = vcf.VcfZarrSchema.generate(icf)
-        schema.fields["variant_position"].compressor = {"cname": "FAKE"}
+        schema.field_map()["variant_position"].compressor = {"cname": "FAKE"}
         self.assert_json_round_trip(schema)
 
 
@@ -174,7 +174,7 @@ class TestSchemaEncode:
         zarr_path = tmp_path / "zarr"
         icf = vcf.IntermediateColumnarFormat(icf_path)
         schema = vcf.VcfZarrSchema.generate(icf)
-        for var in schema.fields.values():
+        for var in schema.fields:
             var.compressor["cname"] = cname
             var.compressor["clevel"] = clevel
             var.compressor["shuffle"] = shuffle
@@ -183,7 +183,7 @@ class TestSchemaEncode:
             f.write(schema.asjson())
         vcf.encode(icf_path, zarr_path, schema_path=schema_path)
         root = zarr.open(zarr_path)
-        for var in schema.fields.values():
+        for var in schema.fields:
             a = root[var.name]
             assert a.compressor.cname == cname
             assert a.compressor.clevel == clevel
@@ -194,7 +194,7 @@ class TestSchemaEncode:
         zarr_path = tmp_path / "zarr"
         icf = vcf.IntermediateColumnarFormat(icf_path)
         schema = vcf.VcfZarrSchema.generate(icf)
-        schema.fields["call_genotype"].dtype = dtype
+        schema.field_map()["call_genotype"].dtype = dtype
         schema_path = tmp_path / "schema"
         with open(schema_path, "w") as f:
             f.write(schema.asjson())
@@ -203,16 +203,23 @@ class TestSchemaEncode:
         assert root["call_genotype"].dtype == dtype
 
 
+def get_field_dict(a_schema, name):
+    d = a_schema.asdict()
+    for field in d["fields"]:
+        if field["name"] == name:
+            return field
+
+
 class TestDefaultSchema:
     def test_format_version(self, schema):
-        assert schema["format_version"] == vcf.ZARR_SCHEMA_FORMAT_VERSION
+        assert schema.format_version == vcf.ZARR_SCHEMA_FORMAT_VERSION
 
     def test_chunk_size(self, schema):
-        assert schema["samples_chunk_size"] == 1000
-        assert schema["variants_chunk_size"] == 10000
+        assert schema.samples_chunk_size == 1000
+        assert schema.variants_chunk_size == 10000
 
     def test_dimensions(self, schema):
-        assert schema["dimensions"] == [
+        assert schema.dimensions == [
             "variants",
             "samples",
             "ploidy",
@@ -221,29 +228,29 @@ class TestDefaultSchema:
         ]
 
     def test_samples(self, schema):
-        assert schema["samples"] == [
+        assert schema.asdict()["samples"] == [
             {"id": s} for s in ["NA00001", "NA00002", "NA00003"]
         ]
 
     def test_contigs(self, schema):
-        assert schema["contigs"] == [
+        assert schema.asdict()["contigs"] == [
             {"id": s, "length": None} for s in ["19", "20", "X"]
         ]
 
     def test_filters(self, schema):
-        assert schema["filters"] == [
+        assert schema.asdict()["filters"] == [
             {"id": "PASS", "description": "All filters passed"},
             {"id": "s50", "description": "Less than 50% of samples have data"},
             {"id": "q10", "description": "Quality below 10"},
         ]
 
     def test_variant_contig(self, schema):
-        assert schema["fields"]["variant_contig"] == {
+        assert get_field_dict(schema, "variant_contig") == {
             "name": "variant_contig",
             "dtype": "i1",
-            "shape": [9],
-            "chunks": [10000],
-            "dimensions": ["variants"],
+            "shape": (9,),
+            "chunks": (10000,),
+            "dimensions": ("variants",),
             "description": "",
             "vcf_field": None,
             "compressor": {
@@ -253,16 +260,16 @@ class TestDefaultSchema:
                 "shuffle": 0,
                 "blocksize": 0,
             },
-            "filters": [],
+            "filters": tuple(),
         }
 
     def test_call_genotype(self, schema):
-        assert schema["fields"]["call_genotype"] == {
+        assert get_field_dict(schema, "call_genotype") == {
             "name": "call_genotype",
             "dtype": "i1",
-            "shape": [9, 3, 2],
-            "chunks": [10000, 1000],
-            "dimensions": ["variants", "samples", "ploidy"],
+            "shape": (9, 3, 2),
+            "chunks": (10000, 1000),
+            "dimensions": ("variants", "samples", "ploidy"),
             "description": "",
             "vcf_field": None,
             "compressor": {
@@ -272,16 +279,16 @@ class TestDefaultSchema:
                 "shuffle": 2,
                 "blocksize": 0,
             },
-            "filters": [],
+            "filters": tuple(),
         }
 
     def test_call_genotype_mask(self, schema):
-        assert schema["fields"]["call_genotype_mask"] == {
+        assert get_field_dict(schema, "call_genotype_mask") == {
             "name": "call_genotype_mask",
             "dtype": "bool",
-            "shape": [9, 3, 2],
-            "chunks": [10000, 1000],
-            "dimensions": ["variants", "samples", "ploidy"],
+            "shape": (9, 3, 2),
+            "chunks": (10000, 1000),
+            "dimensions": ("variants", "samples", "ploidy"),
             "description": "",
             "vcf_field": None,
             "compressor": {
@@ -291,16 +298,16 @@ class TestDefaultSchema:
                 "shuffle": 2,
                 "blocksize": 0,
             },
-            "filters": [],
+            "filters": tuple(),
         }
 
     def test_call_genotype_phased(self, schema):
-        assert schema["fields"]["call_genotype_mask"] == {
+        assert get_field_dict(schema, "call_genotype_mask") == {
             "name": "call_genotype_mask",
             "dtype": "bool",
-            "shape": [9, 3, 2],
-            "chunks": [10000, 1000],
-            "dimensions": ["variants", "samples", "ploidy"],
+            "shape": (9, 3, 2),
+            "chunks": (10000, 1000),
+            "dimensions": ("variants", "samples", "ploidy"),
             "description": "",
             "vcf_field": None,
             "compressor": {
@@ -310,16 +317,16 @@ class TestDefaultSchema:
                 "shuffle": 2,
                 "blocksize": 0,
             },
-            "filters": [],
+            "filters": tuple(),
         }
 
     def test_call_GQ(self, schema):
-        assert schema["fields"]["call_GQ"] == {
+        assert get_field_dict(schema, "call_GQ") == {
             "name": "call_GQ",
             "dtype": "i1",
-            "shape": [9, 3],
-            "chunks": [10000, 1000],
-            "dimensions": ["variants", "samples"],
+            "shape": (9, 3),
+            "chunks": (10000, 1000),
+            "dimensions": ("variants", "samples"),
             "description": "Genotype Quality",
             "vcf_field": "FORMAT/GQ",
             "compressor": {
@@ -329,7 +336,7 @@ class TestDefaultSchema:
                 "shuffle": 0,
                 "blocksize": 0,
             },
-            "filters": [],
+            "filters": tuple(),
         }
 
 
@@ -379,7 +386,7 @@ class TestVcfDescriptions:
         ],
     )
     def test_fields(self, schema, field, description):
-        assert schema["fields"][field]["description"] == description
+        assert schema.field_map()[field].description == description
 
     # This information is not in the schema yet,
     # https://github.com/sgkit-dev/bio2zarr/issues/123
