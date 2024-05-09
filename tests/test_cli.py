@@ -47,6 +47,13 @@ DEFAULT_DENCODE_PARTITION_ARGS = dict()
 
 DEFAULT_DENCODE_FINALISE_ARGS = dict(show_progress=True)
 
+DEFAULT_CONVERT_ARGS = dict(
+    variants_chunk_size=None,
+    samples_chunk_size=None,
+    show_progress=True,
+    worker_processes=1,
+)
+
 
 @dataclasses.dataclass
 class FakeWorkSummary:
@@ -508,11 +515,24 @@ class TestWithMocks:
         mocked.assert_called_once_with(
             (self.vcf_path,),
             "zarr_path",
-            variants_chunk_size=None,
-            samples_chunk_size=None,
-            worker_processes=1,
-            show_progress=True,
+            **DEFAULT_CONVERT_ARGS,
         )
+
+    @pytest.mark.parametrize("response", ["n", "N", "No"])
+    @mock.patch("bio2zarr.vcf.convert")
+    def test_vcf_convert_overwrite_zarr_confirm_no(self, mocked, tmp_path, response):
+        zarr_path = tmp_path / "zarr"
+        zarr_path.mkdir()
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcf2zarr,
+            f"convert {self.vcf_path} {zarr_path}",
+            catch_exceptions=False,
+            input=response,
+        )
+        assert result.exit_code == 1
+        assert "Aborted" in result.stderr
+        mocked.assert_not_called()
 
     @mock.patch("bio2zarr.plink.convert")
     def test_convert_plink(self, mocked):
@@ -523,13 +543,25 @@ class TestWithMocks:
         assert result.exit_code == 0
         assert len(result.stdout) == 0
         assert len(result.stderr) == 0
+        mocked.assert_called_once_with("in", "out", **DEFAULT_CONVERT_ARGS)
+
+    @pytest.mark.parametrize("response", ["y", "Y", "yes"])
+    @mock.patch("bio2zarr.vcf.convert")
+    def test_vcf_convert_overwrite_zarr_confirm_yes(self, mocked, tmp_path, response):
+        zarr_path = tmp_path / "zarr"
+        zarr_path.mkdir()
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcf2zarr,
+            f"convert {self.vcf_path} {zarr_path}",
+            catch_exceptions=False,
+            input=response,
+        )
+        assert result.exit_code == 0
+        assert f"Do you want to overwrite {zarr_path}" in result.stdout
+        assert len(result.stderr) == 0
         mocked.assert_called_once_with(
-            "in",
-            "out",
-            worker_processes=1,
-            samples_chunk_size=None,
-            variants_chunk_size=None,
-            show_progress=True,
+            (self.vcf_path,), str(zarr_path), **DEFAULT_CONVERT_ARGS
         )
 
 
