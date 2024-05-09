@@ -31,7 +31,7 @@ and will always work.
 
 ## Basic vcf2zarr usage
 For modest VCF files (up to a few GB), a single command can be used to convert a VCF file
-(or set of VCF files) to Zarr:
+(or set of VCF files) using the {ref}`convert<cmd-vcf2zarr-convert>` command:
 
 ```bash
 $ vcf2zarr convert <VCF1> <VCF2> ... <VCFN> <zarr>
