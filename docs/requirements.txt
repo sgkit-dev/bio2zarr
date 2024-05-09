@@ -1,11 +1,3 @@
-bed_reader
-click
-cyvcf2
+bash_kernel
 jupyter-book
-msprime
-pysam
-sgkit
 sphinx-click
-tabulate
-tqdm
-zarr>=2.17
