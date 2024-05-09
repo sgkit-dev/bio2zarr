@@ -42,7 +42,7 @@ dynamic = ["version"]
 
 [project.urls]
 repository = "https://github.com/sgkit-dev/bio2zarr"
-documentation = "https://sgkit-dev.github.io/bio2zarr/intro.html"
+documentation = "https://sgkit-dev.github.io/bio2zarr/"
 
 [project.scripts]
 vcf2zarr = "bio2zarr.cli:vcf2zarr"
