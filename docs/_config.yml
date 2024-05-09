@@ -10,15 +10,6 @@ logo: logo.png
 execute:
   execute_notebooks: force
 
-# Define the name of the latex output file for PDF builds
-latex:
-  latex_documents:
-    targetname: bio2zarr.tex
-
-# Add a bibtex file so that we can create citations
-bibtex_bibfiles:
-  - references.bib
-
 # Information about where the book exists on the web
 repository:
   url: https://github.com/sgkit-dev/bio2zarr  # Online location of your book
