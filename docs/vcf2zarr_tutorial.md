@@ -19,9 +19,17 @@ need for small, intermediate and large datasets.
 
 ## Small
 
-```{code-cell} bash
-vcf2zarr convert ../tests/data/vcf/sample.vcf.gz sample.zarr -vf
-```
+<!-- ```{code-cell} bash -->
+<!-- vcf2zarr convert ../tests/data/vcf/sample.vcf.gz sample.zarr -vf -->
+<!-- ``` -->
+
+ <div id="demo"></div>
+ <script>
+ AsciinemaPlayer.create('_static/demo.cast', document.getElementById('demo'), {
+    cols:80, 
+    rows:24
+ });
+ </script>
 
 ## Intermediate
 
