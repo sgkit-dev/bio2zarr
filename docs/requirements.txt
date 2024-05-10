@@ -1,3 +1,4 @@
+asciinema-automation
 bash_kernel
 jupyter-book
 sphinx-click
