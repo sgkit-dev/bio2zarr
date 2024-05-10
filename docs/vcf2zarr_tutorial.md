@@ -27,7 +27,7 @@ need for small, intermediate and large datasets.
  <script>
  AsciinemaPlayer.create('_static/demo.cast', document.getElementById('demo'), {
     cols:80, 
-    rows:24
+    rows:12
  });
  </script>
 
