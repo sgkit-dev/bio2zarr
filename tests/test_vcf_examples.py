@@ -8,7 +8,7 @@ import pytest
 import sgkit as sg
 import xarray.testing as xt
 
-from bio2zarr import provenance, vcf
+from bio2zarr import constants, provenance, vcf, verification
 
 
 class TestSmallExample:
@@ -81,8 +81,8 @@ class TestSmallExample:
         )
 
     def test_float_info_fields(self, ds):
-        missing = vcf.FLOAT32_MISSING
-        fill = vcf.FLOAT32_FILL
+        missing = constants.FLOAT32_MISSING
+        fill = constants.FLOAT32_FILL
         variant_AF = np.array(
             [
                 [missing, missing],
@@ -137,7 +137,7 @@ class TestSmallExample:
         )
 
     def test_allele(self, ds):
-        fill = vcf.STR_FILL
+        fill = constants.STR_FILL
         nt.assert_array_equal(
             ds["variant_allele"].values.tolist(),
             [
@@ -844,7 +844,7 @@ def test_by_validating(name, tmp_path):
     path = f"tests/data/vcf/{name}"
     out = tmp_path / "test.zarr"
     vcf.convert([path], out, worker_processes=0)
-    vcf.validate(path, out)
+    verification.validate(path, out)
 
 
 @pytest.mark.parametrize(
@@ -862,7 +862,7 @@ def test_by_validating_split(source, suffix, files, tmp_path):
     split_files = [f"{source_path}.{suffix}/{f}" for f in files]
     out = tmp_path / "test.zarr"
     vcf.convert(split_files, out, worker_processes=0)
-    vcf.validate(source_path, out)
+    verification.validate(source_path, out)
 
 
 def test_split_explode(tmp_path):
@@ -891,7 +891,7 @@ def test_split_explode(tmp_path):
         "min_value": 10,
     }
     vcf.encode(out, tmp_path / "test.zarr")
-    vcf.validate("tests/data/vcf/sample.vcf.gz", tmp_path / "test.zarr")
+    verification.validate("tests/data/vcf/sample.vcf.gz", tmp_path / "test.zarr")
 
 
 def test_missing_filter(tmp_path):

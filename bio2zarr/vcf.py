@@ -13,29 +13,14 @@ import sys
 import tempfile
 from typing import Any
 
-import cyvcf2
 import humanfriendly
 import numcodecs
 import numpy as np
-import numpy.testing as nt
-import tqdm
 import zarr
 
-from . import core, provenance, vcf_utils
+from . import constants, core, provenance, vcf_utils
 
 logger = logging.getLogger(__name__)
-
-INT_MISSING = -1
-INT_FILL = -2
-STR_MISSING = "."
-STR_FILL = ""
-
-FLOAT32_MISSING, FLOAT32_FILL = np.array([0x7F800001, 0x7F800002], dtype=np.int32).view(
-    np.float32
-)
-FLOAT32_MISSING_AS_INT32, FLOAT32_FILL_AS_INT32 = np.array(
-    [0x7F800001, 0x7F800002], dtype=np.int32
-)
 
 
 def display_number(x):
@@ -377,7 +362,7 @@ def sanitise_value_bool(buff, j, value):
 def sanitise_value_float_scalar(buff, j, value):
     x = value
     if value is None:
-        x = [FLOAT32_MISSING]
+        x = [constants.FLOAT32_MISSING]
     buff[j] = x[0]
 
 
@@ -385,7 +370,7 @@ def sanitise_value_int_scalar(buff, j, value):
     x = value
     if value is None:
         # print("MISSING", INT_MISSING, INT_FILL)
-        x = [INT_MISSING]
+        x = [constants.INT_MISSING]
     else:
         x = sanitise_int_array(value, ndmin=1, dtype=np.int32)
     buff[j] = x[0]
@@ -436,33 +421,35 @@ def drop_empty_second_dim(value):
 
 def sanitise_value_float_1d(buff, j, value):
     if value is None:
-        buff[j] = FLOAT32_MISSING
+        buff[j] = constants.FLOAT32_MISSING
     else:
         value = np.array(value, ndmin=1, dtype=buff.dtype, copy=False)
         # numpy will map None values to Nan, but we need a
         # specific NaN
-        value[np.isnan(value)] = FLOAT32_MISSING
+        value[np.isnan(value)] = constants.FLOAT32_MISSING
         value = drop_empty_second_dim(value)
-        buff[j] = FLOAT32_FILL
+        buff[j] = constants.FLOAT32_FILL
         buff[j, : value.shape[0]] = value
 
 
 def sanitise_value_float_2d(buff, j, value):
     if value is None:
-        buff[j] = FLOAT32_MISSING
+        buff[j] = constants.FLOAT32_MISSING
     else:
         # print("value = ", value)
         value = np.array(value, ndmin=2, dtype=buff.dtype, copy=False)
-        buff[j] = FLOAT32_FILL
+        buff[j] = constants.FLOAT32_FILL
         buff[j, :, : value.shape[1]] = value
 
 
 def sanitise_int_array(value, ndmin, dtype):
     if isinstance(value, tuple):
-        value = [VCF_INT_MISSING if x is None else x for x in value]  # NEEDS TEST
+        value = [
+            constants.VCF_INT_MISSING if x is None else x for x in value
+        ]  # NEEDS TEST
     value = np.array(value, ndmin=ndmin, copy=False)
-    value[value == VCF_INT_MISSING] = -1
-    value[value == VCF_INT_FILL] = -2
+    value[value == constants.VCF_INT_MISSING] = -1
+    value[value == constants.VCF_INT_FILL] = -2
     # TODO watch out for clipping here!
     return value.astype(dtype)
 
@@ -486,15 +473,11 @@ def sanitise_value_int_2d(buff, j, value):
         buff[j, :, : value.shape[1]] = value
 
 
-MIN_INT_VALUE = np.iinfo(np.int32).min + 2
-VCF_INT_MISSING = np.iinfo(np.int32).min
-VCF_INT_FILL = np.iinfo(np.int32).min + 1
-
 missing_value_map = {
-    "Integer": -1,
-    "Float": FLOAT32_MISSING,
-    "String": ".",
-    "Character": ".",
+    "Integer": constants.INT_MISSING,
+    "Float": constants.FLOAT32_MISSING,
+    "String": constants.STR_MISSING,
+    "Character": constants.STR_MISSING,
     "Flag": False,
 }
 
@@ -538,17 +521,12 @@ class VcfValueTransformer:
         return value
 
 
-MIN_INT_VALUE = np.iinfo(np.int32).min + 2
-VCF_INT_MISSING = np.iinfo(np.int32).min
-VCF_INT_FILL = np.iinfo(np.int32).min + 1
-
-
 class IntegerValueTransformer(VcfValueTransformer):
     def update_bounds(self, value):
         summary = self.field.summary
         # Mask out missing and fill values
         # print(value)
-        a = value[value >= MIN_INT_VALUE]
+        a = value[value >= constants.MIN_INT_VALUE]
         if a.size > 0:
             summary.max_value = int(max(summary.max_value, np.max(a)))
             summary.min_value = int(min(summary.min_value, np.min(a)))
@@ -1935,7 +1913,7 @@ class VcfZarrWriter:
             alt_col.iter_values(partition.start, partition.stop),
         ):
             j = alleles.next_buffer_row()
-            alleles.buff[j, :] = STR_FILL
+            alleles.buff[j, :] = constants.STR_FILL
             alleles.buff[j, 0] = ref[0]
             alleles.buff[j, 1 : 1 + len(alt)] = alt
         alleles.flush()
@@ -1958,7 +1936,7 @@ class VcfZarrWriter:
                 vid.buff[j] = value[0]
                 vid_mask.buff[j] = False
             else:
-                vid.buff[j] = STR_MISSING
+                vid.buff[j] = constants.STR_MISSING
                 vid_mask.buff[j] = True
         vid.flush()
         vid_mask.flush()
@@ -2253,227 +2231,3 @@ def convert(
             worker_processes=worker_processes,
             show_progress=show_progress,
         )
-
-
-def assert_all_missing_float(a):
-    v = np.array(a, dtype=np.float32).view(np.int32)
-    nt.assert_equal(v, FLOAT32_MISSING_AS_INT32)
-
-
-def assert_all_fill_float(a):
-    v = np.array(a, dtype=np.float32).view(np.int32)
-    nt.assert_equal(v, FLOAT32_FILL_AS_INT32)
-
-
-def assert_all_missing_int(a):
-    v = np.array(a, dtype=int)
-    nt.assert_equal(v, -1)
-
-
-def assert_all_fill_int(a):
-    v = np.array(a, dtype=int)
-    nt.assert_equal(v, -2)
-
-
-def assert_all_missing_string(a):
-    nt.assert_equal(a, ".")
-
-
-def assert_all_fill_string(a):
-    nt.assert_equal(a, "")
-
-
-def assert_all_fill(zarr_val, vcf_type):
-    if vcf_type == "Integer":
-        assert_all_fill_int(zarr_val)
-    elif vcf_type in ("String", "Character"):
-        assert_all_fill_string(zarr_val)
-    elif vcf_type == "Float":
-        assert_all_fill_float(zarr_val)
-    else:  # pragma: no cover
-        assert False  # noqa PT015
-
-
-def assert_all_missing(zarr_val, vcf_type):
-    if vcf_type == "Integer":
-        assert_all_missing_int(zarr_val)
-    elif vcf_type in ("String", "Character"):
-        assert_all_missing_string(zarr_val)
-    elif vcf_type == "Flag":
-        assert zarr_val == False  # noqa 712
-    elif vcf_type == "Float":
-        assert_all_missing_float(zarr_val)
-    else:  # pragma: no cover
-        assert False  # noqa PT015
-
-
-def assert_info_val_missing(zarr_val, vcf_type):
-    assert_all_missing(zarr_val, vcf_type)
-
-
-def assert_format_val_missing(zarr_val, vcf_type):
-    assert_info_val_missing(zarr_val, vcf_type)
-
-
-# Note: checking exact equality may prove problematic here
-# but we should be deterministically storing what cyvcf2
-# provides, which should compare equal.
-
-
-def assert_info_val_equal(vcf_val, zarr_val, vcf_type):
-    assert vcf_val is not None
-    if vcf_type in ("String", "Character"):
-        split = list(vcf_val.split(","))
-        k = len(split)
-        if isinstance(zarr_val, str):
-            assert k == 1
-            # Scalar
-            assert vcf_val == zarr_val
-        else:
-            nt.assert_equal(split, zarr_val[:k])
-            assert_all_fill(zarr_val[k:], vcf_type)
-
-    elif isinstance(vcf_val, tuple):
-        vcf_missing_value_map = {
-            "Integer": -1,
-            "Float": FLOAT32_MISSING,
-        }
-        v = [vcf_missing_value_map[vcf_type] if x is None else x for x in vcf_val]
-        missing = np.array([j for j, x in enumerate(vcf_val) if x is None], dtype=int)
-        a = np.array(v)
-        k = len(a)
-        # We are checking for int missing twice here, but it's necessary to have
-        # a separate check for floats because different NaNs compare equal
-        nt.assert_equal(a, zarr_val[:k])
-        assert_all_missing(zarr_val[missing], vcf_type)
-        if k < len(zarr_val):
-            assert_all_fill(zarr_val[k:], vcf_type)
-    else:
-        # Scalar
-        zarr_val = np.array(zarr_val, ndmin=1)
-        assert len(zarr_val.shape) == 1
-        assert vcf_val == zarr_val[0]
-        if len(zarr_val) > 1:
-            assert_all_fill(zarr_val[1:], vcf_type)
-
-
-def assert_format_val_equal(vcf_val, zarr_val, vcf_type):
-    assert vcf_val is not None
-    assert isinstance(vcf_val, np.ndarray)
-    if vcf_type in ("String", "Character"):
-        assert len(vcf_val) == len(zarr_val)
-        for v, z in zip(vcf_val, zarr_val):
-            split = list(v.split(","))
-            # Note: deliberately duplicating logic here between this and the
-            # INFO col above to make sure all combinations are covered by tests
-            k = len(split)
-            if k == 1:
-                assert v == z
-            else:
-                nt.assert_equal(split, z[:k])
-                assert_all_fill(z[k:], vcf_type)
-    else:
-        assert vcf_val.shape[0] == zarr_val.shape[0]
-        if len(vcf_val.shape) == len(zarr_val.shape) + 1:
-            assert vcf_val.shape[-1] == 1
-            vcf_val = vcf_val[..., 0]
-        assert len(vcf_val.shape) <= 2
-        assert len(vcf_val.shape) == len(zarr_val.shape)
-        if len(vcf_val.shape) == 2:
-            k = vcf_val.shape[1]
-            if zarr_val.shape[1] != k:
-                assert_all_fill(zarr_val[:, k:], vcf_type)
-                zarr_val = zarr_val[:, :k]
-        assert vcf_val.shape == zarr_val.shape
-        if vcf_type == "Integer":
-            vcf_val[vcf_val == VCF_INT_MISSING] = INT_MISSING
-            vcf_val[vcf_val == VCF_INT_FILL] = INT_FILL
-        elif vcf_type == "Float":
-            nt.assert_equal(vcf_val.view(np.int32), zarr_val.view(np.int32))
-
-        nt.assert_equal(vcf_val, zarr_val)
-
-
-# TODO rename to "verify"
-def validate(vcf_path, zarr_path, show_progress=False):
-    store = zarr.DirectoryStore(zarr_path)
-
-    root = zarr.group(store=store)
-    pos = root["variant_position"][:]
-    allele = root["variant_allele"][:]
-    chrom = root["contig_id"][:][root["variant_contig"][:]]
-    vid = root["variant_id"][:]
-    call_genotype = None
-    if "call_genotype" in root:
-        call_genotype = iter(root["call_genotype"])
-
-    vcf = cyvcf2.VCF(vcf_path)
-    format_headers = {}
-    info_headers = {}
-    for h in vcf.header_iter():
-        if h["HeaderType"] == "FORMAT":
-            format_headers[h["ID"]] = h
-        if h["HeaderType"] == "INFO":
-            info_headers[h["ID"]] = h
-
-    format_fields = {}
-    info_fields = {}
-    for colname in root.keys():
-        if colname.startswith("call") and not colname.startswith("call_genotype"):
-            vcf_name = colname.split("_", 1)[1]
-            vcf_type = format_headers[vcf_name]["Type"]
-            format_fields[vcf_name] = vcf_type, iter(root[colname])
-        if colname.startswith("variant"):
-            name = colname.split("_", 1)[1]
-            if name.isupper():
-                vcf_type = info_headers[name]["Type"]
-                info_fields[name] = vcf_type, iter(root[colname])
-
-    first_pos = next(vcf).POS
-    start_index = np.searchsorted(pos, first_pos)
-    assert pos[start_index] == first_pos
-    vcf = cyvcf2.VCF(vcf_path)
-    if show_progress:
-        iterator = tqdm.tqdm(vcf, desc="  Verify", total=vcf.num_records)  # NEEDS TEST
-    else:
-        iterator = vcf
-    for j, row in enumerate(iterator, start_index):
-        assert chrom[j] == row.CHROM
-        assert pos[j] == row.POS
-        assert vid[j] == ("." if row.ID is None else row.ID)
-        assert allele[j, 0] == row.REF
-        k = len(row.ALT)
-        nt.assert_array_equal(allele[j, 1 : k + 1], row.ALT)
-        assert np.all(allele[j, k + 1 :] == "")
-        # TODO FILTERS
-
-        if call_genotype is None:
-            val = None
-            try:
-                val = row.format("GT")
-            except KeyError:
-                pass
-            assert val is None
-        else:
-            gt = row.genotype.array()
-            gt_zarr = next(call_genotype)
-            gt_vcf = gt[:, :-1]
-            # NOTE cyvcf2 remaps genotypes automatically
-            # into the same missing/pad encoding that sgkit uses.
-            nt.assert_array_equal(gt_zarr, gt_vcf)
-
-        for name, (vcf_type, zarr_iter) in info_fields.items():
-            vcf_val = row.INFO.get(name, None)
-            zarr_val = next(zarr_iter)
-            if vcf_val is None:
-                assert_info_val_missing(zarr_val, vcf_type)
-            else:
-                assert_info_val_equal(vcf_val, zarr_val, vcf_type)
-
-        for name, (vcf_type, zarr_iter) in format_fields.items():
-            vcf_val = row.format(name)
-            zarr_val = next(zarr_iter)
-            if vcf_val is None:
-                assert_format_val_missing(zarr_val, vcf_type)
-            else:
-                assert_format_val_equal(vcf_val, zarr_val, vcf_type)

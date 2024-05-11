@@ -6,7 +6,7 @@ import shutil
 
 import click
 
-from bio2zarr import vcf
+from bio2zarr import vcf, verification
 
 # TODO add support here for split vcfs. Perhaps simplest to take a
 # directory provided as input as indicating this, and then having
@@ -67,7 +67,7 @@ def cli(vcfs, worker_processes, force):
                 show_progress=True,
             )
 
-        vcf.validate(source_file, zarr, show_progress=True)
+        verification.validate(source_file, zarr, show_progress=True)
 
 
 if __name__ == "__main__":
