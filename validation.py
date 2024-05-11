@@ -6,7 +6,7 @@ import shutil
 
 import click
 
-from bio2zarr import vcf, verification
+from bio2zarr import icf, vcf, verification
 
 # TODO add support here for split vcfs. Perhaps simplest to take a
 # directory provided as input as indicating this, and then having
@@ -44,7 +44,7 @@ def cli(vcfs, worker_processes, force):
         if force and exploded.exists():
             shutil.rmtree(exploded)
         if not exploded.exists():
-            vcf.explode(
+            icf.explode(
                 exploded,
                 files,
                 worker_processes=worker_processes,

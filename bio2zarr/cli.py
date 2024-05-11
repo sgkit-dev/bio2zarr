@@ -8,7 +8,7 @@ import coloredlogs
 import numcodecs
 import tabulate
 
-from . import plink, provenance, vcf, vcf_utils
+from . import icf, plink, provenance, vcf, vcf_utils
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +167,7 @@ def check_overwrite_dir(path, force):
 def get_compressor(cname):
     if cname is None:
         return None
-    config = vcf.ICF_DEFAULT_COMPRESSOR.get_config()
+    config = icf.ICF_DEFAULT_COMPRESSOR.get_config()
     config["cname"] = cname
     return numcodecs.get_codec(config)
 
@@ -198,7 +198,7 @@ def explode(
     """
     setup_logging(verbose)
     check_overwrite_dir(icf_path, force)
-    vcf.explode(
+    icf.explode(
         icf_path,
         vcfs,
         worker_processes=worker_processes,
@@ -235,7 +235,7 @@ def dexplode_init(
     """
     setup_logging(verbose)
     check_overwrite_dir(icf_path, force)
-    work_summary = vcf.explode_init(
+    work_summary = icf.explode_init(
         icf_path,
         vcfs,
         target_num_partitions=num_partitions,
@@ -263,7 +263,7 @@ def dexplode_partition(icf_path, partition, verbose, one_based):
     setup_logging(verbose)
     if one_based:
         partition -= 1
-    vcf.explode_partition(icf_path, partition)
+    icf.explode_partition(icf_path, partition)
 
 
 @click.command
@@ -274,7 +274,7 @@ def dexplode_finalise(icf_path, verbose):
     Final step for distributed conversion of VCF(s) to intermediate columnar format.
     """
     setup_logging(verbose)
-    vcf.explode_finalise(icf_path)
+    icf.explode_finalise(icf_path)
 
 
 @click.command
