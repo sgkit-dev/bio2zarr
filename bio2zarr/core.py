@@ -3,12 +3,14 @@ import contextlib
 import dataclasses
 import json
 import logging
+import math
 import multiprocessing
 import os
 import os.path
 import threading
 import time
 
+import humanfriendly
 import numcodecs
 import numpy as np
 import tqdm
@@ -17,6 +19,17 @@ import zarr
 logger = logging.getLogger(__name__)
 
 numcodecs.blosc.use_threads = False
+
+
+def display_number(x):
+    ret = "n/a"
+    if math.isfinite(x):
+        ret = f"{x: 0.2g}"
+    return ret
+
+
+def display_size(n):
+    return humanfriendly.format_size(n, binary=True)
 
 
 def min_int_dtype(min_value, max_value):

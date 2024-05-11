@@ -23,17 +23,6 @@ from . import constants, core, provenance, vcf_utils
 logger = logging.getLogger(__name__)
 
 
-def display_number(x):
-    ret = "n/a"
-    if math.isfinite(x):
-        ret = f"{x: 0.2g}"
-    return ret
-
-
-def display_size(n):
-    return humanfriendly.format_size(n, binary=True)
-
-
 @dataclasses.dataclass
 class VcfFieldSummary(core.JsonDataclass):
     num_chunks: int = 0
@@ -874,11 +863,11 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
                 "name": name,
                 "type": col.vcf_field.vcf_type,
                 "chunks": summary.num_chunks,
-                "size": display_size(summary.uncompressed_size),
-                "compressed": display_size(summary.compressed_size),
+                "size": core.display_size(summary.uncompressed_size),
+                "compressed": core.display_size(summary.compressed_size),
                 "max_n": summary.max_number,
-                "min_val": display_number(summary.min_value),
-                "max_val": display_number(summary.max_value),
+                "min_val": core.display_number(summary.min_value),
+                "max_val": core.display_number(summary.max_value),
             }
 
             data.append(d)
@@ -1546,12 +1535,12 @@ class VcfZarr:
             d = {
                 "name": array.name,
                 "dtype": str(array.dtype),
-                "stored": display_size(stored),
-                "size": display_size(array.nbytes),
-                "ratio": display_number(array.nbytes / stored),
+                "stored": core.display_size(stored),
+                "size": core.display_size(array.nbytes),
+                "ratio": core.display_number(array.nbytes / stored),
                 "nchunks": str(array.nchunks),
-                "chunk_size": display_size(array.nbytes / array.nchunks),
-                "avg_chunk_stored": display_size(int(stored / array.nchunks)),
+                "chunk_size": core.display_size(array.nbytes / array.nchunks),
+                "avg_chunk_stored": core.display_size(int(stored / array.nchunks)),
                 "shape": str(array.shape),
                 "chunk_shape": str(array.chunks),
                 "compressor": str(array.compressor),
@@ -1567,7 +1556,7 @@ def parse_max_memory(max_memory):
         return 2**63
     if isinstance(max_memory, str):
         max_memory = humanfriendly.parse_size(max_memory)
-    logger.info(f"Set memory budget to {display_size(max_memory)}")
+    logger.info(f"Set memory budget to {core.display_size(max_memory)}")
     return max_memory
 
 
@@ -1721,7 +1710,7 @@ class VcfZarrWriter:
             num_samples=self.icf.num_samples,
             num_partitions=self.num_partitions,
             num_chunks=total_chunks,
-            max_encoding_memory=display_size(self.get_max_encoding_memory()),
+            max_encoding_memory=core.display_size(self.get_max_encoding_memory()),
         )
 
     def encode_samples(self, root):
@@ -2082,7 +2071,7 @@ class VcfZarrWriter:
         per_worker_memory = self.get_max_encoding_memory()
         logger.info(
             f"Encoding Zarr over {num_partitions} partitions with "
-            f"{worker_processes} workers and {display_size(per_worker_memory)} "
+            f"{worker_processes} workers and {core.display_size(per_worker_memory)} "
             "per worker"
         )
         # Each partition requires per_worker_memory bytes, so to prevent more that
@@ -2091,12 +2080,14 @@ class VcfZarrWriter:
         if max_num_workers < worker_processes:
             logger.warning(
                 f"Limiting number of workers to {max_num_workers} to "
-                f"keep within specified memory budget of {display_size(max_memory)}"
+                "keep within specified memory budget of "
+                f"{core.display_size(max_memory)}"
             )
         if max_num_workers <= 0:
             raise ValueError(
                 f"Insufficient memory to encode a partition:"
-                f"{display_size(per_worker_memory)} > {display_size(max_memory)}"
+                f"{core.display_size(per_worker_memory)} > "
+                f"{core.display_size(max_memory)}"
             )
         num_workers = min(max_num_workers, worker_processes)
 
