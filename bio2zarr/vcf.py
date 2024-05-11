@@ -50,7 +50,7 @@ def display_size(n):
 
 
 @dataclasses.dataclass
-class VcfFieldSummary:
+class VcfFieldSummary(core.JsonDataclass):
     num_chunks: int = 0
     compressed_size: int = 0
     uncompressed_size: int = 0
@@ -66,9 +66,6 @@ class VcfFieldSummary:
         self.max_number = max(self.max_number, other.max_number)
         self.min_value = min(self.min_value, other.min_value)
         self.max_value = max(self.max_value, other.max_value)
-
-    def asdict(self):
-        return dataclasses.asdict(self)
 
     @staticmethod
     def fromdict(d):
@@ -168,7 +165,7 @@ class Filter:
 
 
 @dataclasses.dataclass
-class IcfMetadata:
+class IcfMetadata(core.JsonDataclass):
     samples: list
     contigs: list
     filters: list
@@ -225,12 +222,6 @@ class IcfMetadata:
         d["filters"] = [Filter(**fd) for fd in d["filters"]]
         d["contigs"] = [Contig(**cd) for cd in d["contigs"]]
         return IcfMetadata(**d)
-
-    def asdict(self):
-        return dataclasses.asdict(self)
-
-    def asjson(self):
-        return json.dumps(self.asdict(), indent=4)
 
 
 def fixed_vcf_field_definitions():
@@ -933,16 +924,10 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
 
 
 @dataclasses.dataclass
-class IcfPartitionMetadata:
+class IcfPartitionMetadata(core.JsonDataclass):
     num_records: int
     last_position: int
     field_summaries: dict
-
-    def asdict(self):
-        return dataclasses.asdict(self)
-
-    def asjson(self):
-        return json.dumps(self.asdict(), indent=4)
 
     @staticmethod
     def fromdict(d):
@@ -987,16 +972,10 @@ def check_field_clobbering(icf_metadata):
 
 
 @dataclasses.dataclass
-class IcfWriteSummary:
+class IcfWriteSummary(core.JsonDataclass):
     num_partitions: int
     num_samples: int
     num_variants: int
-
-    def asdict(self):
-        return dataclasses.asdict(self)
-
-    def asjson(self):
-        return json.dumps(self.asdict(), indent=4)
 
 
 class IntermediateColumnarFormatWriter:
@@ -1409,7 +1388,7 @@ ZARR_SCHEMA_FORMAT_VERSION = "0.4"
 
 
 @dataclasses.dataclass
-class VcfZarrSchema:
+class VcfZarrSchema(core.JsonDataclass):
     format_version: str
     samples_chunk_size: int
     variants_chunk_size: int
@@ -1420,12 +1399,6 @@ class VcfZarrSchema:
 
     def field_map(self):
         return {field.name: field for field in self.fields}
-
-    def asdict(self):
-        return dataclasses.asdict(self)
-
-    def asjson(self):
-        return json.dumps(self.asdict(), indent=4)
 
     @staticmethod
     def fromdict(d):
@@ -1645,16 +1618,13 @@ VZW_METADATA_FORMAT_VERSION = "0.1"
 
 
 @dataclasses.dataclass
-class VcfZarrWriterMetadata:
+class VcfZarrWriterMetadata(core.JsonDataclass):
     format_version: str
     icf_path: str
     schema: VcfZarrSchema
     dimension_separator: str
     partitions: list
     provenance: dict
-
-    def asdict(self):
-        return dataclasses.asdict(self)
 
     @staticmethod
     def fromdict(d):
@@ -1670,18 +1640,12 @@ class VcfZarrWriterMetadata:
 
 
 @dataclasses.dataclass
-class VcfZarrWriteSummary:
+class VcfZarrWriteSummary(core.JsonDataclass):
     num_partitions: int
     num_samples: int
     num_variants: int
     num_chunks: int
     max_encoding_memory: str
-
-    def asdict(self):
-        return dataclasses.asdict(self)
-
-    def asjson(self):
-        return json.dumps(self.asdict(), indent=4)
 
 
 class VcfZarrWriter:

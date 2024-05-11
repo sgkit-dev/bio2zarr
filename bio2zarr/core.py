@@ -1,6 +1,7 @@
 import concurrent.futures as cf
 import contextlib
 import dataclasses
+import json
 import logging
 import multiprocessing
 import os
@@ -277,3 +278,11 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         self._update_progress()
         self.progress_bar.close()
         return False
+
+
+class JsonDataclass:
+    def asdict(self):
+        return dataclasses.asdict(self)
+
+    def asjson(self):
+        return json.dumps(self.asdict(), indent=4)
