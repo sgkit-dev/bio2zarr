@@ -11,9 +11,9 @@ kernelspec:
 ---
 # Vcf2zarr tutorial
 
-This is a step-by-step tutorial showing you how to convert your 
-VCF data into Zarr format. There's three different ways to 
-convert your data, basically providing different levels of 
+This is a step-by-step tutorial showing you how to convert your
+VCF data into Zarr format. There's three different ways to
+convert your data, basically providing different levels of
 convenience and flexibility corresponding to what you might
 need for small, intermediate and large datasets.
 
@@ -23,10 +23,11 @@ need for small, intermediate and large datasets.
 <!-- vcf2zarr convert ../tests/data/vcf/sample.vcf.gz sample.zarr -vf -->
 <!-- ``` -->
 
- <div id="demo"></div>
+ <div id="vcf2zarr_convert"></div>
  <script>
- AsciinemaPlayer.create('_static/demo.cast', document.getElementById('demo'), {
-    cols:80, 
+ AsciinemaPlayer.create('_static/vcf2zarr_convert.cast',
+    document.getElementById('vcf2zarr_convert'), {
+    cols:80,
     rows:12
  });
  </script>
