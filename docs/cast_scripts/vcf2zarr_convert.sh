@@ -1,3 +1,3 @@
-#$ delay 10
-vcf2zarr convert sample.vcf.gz sample.zarr -p 4
+#$ delay 5
+vcf2zarr convert sample.vcf.gz sample.vcz
 #$ expect \$ 

@@ -19,10 +19,6 @@ need for small, intermediate and large datasets.
 
 ## Small
 
-<!-- ```{code-cell} bash -->
-<!-- vcf2zarr convert ../tests/data/vcf/sample.vcf.gz sample.zarr -vf -->
-<!-- ``` -->
-
  <div id="vcf2zarr_convert"></div>
  <script>
  AsciinemaPlayer.create('_static/vcf2zarr_convert.cast',
@@ -33,6 +29,16 @@ need for small, intermediate and large datasets.
  </script>
 
 ## Intermediate
+
+ <div id="vcf2zarr_explode"></div>
+ <script>
+ AsciinemaPlayer.create('_static/vcf2zarr_explode.cast',
+    document.getElementById('vcf2zarr_explode'), {
+    cols:80,
+    rows:12
+ });
+ </script>
+
 
 ## Large
 
