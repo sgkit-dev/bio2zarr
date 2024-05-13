@@ -6,7 +6,8 @@ import sgkit as sg
 import xarray.testing as xt
 import zarr
 
-from bio2zarr import core, vcf, vcf_utils
+from bio2zarr import core, vcf
+from bio2zarr import icf as icf_mod
 
 
 @pytest.fixture(scope="module")
@@ -17,7 +18,7 @@ def vcf_file():
 @pytest.fixture(scope="module")
 def icf_path(vcf_file, tmp_path_factory):
     out = tmp_path_factory.mktemp("data") / "example.exploded"
-    vcf.explode(out, [vcf_file])
+    icf_mod.explode(out, [vcf_file])
     return out
 
 
@@ -97,7 +98,7 @@ class TestJsonVersions:
         with pytest.raises(
             ValueError, match="Intermediate columnar metadata format version mismatch"
         ):
-            vcf.IcfMetadata.fromdict(d)
+            icf_mod.IcfMetadata.fromdict(d)
 
     @pytest.mark.parametrize("version", ["0.0", "1.0", "xxxxx", 0.1])
     def test_encode_metadata_mismatch(self, tmpdir, icf_path, version):
@@ -138,29 +139,29 @@ class TestSchemaJsonRoundTrip:
         assert schema == schema2
 
     def test_generated_no_changes(self, icf_path):
-        icf = vcf.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         self.assert_json_round_trip(vcf.VcfZarrSchema.generate(icf))
 
     def test_generated_no_fields(self, icf_path):
-        icf = vcf.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         schema = vcf.VcfZarrSchema.generate(icf)
         schema.fields.clear()
         self.assert_json_round_trip(schema)
 
     def test_generated_no_samples(self, icf_path):
-        icf = vcf.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         schema = vcf.VcfZarrSchema.generate(icf)
         schema.samples.clear()
         self.assert_json_round_trip(schema)
 
     def test_generated_change_dtype(self, icf_path):
-        icf = vcf.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         schema = vcf.VcfZarrSchema.generate(icf)
         schema.field_map()["variant_position"].dtype = "i8"
         self.assert_json_round_trip(schema)
 
     def test_generated_change_compressor(self, icf_path):
-        icf = vcf.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         schema = vcf.VcfZarrSchema.generate(icf)
         schema.field_map()["variant_position"].compressor = {"cname": "FAKE"}
         self.assert_json_round_trip(schema)
@@ -172,7 +173,7 @@ class TestSchemaEncode:
     )
     def test_codec(self, tmp_path, icf_path, cname, clevel, shuffle):
         zarr_path = tmp_path / "zarr"
-        icf = vcf.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         schema = vcf.VcfZarrSchema.generate(icf)
         for var in schema.fields:
             var.compressor["cname"] = cname
@@ -192,7 +193,7 @@ class TestSchemaEncode:
     @pytest.mark.parametrize("dtype", ["i4", "i8"])
     def test_genotype_dtype(self, tmp_path, icf_path, dtype):
         zarr_path = tmp_path / "zarr"
-        icf = vcf.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         schema = vcf.VcfZarrSchema.generate(icf)
         schema.field_map()["call_genotype"].dtype = dtype
         schema_path = tmp_path / "schema"
@@ -329,30 +330,6 @@ class TestDefaultSchema:
             },
             "filters": tuple(),
         }
-
-
-@pytest.mark.parametrize(
-    "regions",
-    [
-        # Overlapping partitions
-        [("1", 100, 200), ("1", 150, 250)],
-        # Overlap by one position
-        [("1", 100, 201), ("1", 200, 300)],
-        # End coord is *inclusive*
-        [("1", 100, 201), ("1", 201, 300)],
-        # Contained overlap
-        [("1", 100, 300), ("1", 150, 250)],
-        # Exactly equal
-        [("1", 100, 200), ("1", 100, 200)],
-    ],
-)
-def test_check_overlap(regions):
-    partitions = [
-        vcf.VcfPartition("", region=vcf_utils.Region(contig, start, end))
-        for contig, start, end in regions
-    ]
-    with pytest.raises(ValueError, match="Overlapping VCF regions"):
-        vcf.check_overlapping_partitions(partitions)
 
 
 class TestVcfDescriptions:
@@ -545,7 +522,7 @@ class TestClobberFixedFields:
         vcf_file = tmp_path / "test.vcf"
         self.generate_vcf(vcf_file, info_field=field)
         with pytest.raises(ValueError, match=f"INFO field name.*{field}"):
-            vcf.explode(tmp_path / "x.icf", [tmp_path / "test.vcf.gz"])
+            icf_mod.explode(tmp_path / "x.icf", [tmp_path / "test.vcf.gz"])
 
     @pytest.mark.parametrize(
         "field",
@@ -559,7 +536,7 @@ class TestClobberFixedFields:
         vcf_file = tmp_path / "test.vcf"
         self.generate_vcf(vcf_file, format_field=field)
         with pytest.raises(ValueError, match=f"FORMAT field name.*{field}"):
-            vcf.explode(tmp_path / "x.icf", [tmp_path / "test.vcf.gz"])
+            icf_mod.explode(tmp_path / "x.icf", [tmp_path / "test.vcf.gz"])
 
 
 class TestBadSchemaChanges:

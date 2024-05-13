@@ -8,7 +8,8 @@ import pytest
 import sgkit as sg
 import xarray.testing as xt
 
-from bio2zarr import provenance, vcf
+from bio2zarr import constants, provenance, vcf, verification
+from bio2zarr import icf as icf_mod
 
 
 class TestSmallExample:
@@ -81,8 +82,8 @@ class TestSmallExample:
         )
 
     def test_float_info_fields(self, ds):
-        missing = vcf.FLOAT32_MISSING
-        fill = vcf.FLOAT32_FILL
+        missing = constants.FLOAT32_MISSING
+        fill = constants.FLOAT32_FILL
         variant_AF = np.array(
             [
                 [missing, missing],
@@ -137,7 +138,7 @@ class TestSmallExample:
         )
 
     def test_allele(self, ds):
-        fill = vcf.STR_FILL
+        fill = constants.STR_FILL
         nt.assert_array_equal(
             ds["variant_allele"].values.tolist(),
             [
@@ -304,7 +305,7 @@ class TestSmallExample:
     @pytest.mark.parametrize("worker_processes", [0, 1, 2])
     def test_full_pipeline(self, ds, tmp_path, worker_processes):
         exploded = tmp_path / "example.exploded"
-        vcf.explode(
+        icf_mod.explode(
             exploded,
             [self.data_path],
             worker_processes=worker_processes,
@@ -323,7 +324,7 @@ class TestSmallExample:
         self, ds, tmp_path, max_variant_chunks, variants_chunk_size
     ):
         exploded = tmp_path / "example.exploded"
-        vcf.explode(exploded, [self.data_path])
+        icf_mod.explode(exploded, [self.data_path])
         out = tmp_path / "example.zarr"
         vcf.encode(
             exploded,
@@ -818,14 +819,14 @@ class TestSplitFileErrors:
     def test_entirely_incompatible(self, tmp_path):
         path = "tests/data/vcf/"
         with pytest.raises(ValueError, match="Incompatible"):
-            vcf.explode_init(
+            icf_mod.explode_init(
                 tmp_path / "if", [path + "sample.vcf.gz", path + "1kg_2020_chrM.bcf"]
             )
 
     def test_duplicate_paths(self, tmp_path):
         path = "tests/data/vcf/"
         with pytest.raises(ValueError, match="Duplicate"):
-            vcf.explode_init(tmp_path / "if", [path + "sample.vcf.gz"] * 2)
+            icf_mod.explode_init(tmp_path / "if", [path + "sample.vcf.gz"] * 2)
 
 
 @pytest.mark.parametrize(
@@ -844,7 +845,7 @@ def test_by_validating(name, tmp_path):
     path = f"tests/data/vcf/{name}"
     out = tmp_path / "test.zarr"
     vcf.convert([path], out, worker_processes=0)
-    vcf.validate(path, out)
+    verification.validate(path, out)
 
 
 @pytest.mark.parametrize(
@@ -862,7 +863,7 @@ def test_by_validating_split(source, suffix, files, tmp_path):
     split_files = [f"{source_path}.{suffix}/{f}" for f in files]
     out = tmp_path / "test.zarr"
     vcf.convert(split_files, out, worker_processes=0)
-    vcf.validate(source_path, out)
+    verification.validate(source_path, out)
 
 
 def test_split_explode(tmp_path):
@@ -872,16 +873,16 @@ def test_split_explode(tmp_path):
         "tests/data/vcf/sample.vcf.gz.3.split/X.vcf.gz",
     ]
     out = tmp_path / "test.explode"
-    work_summary = vcf.explode_init(out, paths, target_num_partitions=15)
+    work_summary = icf_mod.explode_init(out, paths, target_num_partitions=15)
     assert work_summary.num_partitions == 3
 
     with pytest.raises(FileNotFoundError):
-        pcvcf = vcf.IntermediateColumnarFormat(out)
+        pcvcf = icf_mod.IntermediateColumnarFormat(out)
 
     for j in range(work_summary.num_partitions):
-        vcf.explode_partition(out, j)
-    vcf.explode_finalise(out)
-    pcvcf = vcf.IntermediateColumnarFormat(out)
+        icf_mod.explode_partition(out, j)
+    icf_mod.explode_finalise(out)
+    pcvcf = icf_mod.IntermediateColumnarFormat(out)
     assert pcvcf.fields["POS"].vcf_field.summary.asdict() == {
         "num_chunks": 3,
         "compressed_size": 587,
@@ -891,7 +892,7 @@ def test_split_explode(tmp_path):
         "min_value": 10,
     }
     vcf.encode(out, tmp_path / "test.zarr")
-    vcf.validate("tests/data/vcf/sample.vcf.gz", tmp_path / "test.zarr")
+    verification.validate("tests/data/vcf/sample.vcf.gz", tmp_path / "test.zarr")
 
 
 def test_missing_filter(tmp_path):
