@@ -69,12 +69,14 @@ class FakeWorkSummary:
 class TestWithMocks:
     vcf_path = "tests/data/vcf/sample.vcf.gz"
 
-    @mock.patch("bio2zarr.icf.explode")
+    @mock.patch("bio2zarr.vcf2zarr.explode")
     def test_vcf_explode(self, mocked, tmp_path):
         icf_path = tmp_path / "icf"
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr, f"explode {self.vcf_path} {icf_path}", catch_exceptions=False
+            cli.vcf2zarr_main,
+            f"explode {self.vcf_path} {icf_path}",
+            catch_exceptions=False,
         )
         assert result.exit_code == 0
         assert len(result.stdout) == 0
@@ -84,12 +86,12 @@ class TestWithMocks:
         )
 
     @pytest.mark.parametrize("compressor", ["lz4", "zstd"])
-    @mock.patch("bio2zarr.icf.explode")
+    @mock.patch("bio2zarr.vcf2zarr.explode")
     def test_vcf_explode_compressor(self, mocked, tmp_path, compressor):
         icf_path = tmp_path / "icf"
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"explode {self.vcf_path} {icf_path} -C {compressor}",
             catch_exceptions=False,
         )
@@ -107,12 +109,12 @@ class TestWithMocks:
         )
 
     @pytest.mark.parametrize("compressor", ["lz4", "zstd"])
-    @mock.patch("bio2zarr.icf.explode_init")
+    @mock.patch("bio2zarr.vcf2zarr.explode_init")
     def test_vcf_dexplode_init_compressor(self, mocked, tmp_path, compressor):
         icf_path = tmp_path / "icf"
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"dexplode-init {self.vcf_path} {icf_path} 1 -C {compressor}",
             catch_exceptions=False,
         )
@@ -131,12 +133,12 @@ class TestWithMocks:
         )
 
     @pytest.mark.parametrize("compressor", ["LZ4", "asdf"])
-    @mock.patch("bio2zarr.icf.explode")
+    @mock.patch("bio2zarr.vcf2zarr.explode")
     def test_vcf_explode_bad_compressor(self, mocked, tmp_path, compressor):
         runner = ct.CliRunner(mix_stderr=False)
         icf_path = tmp_path / "icf"
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"explode {self.vcf_path} {icf_path} --compressor {compressor}",
             catch_exceptions=False,
         )
@@ -144,12 +146,12 @@ class TestWithMocks:
         assert "Invalid value for '-C'" in result.stderr
         mocked.assert_not_called()
 
-    @mock.patch("bio2zarr.icf.explode")
+    @mock.patch("bio2zarr.vcf2zarr.explode")
     def test_vcf_explode_multiple_vcfs(self, mocked, tmp_path):
         icf_path = tmp_path / "icf"
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"explode {self.vcf_path} {self.vcf_path} {icf_path}",
             catch_exceptions=False,
         )
@@ -161,13 +163,13 @@ class TestWithMocks:
         )
 
     @pytest.mark.parametrize("response", ["y", "Y", "yes"])
-    @mock.patch("bio2zarr.icf.explode")
+    @mock.patch("bio2zarr.vcf2zarr.explode")
     def test_vcf_explode_overwrite_icf_confirm_yes(self, mocked, tmp_path, response):
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"explode {self.vcf_path} {icf_path}",
             catch_exceptions=False,
             input=response,
@@ -180,7 +182,7 @@ class TestWithMocks:
         )
 
     @pytest.mark.parametrize("response", ["y", "Y", "yes"])
-    @mock.patch("bio2zarr.vcf.encode")
+    @mock.patch("bio2zarr.vcf2zarr.encode")
     def test_vcf_encode_overwrite_zarr_confirm_yes(self, mocked, tmp_path, response):
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
@@ -188,7 +190,7 @@ class TestWithMocks:
         zarr_path.mkdir()
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"encode {icf_path} {zarr_path}",
             catch_exceptions=False,
             input=response,
@@ -201,13 +203,13 @@ class TestWithMocks:
         )
 
     @pytest.mark.parametrize("force_arg", ["-f", "--force"])
-    @mock.patch("bio2zarr.icf.explode")
+    @mock.patch("bio2zarr.vcf2zarr.explode")
     def test_vcf_explode_overwrite_icf_force(self, mocked, tmp_path, force_arg):
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"explode {self.vcf_path} {icf_path} {force_arg}",
             catch_exceptions=False,
         )
@@ -219,7 +221,7 @@ class TestWithMocks:
         )
 
     @pytest.mark.parametrize("force_arg", ["-f", "--force"])
-    @mock.patch("bio2zarr.vcf.encode")
+    @mock.patch("bio2zarr.vcf2zarr.encode")
     def test_vcf_encode_overwrite_icf_force(self, mocked, tmp_path, force_arg):
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
@@ -227,7 +229,7 @@ class TestWithMocks:
         zarr_path.mkdir()
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"encode {icf_path} {zarr_path} {force_arg}",
             catch_exceptions=False,
         )
@@ -240,12 +242,14 @@ class TestWithMocks:
             **DEFAULT_ENCODE_ARGS,
         )
 
-    @mock.patch("bio2zarr.icf.explode")
+    @mock.patch("bio2zarr.vcf2zarr.explode")
     def test_vcf_explode_missing_vcf(self, mocked, tmp_path):
         icf_path = tmp_path / "icf"
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr, f"explode no_such_file {icf_path}", catch_exceptions=False
+            cli.vcf2zarr_main,
+            f"explode no_such_file {icf_path}",
+            catch_exceptions=False,
         )
         assert result.exit_code == 2
         assert len(result.stdout) == 0
@@ -253,13 +257,13 @@ class TestWithMocks:
         mocked.assert_not_called()
 
     @pytest.mark.parametrize("response", ["n", "N", "No"])
-    @mock.patch("bio2zarr.icf.explode")
+    @mock.patch("bio2zarr.vcf2zarr.explode")
     def test_vcf_explode_overwrite_icf_confirm_no(self, mocked, tmp_path, response):
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"explode {self.vcf_path} {icf_path}",
             catch_exceptions=False,
             input=response,
@@ -268,12 +272,12 @@ class TestWithMocks:
         assert "Aborted" in result.stderr
         mocked.assert_not_called()
 
-    @mock.patch("bio2zarr.icf.explode")
+    @mock.patch("bio2zarr.vcf2zarr.explode")
     def test_vcf_explode_missing_and_existing_vcf(self, mocked, tmp_path):
         icf_path = tmp_path / "icf"
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"explode {self.vcf_path} no_such_file {icf_path}",
             catch_exceptions=False,
         )
@@ -282,12 +286,12 @@ class TestWithMocks:
         assert "'no_such_file' does not exist" in result.stderr
         mocked.assert_not_called()
 
-    @mock.patch("bio2zarr.icf.explode_init", return_value=FakeWorkSummary(5))
+    @mock.patch("bio2zarr.vcf2zarr.explode_init", return_value=FakeWorkSummary(5))
     def test_vcf_dexplode_init(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         icf_path = tmp_path / "icf"
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"dexplode-init {self.vcf_path} {icf_path} 5",
             catch_exceptions=False,
         )
@@ -302,14 +306,14 @@ class TestWithMocks:
         )
 
     @pytest.mark.parametrize("num_partitions", ["-- -1", "0", "asdf", "1.112"])
-    @mock.patch("bio2zarr.icf.explode_init", return_value=5)
+    @mock.patch("bio2zarr.vcf2zarr.explode_init", return_value=5)
     def test_vcf_dexplode_init_bad_num_partitions(
         self, mocked, tmp_path, num_partitions
     ):
         runner = ct.CliRunner(mix_stderr=False)
         icf_path = tmp_path / "icf"
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"dexplode-init {self.vcf_path} {icf_path} {num_partitions}",
             catch_exceptions=False,
         )
@@ -317,13 +321,13 @@ class TestWithMocks:
         assert "Invalid value for 'NUM_PARTITIONS'" in result.stderr
         mocked.assert_not_called()
 
-    @mock.patch("bio2zarr.icf.explode_partition")
+    @mock.patch("bio2zarr.vcf2zarr.explode_partition")
     def test_vcf_dexplode_partition(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"dexplode-partition {icf_path} 1",
             catch_exceptions=False,
         )
@@ -334,13 +338,13 @@ class TestWithMocks:
             str(icf_path), 1, **DEFAULT_DEXPLODE_PARTITION_ARGS
         )
 
-    @mock.patch("bio2zarr.icf.explode_partition")
+    @mock.patch("bio2zarr.vcf2zarr.explode_partition")
     def test_vcf_dexplode_partition_one_based(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"dexplode-partition {icf_path} 1 --one-based",
             catch_exceptions=False,
         )
@@ -351,12 +355,12 @@ class TestWithMocks:
             str(icf_path), 0, **DEFAULT_DEXPLODE_PARTITION_ARGS
         )
 
-    @mock.patch("bio2zarr.icf.explode_partition")
+    @mock.patch("bio2zarr.vcf2zarr.explode_partition")
     def test_vcf_dexplode_partition_missing_dir(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         icf_path = tmp_path / "icf"
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"dexplode-partition {icf_path} 1",
             catch_exceptions=False,
         )
@@ -366,13 +370,13 @@ class TestWithMocks:
         mocked.assert_not_called()
 
     @pytest.mark.parametrize("partition", ["-- -1", "asdf", "1.112"])
-    @mock.patch("bio2zarr.icf.explode_partition")
+    @mock.patch("bio2zarr.vcf2zarr.explode_partition")
     def test_vcf_dexplode_partition_bad_partition(self, mocked, tmp_path, partition):
         runner = ct.CliRunner(mix_stderr=False)
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"dexplode-partition {icf_path} {partition}",
             catch_exceptions=False,
         )
@@ -381,33 +385,33 @@ class TestWithMocks:
         assert len(result.stdout) == 0
         mocked.assert_not_called()
 
-    @mock.patch("bio2zarr.icf.explode_finalise")
+    @mock.patch("bio2zarr.vcf2zarr.explode_finalise")
     def test_vcf_dexplode_finalise(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr, f"dexplode-finalise {tmp_path}", catch_exceptions=False
+            cli.vcf2zarr_main, f"dexplode-finalise {tmp_path}", catch_exceptions=False
         )
         assert result.exit_code == 0
         assert len(result.stdout) == 0
         assert len(result.stderr) == 0
         mocked.assert_called_once_with(str(tmp_path))
 
-    @mock.patch("bio2zarr.vcf.inspect")
+    @mock.patch("bio2zarr.vcf2zarr.inspect")
     def test_inspect(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr, f"inspect {tmp_path}", catch_exceptions=False
+            cli.vcf2zarr_main, f"inspect {tmp_path}", catch_exceptions=False
         )
         assert result.exit_code == 0
         assert result.stdout == "\n"
         assert len(result.stderr) == 0
         mocked.assert_called_once_with(str(tmp_path))
 
-    @mock.patch("bio2zarr.vcf.mkschema")
+    @mock.patch("bio2zarr.vcf2zarr.mkschema")
     def test_mkschema(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr, f"mkschema {tmp_path}", catch_exceptions=False
+            cli.vcf2zarr_main, f"mkschema {tmp_path}", catch_exceptions=False
         )
         assert result.exit_code == 0
         assert len(result.stdout) == 0
@@ -417,14 +421,14 @@ class TestWithMocks:
         # mocked.assert_called_once_with("path", stdout)
         mocked.assert_called_once()
 
-    @mock.patch("bio2zarr.vcf.encode")
+    @mock.patch("bio2zarr.vcf2zarr.encode")
     def test_encode(self, mocked, tmp_path):
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
         zarr_path = tmp_path / "zarr"
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr, f"encode {icf_path} {zarr_path}", catch_exceptions=False
+            cli.vcf2zarr_main, f"encode {icf_path} {zarr_path}", catch_exceptions=False
         )
         assert result.exit_code == 0
         assert len(result.stdout) == 0
@@ -435,14 +439,14 @@ class TestWithMocks:
             **DEFAULT_ENCODE_ARGS,
         )
 
-    @mock.patch("bio2zarr.vcf.encode_init", return_value=FakeWorkSummary(10))
+    @mock.patch("bio2zarr.vcf2zarr.encode_init", return_value=FakeWorkSummary(10))
     def test_dencode_init(self, mocked, tmp_path):
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
         zarr_path = tmp_path / "zarr"
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"dencode-init {icf_path} {zarr_path} 10",
             catch_exceptions=False,
         )
@@ -456,13 +460,13 @@ class TestWithMocks:
             **DEFAULT_DENCODE_INIT_ARGS,
         )
 
-    @mock.patch("bio2zarr.vcf.encode_partition")
+    @mock.patch("bio2zarr.vcf2zarr.encode_partition")
     def test_vcf_dencode_partition(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         zarr_path = tmp_path / "zarr"
         zarr_path.mkdir()
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"dencode-partition {zarr_path} 1",
             catch_exceptions=False,
         )
@@ -473,13 +477,13 @@ class TestWithMocks:
             str(zarr_path), 1, **DEFAULT_DENCODE_PARTITION_ARGS
         )
 
-    @mock.patch("bio2zarr.vcf.encode_partition")
+    @mock.patch("bio2zarr.vcf2zarr.encode_partition")
     def test_vcf_dencode_partition_one_based(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         zarr_path = tmp_path / "zarr"
         zarr_path.mkdir()
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"dencode-partition {zarr_path} 1 --one-based",
             catch_exceptions=False,
         )
@@ -490,22 +494,22 @@ class TestWithMocks:
             str(zarr_path), 0, **DEFAULT_DENCODE_PARTITION_ARGS
         )
 
-    @mock.patch("bio2zarr.vcf.encode_finalise")
+    @mock.patch("bio2zarr.vcf2zarr.encode_finalise")
     def test_vcf_dencode_finalise(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr, f"dencode-finalise {tmp_path}", catch_exceptions=False
+            cli.vcf2zarr_main, f"dencode-finalise {tmp_path}", catch_exceptions=False
         )
         assert result.exit_code == 0
         assert len(result.stdout) == 0
         assert len(result.stderr) == 0
         mocked.assert_called_once_with(str(tmp_path), **DEFAULT_DENCODE_FINALISE_ARGS)
 
-    @mock.patch("bio2zarr.vcf.convert")
+    @mock.patch("bio2zarr.vcf2zarr.convert")
     def test_convert_vcf(self, mocked):
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"convert {self.vcf_path} zarr_path",
             catch_exceptions=False,
         )
@@ -519,13 +523,13 @@ class TestWithMocks:
         )
 
     @pytest.mark.parametrize("response", ["n", "N", "No"])
-    @mock.patch("bio2zarr.vcf.convert")
+    @mock.patch("bio2zarr.vcf2zarr.convert")
     def test_vcf_convert_overwrite_zarr_confirm_no(self, mocked, tmp_path, response):
         zarr_path = tmp_path / "zarr"
         zarr_path.mkdir()
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"convert {self.vcf_path} {zarr_path}",
             catch_exceptions=False,
             input=response,
@@ -546,13 +550,13 @@ class TestWithMocks:
         mocked.assert_called_once_with("in", "out", **DEFAULT_CONVERT_ARGS)
 
     @pytest.mark.parametrize("response", ["y", "Y", "yes"])
-    @mock.patch("bio2zarr.vcf.convert")
+    @mock.patch("bio2zarr.vcf2zarr.convert")
     def test_vcf_convert_overwrite_zarr_confirm_yes(self, mocked, tmp_path, response):
         zarr_path = tmp_path / "zarr"
         zarr_path.mkdir()
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"convert {self.vcf_path} {zarr_path}",
             catch_exceptions=False,
             input=response,
@@ -573,7 +577,7 @@ class TestVcfEndToEnd:
         icf_path = tmp_path / "icf"
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"dexplode-init {self.vcf_path} {icf_path} 5 --json",
             catch_exceptions=False,
         )
@@ -585,15 +589,15 @@ class TestVcfEndToEnd:
                 cmd = f"dexplode-partition {icf_path} {j + 1} --one-based"
             else:
                 cmd = f"dexplode-partition {icf_path} {j}"
-            result = runner.invoke(cli.vcf2zarr, cmd, catch_exceptions=False)
+            result = runner.invoke(cli.vcf2zarr_main, cmd, catch_exceptions=False)
             assert result.exit_code == 0
         result = runner.invoke(
-            cli.vcf2zarr, f"dexplode-finalise {icf_path}", catch_exceptions=False
+            cli.vcf2zarr_main, f"dexplode-finalise {icf_path}", catch_exceptions=False
         )
         assert result.exit_code == 0
 
         result = runner.invoke(
-            cli.vcf2zarr, f"inspect {icf_path}", catch_exceptions=False
+            cli.vcf2zarr_main, f"inspect {icf_path}", catch_exceptions=False
         )
         assert result.exit_code == 0
         # Arbitrary check
@@ -603,11 +607,13 @@ class TestVcfEndToEnd:
         icf_path = tmp_path / "icf"
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr, f"explode {self.vcf_path} {icf_path}", catch_exceptions=False
+            cli.vcf2zarr_main,
+            f"explode {self.vcf_path} {icf_path}",
+            catch_exceptions=False,
         )
         assert result.exit_code == 0
         result = runner.invoke(
-            cli.vcf2zarr, f"inspect {icf_path}", catch_exceptions=False
+            cli.vcf2zarr_main, f"inspect {icf_path}", catch_exceptions=False
         )
         assert result.exit_code == 0
         # Arbitrary check
@@ -618,15 +624,17 @@ class TestVcfEndToEnd:
         zarr_path = tmp_path / "zarr"
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr, f"explode {self.vcf_path} {icf_path}", catch_exceptions=False
+            cli.vcf2zarr_main,
+            f"explode {self.vcf_path} {icf_path}",
+            catch_exceptions=False,
         )
         assert result.exit_code == 0
         result = runner.invoke(
-            cli.vcf2zarr, f"encode {icf_path} {zarr_path}", catch_exceptions=False
+            cli.vcf2zarr_main, f"encode {icf_path} {zarr_path}", catch_exceptions=False
         )
         assert result.exit_code == 0
         result = runner.invoke(
-            cli.vcf2zarr, f"inspect {zarr_path}", catch_exceptions=False
+            cli.vcf2zarr_main, f"inspect {zarr_path}", catch_exceptions=False
         )
         assert result.exit_code == 0
         # Arbitrary check
@@ -638,11 +646,13 @@ class TestVcfEndToEnd:
         zarr_path = tmp_path / "zarr"
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr, f"explode {self.vcf_path} {icf_path}", catch_exceptions=False
+            cli.vcf2zarr_main,
+            f"explode {self.vcf_path} {icf_path}",
+            catch_exceptions=False,
         )
         assert result.exit_code == 0
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"dencode-init {icf_path} {zarr_path} 5 --variants-chunk-size=3 --json",
             catch_exceptions=False,
         )
@@ -654,16 +664,16 @@ class TestVcfEndToEnd:
                 cmd = f"dencode-partition {zarr_path} {j + 1} --one-based"
             else:
                 cmd = f"dencode-partition {zarr_path} {j}"
-            result = runner.invoke(cli.vcf2zarr, cmd, catch_exceptions=False)
+            result = runner.invoke(cli.vcf2zarr_main, cmd, catch_exceptions=False)
             assert result.exit_code == 0
 
         result = runner.invoke(
-            cli.vcf2zarr, f"dencode-finalise {zarr_path}", catch_exceptions=False
+            cli.vcf2zarr_main, f"dencode-finalise {zarr_path}", catch_exceptions=False
         )
         assert result.exit_code == 0
 
         result = runner.invoke(
-            cli.vcf2zarr, f"inspect {zarr_path}", catch_exceptions=False
+            cli.vcf2zarr_main, f"inspect {zarr_path}", catch_exceptions=False
         )
         assert result.exit_code == 0
         # Arbitrary check
@@ -673,13 +683,13 @@ class TestVcfEndToEnd:
         zarr_path = tmp_path / "zarr"
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr,
+            cli.vcf2zarr_main,
             f"convert {self.vcf_path} {zarr_path}",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
         result = runner.invoke(
-            cli.vcf2zarr, f"inspect {zarr_path}", catch_exceptions=False
+            cli.vcf2zarr_main, f"inspect {zarr_path}", catch_exceptions=False
         )
         assert result.exit_code == 0
         # Arbitrary check
@@ -704,7 +714,7 @@ class TestVcfPartition:
 
 
 @pytest.mark.parametrize(
-    "cmd", [main.bio2zarr, cli.vcf2zarr, cli.plink2zarr, cli.vcfpartition]
+    "cmd", [main.bio2zarr, cli.vcf2zarr_main, cli.plink2zarr, cli.vcfpartition]
 )
 def test_version(cmd):
     runner = ct.CliRunner(mix_stderr=False)

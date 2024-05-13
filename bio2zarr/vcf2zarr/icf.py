@@ -13,7 +13,7 @@ from typing import Any
 import numcodecs
 import numpy as np
 
-from . import constants, core, provenance, vcf_utils
+from .. import constants, core, provenance, vcf_utils
 
 logger = logging.getLogger(__name__)
 

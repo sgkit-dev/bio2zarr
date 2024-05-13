@@ -4,7 +4,7 @@ import numpy.testing as nt
 import tqdm
 import zarr
 
-from . import constants
+from .. import constants
 
 
 def assert_all_missing_float(a):
@@ -146,8 +146,7 @@ def assert_format_val_equal(vcf_val, zarr_val, vcf_type):
         nt.assert_equal(vcf_val, zarr_val)
 
 
-# TODO rename to "verify"
-def validate(vcf_path, zarr_path, show_progress=False):
+def verify(vcf_path, zarr_path, show_progress=False):
     store = zarr.DirectoryStore(zarr_path)
 
     root = zarr.group(store=store)

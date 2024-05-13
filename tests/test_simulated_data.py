@@ -4,7 +4,7 @@ import pysam
 import pytest
 import sgkit as sg
 
-from bio2zarr import vcf
+from bio2zarr import vcf2zarr
 
 
 class TestTskitRoundTripVcf:
@@ -28,7 +28,7 @@ class TestTskitRoundTripVcf:
         # This also compresses the input file
         pysam.tabix_index(str(vcf_file), preset="vcf")
         out = tmp_path / "example.vcf.zarr"
-        vcf.convert([tmp_path / "sim.vcf.gz"], out)
+        vcf2zarr.convert([tmp_path / "sim.vcf.gz"], out)
         ds = sg.load_dataset(out)
         assert ds.sizes["ploidy"] == ploidy
         assert ds.sizes["variants"] == ts.num_sites
