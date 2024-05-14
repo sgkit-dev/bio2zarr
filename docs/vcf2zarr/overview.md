@@ -1,7 +1,10 @@
+(sec-vcf2zarr)=
 # vcf2zarr
 
 
-Convert a VCF to zarr format:
+Convert VCF data to the
+[VCF Zarr specification](https://github.com/sgkit-dev/vcf-zarr-spec/)
+reliably, in parallel.
 
 ```
 $ vcf2zarr convert <VCF1> <VCF2> <zarr>

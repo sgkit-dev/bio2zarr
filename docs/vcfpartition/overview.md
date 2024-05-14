@@ -1,3 +1,4 @@
+(sec-vcfpartition)=
 # vcfpartition
 
 ## Overview
