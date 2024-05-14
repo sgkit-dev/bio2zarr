@@ -1,4 +1,5 @@
-# vcfpartition
+(xxx_vcfpartition)=
+# vcfpartition xxx
 
 ## Overview
 
@@ -26,5 +27,15 @@ into chunks for parallelisation.
 
 **TODO give a nice example here using xargs**
 
-**WARNING that this does not take into account that indels may overlap
-partitions and you may count variants twice or more if they do**
+**WARNING that this does not take into account that indels may overlap**
+
+
+## CLI Reference
+
+FIXME not working due to
+
+```{eval-rst}
+.. click:: bio2zarr.cli:vcfpartition
+   :prog: vcfpartition
+   :nested: full
+```

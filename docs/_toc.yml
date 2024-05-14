@@ -4,4 +4,3 @@ chapters:
 - file: installation
 - file: vcf2zarr
 - file: vcfpartition
-- file: cli
