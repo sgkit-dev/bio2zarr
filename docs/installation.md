@@ -1,3 +1,4 @@
+(sec-installation)=
 # Installation
 
 
@@ -19,6 +20,12 @@ is equivalent to
 vcf2zarr <args>
 ```
 and will always work.
+
+:::{note}
+The ``python3 -m bio2zarr vcf2zarr`` for may be replaced with
+``python3 -m bio2zarr.vcf2zarr`` in the near future.
+See GitHub issue [203](https://github.com/sgkit-dev/bio2zarr/issues/203).
+:::
 
 
 :::{warning}

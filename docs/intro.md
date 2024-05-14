@@ -23,3 +23,5 @@ support for other formats (or an interested in helping with implementing),
 please open an [issue on Github](https://github.com/sgkit-dev/bio2zarr/issues)
 to discuss!
 
+The package is currently focused on command line interfaces, but a
+Python API is also planned.

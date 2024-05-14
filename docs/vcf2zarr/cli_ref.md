@@ -1,3 +1,4 @@
+(sec-vcf2zarr-cli-ref)=
 # CLI Reference
 
 % A note on cross references... There's some weird long-standing problem with
@@ -57,6 +58,7 @@
 ## Encode
 
 ```{eval-rst}
+.. _cmd-vcf2zarr-encode:
 .. click:: bio2zarr.cli:encode
    :prog: vcf2zarr encode
    :nested: full
