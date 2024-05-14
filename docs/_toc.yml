@@ -2,5 +2,10 @@ format: jb-book
 root: intro
 chapters:
 - file: installation
-- file: vcf2zarr
-- file: vcfpartition
+- file: vcf2zarr/overview
+  sections:
+  - file: vcf2zarr/tutorial
+  - file: vcf2zarr/cli_ref
+- file: vcfpartition/overview
+  sections:
+  - file: vcfpartition/cli_ref
