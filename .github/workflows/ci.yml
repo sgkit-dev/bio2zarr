@@ -41,7 +41,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install '.[dev]'
-      - run: pytest
+      - name: Run tests
+        run: |
+          pytest --cov=bio2zarr
+      - name: Upload coverage to Coveralls
+        uses: coverallsapp/github-action@v2.3.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
   packaging:
     name: Packaging
@@ -69,3 +75,4 @@ jobs:
         run: |
           vcfpartition --help
           python -m bio2zarr vcfpartition --help
+
