@@ -26,5 +26,4 @@ into chunks for parallelisation.
 
 **TODO give a nice example here using xargs**
 
-**WARNING that this does not take into account that indels may overlap
-partitions and you may count variants twice or more if they do**
+**WARNING that this does not take into account that indels may overlap**

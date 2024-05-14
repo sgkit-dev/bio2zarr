@@ -8,6 +8,7 @@
 % Based on: https://github.com/skypilot-org/skypilot/pull/2834
 
 ```{eval-rst}
+
 .. _cmd-vcf2zarr:
 .. click:: bio2zarr.cli:vcf2zarr_main
    :prog: vcf2zarr
@@ -32,6 +33,7 @@
 ## Explode
 
 ```{eval-rst}
+.. _cmd-vcf2zarr-explode:
 .. click:: bio2zarr.cli:explode
    :prog: vcf2zarr explode
    :nested: full
