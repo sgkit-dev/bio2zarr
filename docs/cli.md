@@ -1,4 +1,4 @@
-# Command Line Interface
+# CLI Reference
 
 % A note on cross references... There's some weird long-standing problem with
 % cross referencing program values in Sphinx, which means that we can't use

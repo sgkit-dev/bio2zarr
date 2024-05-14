@@ -20,3 +20,17 @@ $ vcf2zarr <args>
 ```
 and will always work.
 
+
+## Shell completion
+
+To enable shell completion for a particular session in Bash do:
+
+```
+eval "$(_VCF2ZARR_COMPLETE=bash_source vcf2zarr)"
+```
+
+If you add this to your ``.bashrc`` vcf2zarr shell completion should available
+in all new shell sessions.
+
+See the [Click documentation](https://click.palletsprojects.com/en/8.1.x/shell-completion/#enabling-completion)
+for instructions on how to enable completion in other shells.
