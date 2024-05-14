@@ -12,7 +12,12 @@ command line options.
 
 ## Quickstart
 
-First {ref}`install bio2zarr<sec-installation>`
+First {ref}`install bio2zarr<sec-installation>`.
+
+
+:::{note}
+FINISH ME
+:::
 
 
 ## How does it work?
