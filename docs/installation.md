@@ -1,31 +1,38 @@
 # Installation
 
 
-```
-$ python3 -m pip install bio2zarr
+```bash
+python3 -m pip install bio2zarr
 ```
 
-This will install the programs ``vcf2zarr``, ``plink2zarr`` and ``vcf_partition``
+This will install the programs ``vcf2zarr`` and ``vcf_partition``
 into your local Python path. You may need to update your $PATH to call the
 executables directly.
 
 Alternatively, calling
-```
-$ python3 -m bio2zarr vcf2zarr <args>
+```bash
+python3 -m bio2zarr vcf2zarr <args>
 ```
 is equivalent to
 
-```
-$ vcf2zarr <args>
+```bash
+vcf2zarr <args>
 ```
 and will always work.
+
+
+:::{warning}
+Windows is not currently supported. Please comment on
+[this issue](https://github.com/sgkit-dev/bio2zarr/issues/174) if you would
+like to see Windows support for bio2zarr.
+:::
 
 
 ## Shell completion
 
 To enable shell completion for a particular session in Bash do:
 
-```
+```bash
 eval "$(_VCF2ZARR_COMPLETE=bash_source vcf2zarr)"
 ```
 
