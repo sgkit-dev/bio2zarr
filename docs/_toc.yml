@@ -1,5 +1,6 @@
 format: jb-book
 root: intro
 chapters:
-- file: vcf2zarr_tutorial
+- file: installation
+- file: vcf2zarr
 - file: cli

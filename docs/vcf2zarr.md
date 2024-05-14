@@ -9,7 +9,11 @@ kernelspec:
   language: bash
   name: bash
 ---
-# Vcf2zarr tutorial
+# vcf2zarr
+
+
+
+## Tutorial
 
 This is a step-by-step tutorial showing you how to convert your
 VCF data into Zarr format. There's three different ways to
@@ -17,7 +21,7 @@ convert your data, basically providing different levels of
 convenience and flexibility corresponding to what you might
 need for small, intermediate and large datasets.
 
-## Small
+### Small
 
 <!-- ```{code-cell} bash -->
 <!-- vcf2zarr convert ../tests/data/vcf/sample.vcf.gz sample.zarr -vf -->
@@ -32,6 +36,6 @@ need for small, intermediate and large datasets.
  });
  </script>
 
-## Intermediate
+### Intermediate
 
-## Large
+### Large
