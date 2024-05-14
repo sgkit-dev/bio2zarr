@@ -8,7 +8,8 @@ import coloredlogs
 import numcodecs
 import tabulate
 
-from . import icf, plink, provenance, vcf, vcf_utils
+from . import plink, provenance, vcf2zarr, vcf_utils
+from .vcf2zarr import icf as icf_mod
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +168,7 @@ def check_overwrite_dir(path, force):
 def get_compressor(cname):
     if cname is None:
         return None
-    config = icf.ICF_DEFAULT_COMPRESSOR.get_config()
+    config = icf_mod.ICF_DEFAULT_COMPRESSOR.get_config()
     config["cname"] = cname
     return numcodecs.get_codec(config)
 
@@ -198,7 +199,7 @@ def explode(
     """
     setup_logging(verbose)
     check_overwrite_dir(icf_path, force)
-    icf.explode(
+    vcf2zarr.explode(
         icf_path,
         vcfs,
         worker_processes=worker_processes,
@@ -235,7 +236,7 @@ def dexplode_init(
     """
     setup_logging(verbose)
     check_overwrite_dir(icf_path, force)
-    work_summary = icf.explode_init(
+    work_summary = vcf2zarr.explode_init(
         icf_path,
         vcfs,
         target_num_partitions=num_partitions,
@@ -263,7 +264,7 @@ def dexplode_partition(icf_path, partition, verbose, one_based):
     setup_logging(verbose)
     if one_based:
         partition -= 1
-    icf.explode_partition(icf_path, partition)
+    vcf2zarr.explode_partition(icf_path, partition)
 
 
 @click.command
@@ -274,7 +275,7 @@ def dexplode_finalise(icf_path, verbose):
     Final step for distributed conversion of VCF(s) to intermediate columnar format.
     """
     setup_logging(verbose)
-    icf.explode_finalise(icf_path)
+    vcf2zarr.explode_finalise(icf_path)
 
 
 @click.command
@@ -285,7 +286,7 @@ def inspect(path, verbose):
     Inspect an intermediate columnar format or Zarr path.
     """
     setup_logging(verbose)
-    data = vcf.inspect(path)
+    data = vcf2zarr.inspect(path)
     click.echo(tabulate.tabulate(data, headers="keys"))
 
 
@@ -296,7 +297,7 @@ def mkschema(icf_path):
     Generate a schema for zarr encoding
     """
     stream = click.get_text_stream("stdout")
-    vcf.mkschema(icf_path, stream)
+    vcf2zarr.mkschema(icf_path, stream)
 
 
 @click.command
@@ -327,7 +328,7 @@ def encode(
     """
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)
-    vcf.encode(
+    vcf2zarr.encode(
         icf_path,
         zarr_path,
         schema_path=schema,
@@ -378,7 +379,7 @@ def dencode_init(
     """
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)
-    work_summary = vcf.encode_init(
+    work_summary = vcf2zarr.encode_init(
         icf_path,
         zarr_path,
         target_num_partitions=num_partitions,
@@ -406,7 +407,7 @@ def dencode_partition(zarr_path, partition, verbose, one_based):
     setup_logging(verbose)
     if one_based:
         partition -= 1
-    vcf.encode_partition(zarr_path, partition)
+    vcf2zarr.encode_partition(zarr_path, partition)
 
 
 @click.command
@@ -417,7 +418,7 @@ def dencode_finalise(zarr_path, verbose):
     Final step for distributed conversion of ICF to VCF Zarr.
     """
     setup_logging(verbose)
-    vcf.encode_finalise(zarr_path, show_progress=True)
+    vcf2zarr.encode_finalise(zarr_path, show_progress=True)
 
 
 @click.command(name="convert")
@@ -442,7 +443,7 @@ def convert_vcf(
     """
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)
-    vcf.convert(
+    vcf2zarr.convert(
         vcfs,
         zarr_path,
         variants_chunk_size=variants_chunk_size,
@@ -453,8 +454,8 @@ def convert_vcf(
 
 
 @version
-@click.group(cls=NaturalOrderGroup)
-def vcf2zarr():
+@click.group(cls=NaturalOrderGroup, name="vcf2zarr")
+def vcf2zarr_main():
     """
     Convert VCF file(s) to the vcfzarr format.
 
@@ -506,18 +507,17 @@ def vcf2zarr():
     """
 
 
-# TODO figure out how to get click to list these in the given order.
-vcf2zarr.add_command(convert_vcf)
-vcf2zarr.add_command(inspect)
-vcf2zarr.add_command(explode)
-vcf2zarr.add_command(mkschema)
-vcf2zarr.add_command(encode)
-vcf2zarr.add_command(dexplode_init)
-vcf2zarr.add_command(dexplode_partition)
-vcf2zarr.add_command(dexplode_finalise)
-vcf2zarr.add_command(dencode_init)
-vcf2zarr.add_command(dencode_partition)
-vcf2zarr.add_command(dencode_finalise)
+vcf2zarr_main.add_command(convert_vcf)
+vcf2zarr_main.add_command(inspect)
+vcf2zarr_main.add_command(explode)
+vcf2zarr_main.add_command(mkschema)
+vcf2zarr_main.add_command(encode)
+vcf2zarr_main.add_command(dexplode_init)
+vcf2zarr_main.add_command(dexplode_partition)
+vcf2zarr_main.add_command(dexplode_finalise)
+vcf2zarr_main.add_command(dencode_init)
+vcf2zarr_main.add_command(dencode_partition)
+vcf2zarr_main.add_command(dencode_finalise)
 
 
 @click.command(name="convert")

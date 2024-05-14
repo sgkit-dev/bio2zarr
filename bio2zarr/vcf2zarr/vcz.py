@@ -12,7 +12,8 @@ import numcodecs
 import numpy as np
 import zarr
 
-from . import constants, core, icf, provenance
+from .. import constants, core, provenance
+from . import icf
 
 logger = logging.getLogger(__name__)
 

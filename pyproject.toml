@@ -45,7 +45,7 @@ repository = "https://github.com/sgkit-dev/bio2zarr"
 documentation = "https://sgkit-dev.github.io/bio2zarr/"
 
 [project.scripts]
-vcf2zarr = "bio2zarr.cli:vcf2zarr"
+vcf2zarr = "bio2zarr.cli:vcf2zarr_main"
 vcfpartition = "bio2zarr.cli:vcfpartition"
 
 [project.optional-dependencies]
