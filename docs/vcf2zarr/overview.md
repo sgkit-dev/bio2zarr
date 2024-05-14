@@ -1,7 +1,44 @@
+(sec-vcf2zarr)=
 # vcf2zarr
 
+Convert VCF data to the
+[VCF Zarr specification](https://github.com/sgkit-dev/vcf-zarr-spec/)
+reliably, in parallel or distributed over a cluster.
 
-Convert a VCF to zarr format:
+See the {ref}`sec-vcf2zarr-tutorial` for a step-by-step introduction
+and the {ref}`sec-vcf2zarr-cli-ref` detailed documentation on
+command line options.
+
+
+## Quickstart
+
+First {ref}`install bio2zarr<sec-installation>`.
+
+
+:::{note}
+FINISH ME
+:::
+
+
+## How does it work?
+The conversion of VCF data to Zarr is a two-step process:
+
+1. Convert ({ref}`explode<cmd-vcf2zarr-explode>`) VCF file(s) to
+    Intermediate Columnar Format (ICF)
+2. Convert ({ref}`encode<cmd-vcf2zarr-encode>`) ICF to Zarr
+
+This two-step process allows `vcf2zarr` to determine the correct
+dimension of Zarr arrays corresponding to each VCF field, and
+to keep memory usage tightly bounded while writing the arrays.
+
+:::{important}
+The intermediate columnar format is not intended for any use
+other than a temporary storage while converting VCF to Zarr.
+The format may change between versions of `bio2zarr`.
+:::
+
+
+## Common options
 
 ```
 $ vcf2zarr convert <VCF1> <VCF2> <zarr>
