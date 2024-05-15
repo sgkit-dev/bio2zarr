@@ -1,5 +1,6 @@
 import contextlib
 import gzip
+import logging
 import os
 import pathlib
 import struct
@@ -12,6 +13,8 @@ import humanfriendly
 import numpy as np
 
 from bio2zarr.typing import PathType
+
+logger = logging.getLogger(__name__)
 
 CSI_EXTENSION = ".csi"
 TABIX_EXTENSION = ".tbi"
@@ -411,6 +414,7 @@ class IndexedVcf(contextlib.AbstractContextManager):
             raise ValueError("Only .tbi or .csi indexes are supported.")
         self.vcf = cyvcf2.VCF(vcf_path)
         self.vcf.set_index(str(self.index_path))
+        logger.debug(f"Loaded {vcf_path} with index {self.index_path}")
         self.sequence_names = None
         if self.index_type == "csi":
             # Determine the file-type based on the "aux" field.
@@ -450,15 +454,16 @@ class IndexedVcf(contextlib.AbstractContextManager):
     def _filter_empty_and_refine(self, regions):
         """
         Return all regions in the specified list that have one or more records,
-        and refine the start coordinate of the region to be the actual first coord
+        and refine the start coordinate of the region to be the actual first coord.
+
+        Because this is a relatively expensive operation requiring seeking around
+        the file, we return the results as an iterator.
         """
-        ret = []
         for region in regions:
             var = next(self.variants(region), None)
             if var is not None:
                 region.start = var.POS
-                ret.append(region)
-        return ret
+                yield region
 
     def partition_into_regions(
         self,
@@ -490,7 +495,7 @@ class IndexedVcf(contextlib.AbstractContextManager):
             target_part_size_bytes = file_length // num_parts
         elif target_part_size_bytes is not None:
             num_parts = ceildiv(file_length, target_part_size_bytes)
-        part_lengths = np.array([i * target_part_size_bytes for i in range(num_parts)])
+        part_lengths = target_part_size_bytes * np.arange(num_parts, dtype=int)
         file_offsets, region_contig_indexes, region_positions = self.index.offsets()
 
         # Search the file offsets to find which indexes the part lengths fall at

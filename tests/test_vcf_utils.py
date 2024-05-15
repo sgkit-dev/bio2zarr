@@ -95,7 +95,7 @@ class TestIndexedVcf:
     )
     def test_partition_into_one_part(self, index_file, expected):
         indexed_vcf = self.get_instance(index_file)
-        regions = indexed_vcf.partition_into_regions(num_parts=1)
+        regions = list(indexed_vcf.partition_into_regions(num_parts=1))
         assert all(isinstance(r, vcf_utils.Region) for r in regions)
         assert [str(r) for r in regions] == expected
 
@@ -120,7 +120,7 @@ class TestIndexedVcf:
     )
     def test_partition_into_max_parts(self, index_file, num_expected, total_records):
         indexed_vcf = self.get_instance(index_file)
-        regions = indexed_vcf.partition_into_regions(num_parts=1000)
+        regions = list(indexed_vcf.partition_into_regions(num_parts=1000))
         assert all(isinstance(r, vcf_utils.Region) for r in regions)
         # print(regions)
         assert len(regions) == num_expected
@@ -151,7 +151,7 @@ class TestIndexedVcf:
     @pytest.mark.parametrize("num_parts", [2, 3, 4, 5, 16, 33])
     def test_partition_into_n_parts(self, index_file, total_records, num_parts):
         indexed_vcf = self.get_instance(index_file)
-        regions = indexed_vcf.partition_into_regions(num_parts=num_parts)
+        regions = list(indexed_vcf.partition_into_regions(num_parts=num_parts))
         assert all(isinstance(r, vcf_utils.Region) for r in regions)
         part_variant_counts = np.array(
             [indexed_vcf.count_variants(region) for region in regions]
@@ -161,7 +161,7 @@ class TestIndexedVcf:
 
     def test_tabix_multi_chrom_bug(self):
         indexed_vcf = self.get_instance("multi_contig.vcf.gz.tbi")
-        regions = indexed_vcf.partition_into_regions(num_parts=10)
+        regions = list(indexed_vcf.partition_into_regions(num_parts=10))
         # An earlier version of the code returned this, i.e. with a duplicate
         # for 4 with end coord of 0
         # ["0:1-", "1", "2", "3", "4:1-0", "4:1-"]
@@ -185,7 +185,9 @@ class TestIndexedVcf:
     )
     def test_target_part_size(self, target_part_size, filename):
         indexed_vcf = self.get_instance(filename)
-        regions = indexed_vcf.partition_into_regions(target_part_size=target_part_size)
+        regions = list(
+            indexed_vcf.partition_into_regions(target_part_size=target_part_size)
+        )
         assert len(regions) == 5
         part_variant_counts = [indexed_vcf.count_variants(region) for region in regions]
         assert part_variant_counts == [3450, 3869, 4525, 7041, 1025]
@@ -197,7 +199,7 @@ class TestIndexedVcf:
         with pytest.raises(
             ValueError, match=r"One of num_parts or target_part_size must be specified"
         ):
-            indexed_vcf.partition_into_regions()
+            list(indexed_vcf.partition_into_regions())
 
         with pytest.raises(
             ValueError,

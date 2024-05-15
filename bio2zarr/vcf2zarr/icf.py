@@ -263,9 +263,6 @@ def scan_vcf(path, target_num_partitions):
         )
 
         regions = indexed_vcf.partition_into_regions(num_parts=target_num_partitions)
-        logger.info(
-            f"Split {path} into {len(regions)} regions (target={target_num_partitions})"
-        )
         for region in regions:
             metadata.partitions.append(
                 VcfPartition(
@@ -275,6 +272,10 @@ def scan_vcf(path, target_num_partitions):
                     region=region,
                 )
             )
+        logger.info(
+            f"Split {path} into {len(metadata.partitions)} "
+            f"partitions target={target_num_partitions})"
+        )
         core.update_progress(1)
         return metadata, vcf.raw_header
 

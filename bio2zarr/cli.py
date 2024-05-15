@@ -518,10 +518,42 @@ plink2zarr.add_command(convert_plink)
 @click.command
 @version
 @click.argument("vcf_path", type=click.Path())
-@click.option("-i", "--index", type=click.Path(), default=None)
-@click.option("-n", "--num-parts", type=int, default=None)
-# @click.option("-s", "--part-size", type=int, default=None)
-def vcfpartition(vcf_path, index, num_parts):
-    indexed_vcf = vcf_utils.IndexedVcf(vcf_path, index)
-    regions = indexed_vcf.partition_into_regions(num_parts=num_parts)
-    click.echo("\n".join(map(str, regions)))
+@verbose
+@click.option(
+    "-n",
+    "--num-parts",
+    type=int,
+    default=None,
+    help="Target number of partitions to split the VCF into",
+)
+@click.option(
+    "-s",
+    "--part-size",
+    type=str,
+    default=None,
+    help="Target (compressed) size of VCF partitions, e.g. 100KB, 10MiB, 1G.",
+)
+def vcfpartition(vcf_path, verbose, num_parts, part_size):
+    """
+    Output bcftools region strings that partition an indexed VCF/BCF file
+    into either an approximate number of parts (-n), or parts of approximately
+    a given size (-s). One of -n or -s must be supplied.
+
+    Note that both the number of partitions and sizes are a target, and the
+    returned number of partitions may not exactly correspond. In particular,
+    there is a maximum level of granularity determined by the associated index
+    which cannot be exceeded.
+
+    Note also that the partitions returned may vary considerably in the number
+    of records that they contain.
+    """
+    setup_logging(verbose)
+    if num_parts is None and part_size is None:
+        raise click.UsageError("Either --num-parts or --part-size must be specified")
+
+    indexed_vcf = vcf_utils.IndexedVcf(vcf_path)
+    regions = indexed_vcf.partition_into_regions(
+        num_parts=num_parts, target_part_size=part_size
+    )
+    for region in regions:
+        click.echo(f"{region}\t{vcf_path}")
