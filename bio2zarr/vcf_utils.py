@@ -450,15 +450,16 @@ class IndexedVcf(contextlib.AbstractContextManager):
     def _filter_empty_and_refine(self, regions):
         """
         Return all regions in the specified list that have one or more records,
-        and refine the start coordinate of the region to be the actual first coord
+        and refine the start coordinate of the region to be the actual first coord.
+
+        Because this is a relatively expensive operation requiring seeking around
+        the file, we return the results as an iterator.
         """
-        ret = []
         for region in regions:
             var = next(self.variants(region), None)
             if var is not None:
                 region.start = var.POS
-                ret.append(region)
-        return ret
+                yield region
 
     def partition_into_regions(
         self,
