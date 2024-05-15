@@ -31,6 +31,10 @@ jobs:
           pip install -r docs/requirements.txt
           python3 -m bash_kernel.install
 
+      - name: Install bcftools
+        run: |
+          sudo apt-get install bcftools
+
       - name: Install package
         run: |
           python3 -m pip install .
