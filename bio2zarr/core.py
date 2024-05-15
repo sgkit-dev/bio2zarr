@@ -201,11 +201,6 @@ def get_progress():
     return val
 
 
-def set_progress(value):
-    with _progress_counter.get_lock():
-        _progress_counter.value = value
-
-
 def setup_progress_counter(counter):
     global _progress_counter
     _progress_counter = counter
@@ -269,16 +264,6 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         future = self.executor.submit(*args, **kwargs)
         self.futures.add(future)
         return future
-
-    def wait_for_completed(self, timeout=None):
-        done, not_done = cf.wait(self.futures, timeout, cf.FIRST_COMPLETED)
-        for future in done:
-            exception = future.exception()
-            # TODO do the check for BrokenProcessPool here
-            if exception is not None:
-                raise exception
-        self.futures = not_done
-        return done
 
     def results_as_completed(self):
         for future in cf.as_completed(self.futures):
