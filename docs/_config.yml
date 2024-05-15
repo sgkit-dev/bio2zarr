@@ -29,3 +29,5 @@ sphinx:
     # This is needed to make sure that text is output in single block from
     # bash cells.
     nb_merge_streams: true
+    myst_enable_extensions:
+      - colon_fence
