@@ -187,7 +187,7 @@ class ProgressConfig:
 # progressable thing happening per source process. This is
 # probably fine in practise, but there could be corner cases
 # where it's not. Something to watch out for.
-_progress_counter = multiprocessing.Value("Q", 0)
+_progress_counter = None
 
 
 def update_progress(inc):
@@ -201,23 +201,30 @@ def get_progress():
     return val
 
 
-def set_progress(value):
-    with _progress_counter.get_lock():
-        _progress_counter.value = value
+def setup_progress_counter(counter):
+    global _progress_counter
+    _progress_counter = counter
 
 
 class ParallelWorkManager(contextlib.AbstractContextManager):
     def __init__(self, worker_processes=1, progress_config=None):
+        # Need to specify this explicitly to suppport Macs and
+        # for future proofing.
+        ctx = multiprocessing.get_context("spawn")
+        global _progress_counter
+        _progress_counter = ctx.Value("Q", 0)
         if worker_processes <= 0:
             # NOTE: this is only for testing, not for production use!
             self.executor = SynchronousExecutor()
         else:
             self.executor = cf.ProcessPoolExecutor(
                 max_workers=worker_processes,
+                mp_context=ctx,
+                initializer=setup_progress_counter,
+                initargs=(_progress_counter,),
             )
         self.futures = set()
 
-        set_progress(0)
         if progress_config is None:
             progress_config = ProgressConfig()
         self.progress_config = progress_config
@@ -257,16 +264,6 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         future = self.executor.submit(*args, **kwargs)
         self.futures.add(future)
         return future
-
-    def wait_for_completed(self, timeout=None):
-        done, not_done = cf.wait(self.futures, timeout, cf.FIRST_COMPLETED)
-        for future in done:
-            exception = future.exception()
-            # TODO do the check for BrokenProcessPool here
-            if exception is not None:
-                raise exception
-        self.futures = not_done
-        return done
 
     def results_as_completed(self):
         for future in cf.as_completed(self.futures):
