@@ -1,4 +1,5 @@
 #/bin/bash
+set -e
 
 # Jupyter-build doesn't have an option to automatically show the 
 # saved reports, which makes it difficult to debug the reasons for 
@@ -11,10 +12,10 @@ RETVAL=$?
 if [ $RETVAL -ne 0 ]; then
     if [ -e $REPORTDIR ]; then
       echo "Error occured; showing saved reports"
-      cat $REPORTDIR/*
+      cat $REPORTDIR/*/*
     fi
 else
     # Clear out any old reports
-    rm -f $REPORTDIR/*
+    rm -fR $REPORTDIR/*
 fi
 exit $RETVAL
