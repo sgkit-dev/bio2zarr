@@ -22,7 +22,7 @@ need for small, intermediate and large datasets.
 
  <div id="vcf2zarr_convert"></div>
  <script>
- AsciinemaPlayer.create('_static/vcf2zarr_convert.cast',
+ AsciinemaPlayer.create('../_static/vcf2zarr_convert.cast',
     document.getElementById('vcf2zarr_convert'), {
     cols:80,
     rows:12
@@ -33,7 +33,7 @@ need for small, intermediate and large datasets.
 
  <div id="vcf2zarr_explode"></div>
  <script>
- AsciinemaPlayer.create('_static/vcf2zarr_explode.cast',
+ AsciinemaPlayer.create('../_static/vcf2zarr_explode.cast',
     document.getElementById('vcf2zarr_explode'), {
     cols:80,
     rows:12
