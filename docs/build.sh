@@ -1,5 +1,4 @@
 #/bin/bash
-set -e
 
 # Jupyter-build doesn't have an option to automatically show the 
 # saved reports, which makes it difficult to debug the reasons for 

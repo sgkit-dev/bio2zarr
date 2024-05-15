@@ -11,6 +11,10 @@ kernelspec:
 ---
 (sec-vcfpartition)=
 # vcfpartition
+```{code-cell} 
+:tags: [remove-cell]
+cp ../../tests/data/vcf/CEUTrio.20.21.gatk3.4.g.bcf* ./
+```
 
 ## Overview
 
