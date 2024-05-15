@@ -517,7 +517,7 @@ plink2zarr.add_command(convert_plink)
 
 @click.command
 @version
-@click.argument("vcf_path", type=click.Path())
+@click.argument("vcf_path", type=click.Path(exists=True, dir_okay=False))
 @verbose
 @click.option(
     "-n",
