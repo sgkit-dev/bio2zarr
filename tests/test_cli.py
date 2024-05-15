@@ -697,20 +697,54 @@ class TestVcfEndToEnd:
 
 
 class TestVcfPartition:
-    def test_num_parts(self):
-        path = "tests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz"
+    path = "tests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz"
 
+    def test_num_parts(self):
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcfpartition, [path, "-n", "5"], catch_exceptions=False
+            cli.vcfpartition, [self.path, "-n", "5"], catch_exceptions=False
         )
+        assert result.stderr == ""
+        assert result.exit_code == 0
         assert list(result.stdout.splitlines()) == [
-            "20:60001-278528",
-            "20:278529-442368",
-            "20:442381-638976",
-            "20:638982-819200",
-            "20:819201-",
+            "20:60001-278528\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "20:278529-442368\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "20:442381-638976\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "20:638982-819200\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "20:819201-\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
         ]
+
+    def test_part_size(self):
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcfpartition, [self.path, "-s", "512K"], catch_exceptions=False
+        )
+        assert result.stderr == ""
+        assert result.exit_code == 0
+        assert list(result.stdout.splitlines()) == [
+            "20:60001-212992\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "20:213070-327680\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "20:327695-442368\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "20:442381-557056\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "20:557078-688128\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "20:688129-802816\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "20:802817-933888\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "20:933890-\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+        ]
+
+    def test_no_part_spec(self):
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(cli.vcfpartition, [self.path], catch_exceptions=False)
+        assert result.exit_code != 0
+        assert result.stdout == ""
+        assert len(result.stderr) > 0
+
+    def test_no_args(self):
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(cli.vcfpartition, [], catch_exceptions=False)
+        assert result.exit_code != 0
+        assert result.stdout == ""
+        assert len(result.stderr) > 0
 
 
 @pytest.mark.parametrize(
