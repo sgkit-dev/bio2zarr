@@ -1,5 +1,6 @@
-# 0.0.10 2024-05-XX
+# 0.0.10 2024-05-15
 - Change output format of dexplode-init and dencode-init
+- Bugfix for mac progress, and change of multiprocessing startup strategy.
 
 # 0.0.9 2024-05-02
 
