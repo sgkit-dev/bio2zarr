@@ -34,7 +34,7 @@ DEFAULT_ZARR_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7)
 
 
 @dataclasses.dataclass
-class ZarrColumnSpec:
+class ZarrArraySpec:
     name: str
     dtype: str
     shape: tuple
@@ -54,7 +54,7 @@ class ZarrColumnSpec:
 
     @staticmethod
     def new(**kwargs):
-        spec = ZarrColumnSpec(
+        spec = ZarrArraySpec(
             **kwargs, compressor=DEFAULT_ZARR_COMPRESSOR.get_config(), filters=[]
         )
         spec._choose_compressor_settings()
@@ -94,7 +94,7 @@ class ZarrColumnSpec:
                 dimensions.append("genotypes")
             else:
                 dimensions.append(f"{vcf_field.category}_{vcf_field.name}_dim")
-        return ZarrColumnSpec.new(
+        return ZarrArraySpec.new(
             vcf_field=vcf_field.full_name,
             name=variable_name,
             dtype=vcf_field.smallest_dtype(),
@@ -128,6 +128,23 @@ class ZarrColumnSpec:
         self.compressor["shuffle"] = shuffle
 
     @property
+    def chunk_nbytes(self):
+        """
+        Returns the nbytes for a single chunk in this array.
+        """
+        items = 1
+        dim = 0
+        for chunk_size in self.chunks:
+            size = min(chunk_size, self.shape[dim])
+            items *= size
+            dim += 1
+        # Include sizes for extra dimensions.
+        for size in self.shape[dim:]:
+            items *= size
+        dt = np.dtype(self.dtype)
+        return items * dt.itemsize
+
+    @property
     def variant_chunk_nbytes(self):
         """
         Returns the nbytes for a single variant chunk of this array.
@@ -157,6 +174,24 @@ class VcfZarrSchema(core.JsonDataclass):
     filters: list
     fields: list
 
+    def validate(self):
+        """
+        Checks that the schema is well-formed and within required limits.
+        """
+        for field in self.fields:
+            # This is the Blosc max buffer size
+            if field.chunk_nbytes > 2147483647:
+                # TODO add some links to documentation here advising how to
+                # deal with PL values.
+                raise ValueError(
+                    f"Field {field.name} chunks are too large "
+                    f"({field.chunk_nbytes} > 2**31 - 1 bytes). "
+                    "Either generate a schema and drop this field (if you don't "
+                    "need it) or reduce the variant or sample chunk sizes."
+                )
+            # TODO other checks? There must be lots of ways people could mess
+            # up the schema leading to cryptic errors.
+
     def field_map(self):
         return {field.name: field for field in self.fields}
 
@@ -171,7 +206,7 @@ class VcfZarrSchema(core.JsonDataclass):
         ret.samples = [icf.Sample(**sd) for sd in d["samples"]]
         ret.contigs = [icf.Contig(**sd) for sd in d["contigs"]]
         ret.filters = [icf.Filter(**sd) for sd in d["filters"]]
-        ret.fields = [ZarrColumnSpec(**sd) for sd in d["fields"]]
+        ret.fields = [ZarrArraySpec(**sd) for sd in d["fields"]]
         return ret
 
     @staticmethod
@@ -192,7 +227,7 @@ class VcfZarrSchema(core.JsonDataclass):
         )
 
         def spec_from_field(field, variable_name=None):
-            return ZarrColumnSpec.from_field(
+            return ZarrArraySpec.from_field(
                 field,
                 num_samples=n,
                 num_variants=m,
@@ -204,7 +239,7 @@ class VcfZarrSchema(core.JsonDataclass):
         def fixed_field_spec(
             name, dtype, vcf_field=None, shape=(m,), dimensions=("variants",)
         ):
-            return ZarrColumnSpec.new(
+            return ZarrArraySpec.new(
                 vcf_field=vcf_field,
                 name=name,
                 dtype=dtype,
@@ -230,13 +265,13 @@ class VcfZarrSchema(core.JsonDataclass):
             ),
             fixed_field_spec(
                 name="variant_allele",
-                dtype="str",
+                dtype="O",
                 shape=(m, max_alleles),
                 dimensions=["variants", "alleles"],
             ),
             fixed_field_spec(
                 name="variant_id",
-                dtype="str",
+                dtype="O",
             ),
             fixed_field_spec(
                 name="variant_id_mask",
@@ -267,7 +302,7 @@ class VcfZarrSchema(core.JsonDataclass):
             chunks = [variants_chunk_size, samples_chunk_size]
             dimensions = ["variants", "samples"]
             colspecs.append(
-                ZarrColumnSpec.new(
+                ZarrArraySpec.new(
                     vcf_field=None,
                     name="call_genotype_phased",
                     dtype="bool",
@@ -280,7 +315,7 @@ class VcfZarrSchema(core.JsonDataclass):
             shape += [ploidy]
             dimensions += ["ploidy"]
             colspecs.append(
-                ZarrColumnSpec.new(
+                ZarrArraySpec.new(
                     vcf_field=None,
                     name="call_genotype",
                     dtype=gt_field.smallest_dtype(),
@@ -291,7 +326,7 @@ class VcfZarrSchema(core.JsonDataclass):
                 )
             )
             colspecs.append(
-                ZarrColumnSpec.new(
+                ZarrArraySpec.new(
                     vcf_field=None,
                     name="call_genotype_mask",
                     dtype="bool",
@@ -447,6 +482,7 @@ class VcfZarrWriter:
         self.icf = icf
         if self.path.exists():
             raise ValueError("Zarr path already exists")  # NEEDS TEST
+        schema.validate()
         partitions = VcfZarrPartition.generate_partitions(
             self.icf.num_records,
             schema.variants_chunk_size,
