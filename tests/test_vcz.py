@@ -67,7 +67,7 @@ class TestEncodeMaxMemory:
         with pytest.raises(ValueError, match="Insufficient memory"):
             vcf2zarr.encode(icf_path, zarr_path, max_memory=max_memory)
 
-    @pytest.mark.parametrize("max_memory", ["150KiB", "200KiB"])
+    @pytest.mark.parametrize("max_memory", ["315KiB", "500KiB"])
     def test_not_enough_memory_for_two(
         self, tmp_path, icf_path, zarr_path, caplog, max_memory
     ):
@@ -212,6 +212,55 @@ def get_field_dict(a_schema, name):
     for field in d["fields"]:
         if field["name"] == name:
             return field
+
+
+class TestChunkNbytes:
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("call_genotype", 54),  # 9 * 3 * 2 * 1
+            ("call_genotype_phased", 27),
+            ("call_genotype_mask", 54),
+            ("variant_position", 36),  # 9 * 4
+            ("variant_H2", 9),
+            ("variant_AC", 18),  # 9 * 2
+            # Object fields have an itemsize of 8
+            ("variant_AA", 72),  # 9 * 8
+            ("variant_allele", 9 * 4 * 8),
+        ],
+    )
+    def test_example_schema(self, schema, field, value):
+        field = schema.field_map()[field]
+        assert field.chunk_nbytes == value
+
+    def test_chunk_size(self, icf_path, tmp_path):
+        store = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        schema = vcf2zarr.VcfZarrSchema.generate(
+            store, samples_chunk_size=2, variants_chunk_size=3
+        )
+        fields = schema.field_map()
+        assert fields["call_genotype"].chunk_nbytes == 3 * 2 * 2
+        assert fields["variant_position"].chunk_nbytes == 3 * 4
+        assert fields["variant_AC"].chunk_nbytes == 3 * 2
+
+
+class TestValidateSchema:
+    @pytest.mark.parametrize("size", [2**31, 2**31 + 1, 2**32])
+    def test_chunk_too_large(self, schema, size):
+        schema = vcf2zarr.VcfZarrSchema.fromdict(schema.asdict())
+        field = schema.field_map()["variant_H2"]
+        field.shape = (size,)
+        field.chunks = (size,)
+        with pytest.raises(ValueError, match="Field variant_H2 chunks are too large"):
+            schema.validate()
+
+    @pytest.mark.parametrize("size", [2**31 - 1, 2**30])
+    def test_chunk_not_too_large(self, schema, size):
+        schema = vcf2zarr.VcfZarrSchema.fromdict(schema.asdict())
+        field = schema.field_map()["variant_H2"]
+        field.shape = (size,)
+        field.chunks = (size,)
+        schema.validate()
 
 
 class TestDefaultSchema:
@@ -359,16 +408,17 @@ class TestVcfDescriptions:
     def test_fields(self, schema, field, description):
         assert schema.field_map()[field].description == description
 
-    # This information is not in the schema yet,
-    # https://github.com/sgkit-dev/vcf2zarr/issues/123
-    # @pytest.mark.parametrize(
-    #     ("filt", "description"),
-    #     [
-    #         ("s50","Less than 50% of samples have data"),
-    #         ("q10", "Quality below 10"),
-    #     ])
-    # def test_filters(self, schema, filt, description):
-    #     assert schema["filters"][field]["description"] == description
+    @pytest.mark.parametrize(
+        ("filt", "description"),
+        [
+            ("PASS", "All filters passed"),
+            ("s50", "Less than 50% of samples have data"),
+            ("q10", "Quality below 10"),
+        ],
+    )
+    def test_filters(self, schema, filt, description):
+        d = {f.id: f.description for f in schema.filters}
+        assert d[filt] == description
 
 
 class TestVcfZarrWriterExample:
