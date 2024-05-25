@@ -56,6 +56,9 @@ jobs:
           # This is a quick workaround for doing a proper "parallel" setup:
           # https://github.com/coverallsapp/github-action
           fail-on-error: false
+      - name: Run basic vcf2zarr example
+        run: |
+          python -m bio2zarr vcf2zarr convert tests/data/vcf/sample.vcf.gz sample.vcz -f
 
   packaging:
     name: Packaging
