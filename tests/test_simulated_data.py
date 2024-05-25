@@ -1,4 +1,5 @@
-import msprime
+import sys
+
 import numpy.testing as nt
 import pysam
 import pytest
@@ -7,9 +8,13 @@ import sgkit as sg
 from bio2zarr import vcf2zarr
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="msprime OSX pip packages broken")
 class TestTskitRoundTripVcf:
     @pytest.mark.parametrize("ploidy", [1, 2, 3, 4])
     def test_ploidy(self, ploidy, tmp_path):
+        # FIXME importing here so pytest.skip avoids importing msprime.
+        import msprime
+
         ts = msprime.sim_ancestry(
             2,
             population_size=10**4,
