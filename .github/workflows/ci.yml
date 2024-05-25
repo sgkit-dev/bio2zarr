@@ -53,6 +53,10 @@ jobs:
         uses: coverallsapp/github-action@v2.3.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          # The first coveralls upload will succeed and others seem to fail now.
+          # This is a quick workaround for doing a proper "parallel" setup:
+          # https://github.com/coverallsapp/github-action
+          fail-on-error: false
 
   packaging:
     name: Packaging
