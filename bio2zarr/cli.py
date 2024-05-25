@@ -2,6 +2,7 @@ import logging
 import os
 import pathlib
 import shutil
+import warnings
 
 import click
 import coloredlogs
@@ -138,6 +139,13 @@ max_memory = click.option(
 
 
 def setup_logging(verbosity):
+    warnings.filterwarnings(
+        "ignore",
+        message="resource_tracker: There appear to be",
+        module="multiprocessing/resource_tracker.py",
+        category=UserWarning,
+    )
+
     level = "WARNING"
     if verbosity == 1:
         level = "INFO"
