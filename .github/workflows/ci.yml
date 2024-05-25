@@ -23,13 +23,17 @@ jobs:
       matrix:
         # Use macos-13 because pip binary packages for ARM aren't
         # available for many dependencies
-        os: [macos-13, ubuntu-latest]
+        os: [macos-13, macos-14, ubuntu-latest]
         python-version: ["3.9", "3.10", "3.11"]
         exclude:
           # Just run macos tests on one Python version
           - os: macos-13
             python-version: "3.9"
           - os: macos-13
+            python-version: "3.10"
+          - os: macos-14
+            python-version: "3.9"
+          - os: macos-14
             python-version: "3.10"
     steps:
       - uses: actions/checkout@v4
@@ -48,6 +52,10 @@ jobs:
         uses: coverallsapp/github-action@v2.3.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          # The first coveralls upload will succeed and others seem to fail now.
+          # This is a quick workaround for doing a proper "parallel" setup:
+          # https://github.com/coverallsapp/github-action
+          fail-on-error: false
 
   packaging:
     name: Packaging
