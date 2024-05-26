@@ -8,7 +8,7 @@ import coloredlogs
 import numcodecs
 import tabulate
 
-from . import plink, provenance, vcf2zarr, vcf_utils
+from . import core, plink, provenance, vcf2zarr, vcf_utils
 from .vcf2zarr import icf as icf_mod
 
 logger = logging.getLogger(__name__)
@@ -138,6 +138,7 @@ max_memory = click.option(
 
 
 def setup_logging(verbosity):
+    core.init_multiprocessing()
     level = "WARNING"
     if verbosity == 1:
         level = "INFO"

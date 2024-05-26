@@ -22,8 +22,12 @@ numcodecs.blosc.use_threads = False
 
 # Need to specify this explicitly to suppport Macs and
 # for future proofing.
-mp_ctx = multiprocessing.get_context("spawn")
-# multiprocessing.set_start_method("spawn")
+mp_ctx = None
+
+
+def init_multiprocessing():
+    global mp_ctx
+    mp_ctx = multiprocessing.get_context("spawn")
 
 
 def display_number(x):
@@ -214,6 +218,9 @@ def setup_progress_counter(counter):
 class ParallelWorkManager(contextlib.AbstractContextManager):
     def __init__(self, worker_processes=1, progress_config=None):
         global _progress_counter
+        if mp_ctx is None:
+            # Note: this should only happen in testing for now.
+            init_multiprocessing()
         _progress_counter = mp_ctx.Value("Q", 0)
         if worker_processes <= 0:
             # NOTE: this is only for testing, not for production use!
