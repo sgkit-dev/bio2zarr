@@ -16,6 +16,8 @@ import numpy as np
 import tqdm
 import zarr
 
+# multiprocessing.util.log_to_stderr(5)
+
 logger = logging.getLogger(__name__)
 
 numcodecs.blosc.use_threads = False
@@ -187,7 +189,14 @@ class ProgressConfig:
 # progressable thing happening per source process. This is
 # probably fine in practise, but there could be corner cases
 # where it's not. Something to watch out for.
-_progress_counter = None
+# _progress_counter = None
+
+if multiprocessing.current_process().name == "MainProcess":
+    ctx = multiprocessing.get_context("spawn")
+    _progress_counter = ctx.Value("Q", 0)
+    # print("process", multiprocessing.current_process())
+    # print("parent_process", multiprocessing.parent_process())
+    # print("MADE:", _progress_counter, repr(_progress_counter._lock._semlock))
 
 
 def update_progress(inc):
@@ -204,15 +213,18 @@ def get_progress():
 def setup_progress_counter(counter):
     global _progress_counter
     _progress_counter = counter
+    # print("SET:", _progress_counter, repr(_progress_counter._lock._semlock))
 
 
 class ParallelWorkManager(contextlib.AbstractContextManager):
     def __init__(self, worker_processes=1, progress_config=None):
         # Need to specify this explicitly to suppport Macs and
         # for future proofing.
-        ctx = multiprocessing.get_context("spawn")
-        global _progress_counter
-        _progress_counter = ctx.Value("Q", 0)
+        # ctx = multiprocessing.get_context("spawn")
+        # global _progress_counter
+        # _progress_counter = ctx.Value("Q", 0)
+        with _progress_counter.get_lock():
+            _progress_counter.value = 0
         if worker_processes <= 0:
             # NOTE: this is only for testing, not for production use!
             self.executor = SynchronousExecutor()
@@ -283,8 +295,8 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         self.progress_thread.join()
         self._update_progress()
         self.progress_bar.close()
-        global _progress_counter
-        _progress_counter = None
+        # global _progress_counter
+        # _progress_counter = None
         return False
 
 
