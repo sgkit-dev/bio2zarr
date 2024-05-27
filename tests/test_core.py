@@ -63,7 +63,8 @@ class TestParallelWorkManager:
         progress_config = core.ProgressConfig(total=total)
         with core.ParallelWorkManager(workers, progress_config) as pwm:
             pwm.submit(core.update_progress, total)
-        assert core.get_progress() == total
+            list(pwm.results_as_completed())
+            assert core.get_progress() == total
 
     @pytest.mark.parametrize("total", [1, 10, 1000])
     @pytest.mark.parametrize("workers", [0, 1, 2, 3])
@@ -72,7 +73,8 @@ class TestParallelWorkManager:
         with core.ParallelWorkManager(workers, progress_config) as pwm:
             for _ in range(total):
                 pwm.submit(core.update_progress, 1)
-        assert core.get_progress() == total
+            list(pwm.results_as_completed())
+            assert core.get_progress() == total
 
     @pytest.mark.parametrize("total", [1, 10, 20])
     @pytest.mark.parametrize("workers", [0, 1, 2, 3])

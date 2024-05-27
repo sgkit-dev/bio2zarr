@@ -20,15 +20,6 @@ logger = logging.getLogger(__name__)
 
 numcodecs.blosc.use_threads = False
 
-# By default Tqdm creates a multiprocessing Lock to synchronise across processes,
-# which seems to cause some problems with leaked semaphores on certain combinations
-# of Mac and Python versions. We only access tqdm from the main process though,
-# so we don't need it and can override with a simpler threading Lock.
-# NOTE: this gets set multiple times to different locks as subprocesses are
-# spawned, but it doesn't matter because the only tqdm instance that is
-# used is the one in the main process.
-tqdm.tqdm.set_lock(threading.RLock())
-
 
 def display_number(x):
     ret = "n/a"
@@ -289,12 +280,11 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         with self.completed_lock:
             self.completed = True
         self.executor.shutdown(wait=False)
-        # FIXME there's currently some thing weird happening at the end of
-        # Encode 1D for 1kg-p3. The progress bar disappears, like we're
-        # setting a total of zero or something.
         self.progress_thread.join()
         self._update_progress()
         self.progress_bar.close()
+        global _progress_counter
+        _progress_counter = None
         return False
 
 
