@@ -194,7 +194,7 @@ class ProgressConfig:
 if multiprocessing.current_process().name == "MainProcess":
     ctx = multiprocessing.get_context("spawn")
     _progress_counter = ctx.Value("Q", 0)
-    # print("process", multiprocessing.current_process())
+    print("process", multiprocessing.current_process())
     # print("parent_process", multiprocessing.parent_process())
     # print("MADE:", _progress_counter, repr(_progress_counter._lock._semlock))
 
