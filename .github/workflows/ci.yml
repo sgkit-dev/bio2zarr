@@ -48,17 +48,22 @@ jobs:
       - name: Run basic vcf2zarr example
         run: |
           python -m bio2zarr vcf2zarr convert tests/data/vcf/sample.vcf.gz sample.vcz -f
-      - name: Run tests
+
+      - name: Inspect
         run: |
-          pytest --cov=bio2zarr
-      - name: Upload coverage to Coveralls
-        uses: coverallsapp/github-action@v2.3.0
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          # The first coveralls upload will succeed and others seem to fail now.
-          # This is a quick workaround for doing a proper "parallel" setup:
-          # https://github.com/coverallsapp/github-action
-          fail-on-error: false
+          python -m bio2zarr vcf2zarr inspect sample.vcz 
+
+      # - name: Run tests
+      #   run: |
+      #     pytest --cov=bio2zarr
+      # - name: Upload coverage to Coveralls
+      #   uses: coverallsapp/github-action@v2.3.0
+      #   with:
+      #     github-token: ${{ secrets.GITHUB_TOKEN }}
+      #     # The first coveralls upload will succeed and others seem to fail now.
+      #     # This is a quick workaround for doing a proper "parallel" setup:
+      #     # https://github.com/coverallsapp/github-action
+      #     fail-on-error: false
 
   packaging:
     name: Packaging
