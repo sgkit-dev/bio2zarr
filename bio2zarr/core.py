@@ -185,7 +185,7 @@ class ProgressConfig:
 # progressable thing happening per source process. This is
 # probably fine in practise, but there could be corner cases
 # where it's not. Something to watch out for.
-# _progress_counter = None
+_progress_counter = None
 
 
 def update_progress(inc):
@@ -200,9 +200,9 @@ def update_progress(inc):
 #     return val
 
 
-# def setup_progress_counter(counter):
-#     global _progress_counter
-#     _progress_counter = counter
+def setup_progress_counter(counter):
+    global _progress_counter
+    _progress_counter = counter
 
 
 class ParallelWorkManager(contextlib.AbstractContextManager):
@@ -210,8 +210,8 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         # Need to specify this explicitly to suppport Macs and
         # for future proofing.
         ctx = multiprocessing.get_context("spawn")
-        # global _progress_counter
-        # _progress_counter = ctx.Value("Q", 0)
+        global _progress_counter
+        _progress_counter = ctx.Value("Q", 0)
         if worker_processes <= 0:
             # NOTE: this is only for testing, not for production use!
             self.executor = SynchronousExecutor()
@@ -219,8 +219,8 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
             self.executor = cf.ProcessPoolExecutor(
                 max_workers=worker_processes,
                 mp_context=ctx,
-                # initializer=setup_progress_counter,
-                # initargs=(_progress_counter,),
+                initializer=setup_progress_counter,
+                initargs=(_progress_counter,),
             )
         self.futures = set()
 
