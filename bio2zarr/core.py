@@ -1,3 +1,4 @@
+import atexit
 import concurrent.futures as cf
 import contextlib
 import dataclasses
@@ -205,6 +206,13 @@ def setup_progress_counter(counter):
     _progress_counter = counter
 
 
+@atexit.register
+def teardown_progress_counter():
+    global _progress_counter
+    print("TEADDOWN", multiprocessing.current_process(), _progress_counter)
+    del _progress_counter
+
+
 class ParallelWorkManager(contextlib.AbstractContextManager):
     def __init__(self, worker_processes=1, progress_config=None):
         # Need to specify this explicitly to suppport Macs and
@@ -286,8 +294,8 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         # self.progress_thread.join()
         # self._update_progress()
         # self.progress_bar.close()
-        global _progress_counter
-        del _progress_counter
+        # global _progress_counter
+        # del _progress_counter
         logger.debug("Exit ParallelWorkManager")
         return False
 

@@ -47,11 +47,11 @@ jobs:
           python -m pip install '.[dev]'
       - name: Run basic vcf2zarr example
         run: |
-          python -m bio2zarr vcf2zarr explode tests/data/vcf/sample.vcf.gz sample.icf -f -p2 -vv
+          python -m bio2zarr vcf2zarr explode tests/data/vcf/sample.vcf.gz sample.icf -f -p2 -v
 
       - name: Run basic vcf2zarr encode example
         run: |
-          python -m bio2zarr vcf2zarr encode sample.icf sample.vcz -f -p2 -vv
+          python -m bio2zarr vcf2zarr encode sample.icf sample.vcz -f -p2 -v --variants-chunk-size=3
 
       - name: Inspect
         run: |
