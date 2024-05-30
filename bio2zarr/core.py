@@ -210,7 +210,7 @@ def setup_progress_counter(counter):
 def teardown_progress_counter():
     global _progress_counter
     print("TEADDOWN", multiprocessing.current_process(), _progress_counter)
-    del _progress_counter
+    _progress_counter = None
 
 
 class ParallelWorkManager(contextlib.AbstractContextManager):
@@ -294,8 +294,8 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         # self.progress_thread.join()
         # self._update_progress()
         # self.progress_bar.close()
-        # global _progress_counter
-        # del _progress_counter
+        global _progress_counter
+        _progress_counter = None
         logger.debug("Exit ParallelWorkManager")
         return False
 
