@@ -8,26 +8,15 @@ import multiprocessing
 import os
 import os.path
 import threading
-import time
 
 import humanfriendly
 import numcodecs
 import numpy as np
-import tqdm
 import zarr
 
 logger = logging.getLogger(__name__)
 
 numcodecs.blosc.use_threads = False
-
-# By default Tqdm creates a multiprocessing Lock to synchronise across processes,
-# which seems to cause some problems with leaked semaphores on certain combinations
-# of Mac and Python versions. We only access tqdm from the main process though,
-# so we don't need it and can override with a simpler threading Lock.
-# NOTE: this gets set multiple times to different locks as subprocesses are
-# spawned, but it doesn't matter because the only tqdm instance that is
-# used is the one in the main process.
-tqdm.tqdm.set_lock(threading.RLock())
 
 
 def display_number(x):
@@ -196,23 +185,24 @@ class ProgressConfig:
 # progressable thing happening per source process. This is
 # probably fine in practise, but there could be corner cases
 # where it's not. Something to watch out for.
-_progress_counter = None
+# _progress_counter = None
 
 
 def update_progress(inc):
-    with _progress_counter.get_lock():
-        _progress_counter.value += inc
+    pass
+    # with _progress_counter.get_lock():
+    #     _progress_counter.value += inc
 
 
-def get_progress():
-    with _progress_counter.get_lock():
-        val = _progress_counter.value
-    return val
+# def get_progress():
+#     with _progress_counter.get_lock():
+#         val = _progress_counter.value
+#     return val
 
 
-def setup_progress_counter(counter):
-    global _progress_counter
-    _progress_counter = counter
+# def setup_progress_counter(counter):
+#     global _progress_counter
+#     _progress_counter = counter
 
 
 class ParallelWorkManager(contextlib.AbstractContextManager):
@@ -220,8 +210,8 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         # Need to specify this explicitly to suppport Macs and
         # for future proofing.
         ctx = multiprocessing.get_context("spawn")
-        global _progress_counter
-        _progress_counter = ctx.Value("Q", 0)
+        # global _progress_counter
+        # _progress_counter = ctx.Value("Q", 0)
         if worker_processes <= 0:
             # NOTE: this is only for testing, not for production use!
             self.executor = SynchronousExecutor()
@@ -229,44 +219,44 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
             self.executor = cf.ProcessPoolExecutor(
                 max_workers=worker_processes,
                 mp_context=ctx,
-                initializer=setup_progress_counter,
-                initargs=(_progress_counter,),
+                # initializer=setup_progress_counter,
+                # initargs=(_progress_counter,),
             )
         self.futures = set()
 
         if progress_config is None:
             progress_config = ProgressConfig()
         self.progress_config = progress_config
-        self.progress_bar = tqdm.tqdm(
-            total=progress_config.total,
-            desc=f"{progress_config.title:>8}",
-            unit_scale=True,
-            unit=progress_config.units,
-            smoothing=0.1,
-            disable=not progress_config.show,
-        )
+        # self.progress_bar = tqdm.tqdm(
+        #     total=progress_config.total,
+        #     desc=f"{progress_config.title:>8}",
+        #     unit_scale=True,
+        #     unit=progress_config.units,
+        #     smoothing=0.1,
+        #     disable=not progress_config.show,
+        # )
         self.completed = False
         self.completed_lock = threading.Lock()
-        self.progress_thread = threading.Thread(
-            target=self._update_progress_worker,
-            name="progress-update",
-            daemon=True,  # Avoids deadlock on exit in awkward error conditions
-        )
-        self.progress_thread.start()
+        # self.progress_thread = threading.Thread(
+        #     target=self._update_progress_worker,
+        #     name="progress-update",
+        #     daemon=True,  # Avoids deadlock on exit in awkward error conditions
+        # )
+        # self.progress_thread.start()
 
-    def _update_progress(self):
-        current = get_progress()
-        inc = current - self.progress_bar.n
-        self.progress_bar.update(inc)
+    # def _update_progress(self):
+    #     current = get_progress()
+    #     inc = current - self.progress_bar.n
+    #     self.progress_bar.update(inc)
 
-    def _update_progress_worker(self):
-        completed = False
-        while not completed:
-            self._update_progress()
-            time.sleep(self.progress_config.poll_interval)
-            with self.completed_lock:
-                completed = self.completed
-        logger.debug("Exit progress thread")
+    # def _update_progress_worker(self):
+    #     completed = False
+    #     while not completed:
+    #         self._update_progress()
+    #         time.sleep(self.progress_config.poll_interval)
+    #         with self.completed_lock:
+    #             completed = self.completed
+    #     logger.debug("Exit progress thread")
 
     def submit(self, *args, **kwargs):
         future = self.executor.submit(*args, **kwargs)
@@ -292,9 +282,9 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         # FIXME there's currently some thing weird happening at the end of
         # Encode 1D for 1kg-p3. The progress bar disappears, like we're
         # setting a total of zero or something.
-        self.progress_thread.join()
-        self._update_progress()
-        self.progress_bar.close()
+        # self.progress_thread.join()
+        # self._update_progress()
+        # self.progress_bar.close()
         return False
 
 
