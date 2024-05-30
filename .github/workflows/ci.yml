@@ -47,7 +47,11 @@ jobs:
           python -m pip install '.[dev]'
       - name: Run basic vcf2zarr example
         run: |
-          python -m bio2zarr vcf2zarr convert tests/data/vcf/sample.vcf.gz sample.vcz -f -p3
+          python -m bio2zarr vcf2zarr explode tests/data/vcf/sample.vcf.gz sample.icf -f -p1 -vv
+
+      - name: Run basic vcf2zarr encode example
+        run: |
+          python -m bio2zarr vcf2zarr encode sample.icf sample.vcz -f -p1 -vv
 
       - name: Inspect
         run: |

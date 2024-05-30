@@ -209,6 +209,7 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
     def __init__(self, worker_processes=1, progress_config=None):
         # Need to specify this explicitly to suppport Macs and
         # for future proofing.
+        logger.debug(f"Start ParallelWorkManager({worker_processes})")
         ctx = multiprocessing.get_context("spawn")
         global _progress_counter
         _progress_counter = ctx.Value("Q", 0)
@@ -285,6 +286,9 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
         # self.progress_thread.join()
         # self._update_progress()
         # self.progress_bar.close()
+        global _progress_counter
+        del _progress_counter
+        logger.debug("Exit ParallelWorkManager")
         return False
 
 
