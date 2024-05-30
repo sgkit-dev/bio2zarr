@@ -47,7 +47,7 @@ jobs:
           python -m pip install '.[dev]'
       - name: Run basic vcf2zarr example
         run: |
-          python -m bio2zarr vcf2zarr convert tests/data/vcf/sample.vcf.gz sample.vcz -f
+          python -m bio2zarr vcf2zarr convert tests/data/vcf/sample.vcf.gz sample.vcz -f -p3
 
       - name: Inspect
         run: |
