@@ -104,6 +104,17 @@ class TestParallelWorkManager:
                 # Raises a TypeError:
                 pwm.submit(frozenset, j)
 
+    @pytest.mark.parametrize("workers", [0, 1, 2])
+    def test_warn_mac_os(self, recwarn, workers):
+        with core.ParallelWorkManager(workers):
+            pass
+        if workers > 0 and sys.platform == "darwin" and sys.version_info[:2] == (3, 9):
+            assert len(recwarn) >= 1
+            w = recwarn.pop(UserWarning)
+            assert str(w.message).startswith("There is a known issue")
+        else:
+            assert len(recwarn) == 0
+
 
 class TestChunkAlignedSlices:
     @pytest.mark.parametrize(
