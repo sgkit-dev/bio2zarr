@@ -20,6 +20,7 @@ FINISH ME
 :::
 
 
+
 ## How does it work?
 The conversion of VCF data to Zarr is a two-step process:
 
@@ -121,4 +122,12 @@ and edit column specific compression settings. The --max-variant-chunks option
 to encode allows you to try out these options on small subsets, hopefully
 arriving at settings with the desired balance of compression and query
 performance.
+
+
+## Copying to object stores
+
+:::{todo}
+Document process of copying VCF Zarr datasets to an object store like S3.
+See [Issue 234](https://github.com/sgkit-dev/bio2zarr/issues/234)
+:::
 
