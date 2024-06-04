@@ -25,9 +25,11 @@ html:
 sphinx:
   extra_extensions:
     - sphinx_click.ext
+    - sphinx.ext.todo
   config:
     # This is needed to make sure that text is output in single block from
     # bash cells.
     nb_merge_streams: true
+    todo_include_todos: true
     myst_enable_extensions:
       - colon_fence
