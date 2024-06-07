@@ -4,6 +4,7 @@
 title: bio2zarr Documentation
 author: sgkit developers
 logo: logo.png
+copyright: "2024"
 
 # Force re-execution of notebooks on each build.
 # See https://jupyterbook.org/content/execute.html

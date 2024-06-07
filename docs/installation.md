@@ -22,11 +22,10 @@ vcf2zarr <args>
 and will always work.
 
 :::{note}
-The ``python3 -m bio2zarr vcf2zarr`` for may be replaced with
+The ``python3 -m bio2zarr vcf2zarr`` form may be replaced with
 ``python3 -m bio2zarr.vcf2zarr`` in the near future.
 See GitHub issue [203](https://github.com/sgkit-dev/bio2zarr/issues/203).
 :::
-
 
 :::{warning}
 Windows is not currently supported. Please comment on
