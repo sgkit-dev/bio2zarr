@@ -10,11 +10,6 @@
 
 ```{eval-rst}
 
-.. _cmd-vcf2zarr:
-.. click:: bio2zarr.cli:vcf2zarr_main
-   :prog: vcf2zarr
-   :nested: short
-
 .. _cmd-vcf2zarr-convert:
 .. click:: bio2zarr.cli:convert_vcf
    :prog: vcf2zarr convert
