@@ -18,7 +18,7 @@ convert your data, basically providing different levels of
 convenience and flexibility corresponding to what you might
 need for small, intermediate and large datasets.
 
-## Small
+## Small dataset
 
 The simplest way to convert VCF data to Zarr is to use the
 {ref}`vcf2zarr convert<cmd-vcf2zarr-convert>` command:
@@ -54,9 +54,35 @@ these directories:
 tree sample.vcz
 ```
 
+You can get a better idea of what's being stored and the sizes
+of the different fields using the 
+{ref}`vcf2zarr inspect<cmd-vcf2zarr-inspect>` command:
 
-## Intermediate
+```{code-cell}
+vcf2zarr inspect sample.vcz
+```
 
+The ``stored`` and ``size`` columns here are important, and tell you 
+how much storage space is being used by the compressed chunks,
+and the full size of the uncompressed array. The ``ratio`` 
+column is the ratio of these two values, with large numbers 
+indicating a high compression ration. In this example 
+the compression ratios are less than one because the compressed
+chunks are *larger* than the actual arrays. This is because it's 
+a tiny example, with only 9 variants and 3 samples (see the ``shape``
+column), so, for example ``call_genotype`` is only 54 bytes.
+
+## Medium dataset
+
+Conversion in ``vcf2zarr`` is a two step process. First we convert the VCF(s) to 
+an "intermediate columnar format" (ICF), and then use this as the basis of 
+generating the final Zarr. 
+
+:::{important}
+We would recommend using this two-step process for all but the smallest datasets.
+:::
+
+In the simplest case, we just call two commands instead of one:
 <div id="vcf2zarr_explode"></div>
 <script>
 AsciinemaPlayer.create('../_static/vcf2zarr_explode.cast',
@@ -65,6 +91,81 @@ AsciinemaPlayer.create('../_static/vcf2zarr_explode.cast',
    rows:12
 });
 </script>
+
+:::{tip}
+Both the {ref}`explode<cmd-vcf2zarr-explode>` 
+and
+{ref}`encode<cmd-vcf2zarr-encode>` 
+commands allow you to perform the
+conversion in parallel using the  ``-p/--worker-processes`` option.
+:::
+
+The ICF form gives us useful information about the VCF data, and can help us to 
+decide some of the finer details of the final Zarr encoding. We can also run
+{ref}`vcf2zarr inspect<cmd-vcf2zarr-inspect>` command on an ICF:
+
+```{code-cell}
+vcf2zarr inspect sample.icf
+```
+
+This tells us about the fields found in the input VCF, and provides details 
+about their data type, raw and compressed size, the maximum dimension of a value
+and the maximum and minimum values observed in the field. These extreme values
+are use to determine the width of integer types in the final Zarr encoding. 
+The defaults can be overridden by generating a "storage schema" 
+using the {ref}`vcf2zarr mkschema<cmd-vcf2zarr-mkschema>` command on an ICF:
+
+```{code-cell}
+vcf2zarr mkschema sample.icf > sample.schema.json
+head -n 20 sample.schema.json
+```
+
+We've displayed the first 20 lines here so you can get a feel for the JSON format.
+The [jq](https://jqlang.github.io/jq/) provides a useful way of manipulating
+these schemas. Let's look at the schema for just the ``call_genotype``
+field, for example:
+
+```{code-cell}
+jq '.fields[] | select(.name == "call_genotype")' < sample.schema.json
+```
+
+If we wanted to trade-off file size for better decoding performance
+we could turn off the shuffle option here (which is set to 2, for 
+Blosc BitShuffle). This can be done by loading the ``sample.schema.json``
+file into your favourite editor, and changing the value "2" to "0".
+
+:::{todo}
+There is a lot going on here. It would be good to give some specific
+instructions for how to do this using jq. We would also want to 
+explain the numbers provided for shuffle, as well as links to the 
+Blosc documentation.
+Better mechanisms for updating schemas via a Python API would be 
+a useful addition here.
+:::
+
+
+A common thing we might want to do is to drop some fields entirely
+from the final Zarr, either because they are too big and unwieldy 
+in the standard encoding (e.g. ``call_PL``) or we just don't 
+want them.
+
+Suppose here wanted to drop the ``FORMAT/HQ``/``call_HQ`` field. This 
+can be done using ``jq`` like:
+
+```{code-cell}
+vcf2zarr mkschema sample.icf \
+| jq 'del(.fields[] | select(.name == "call_HQ"))' > sample_noHQ.schema.json 
+```
+Then we can use the updated schema as input to ``encode``:
+
+```{code-cell}
+vcf2zarr encode sample.icf -s sample_noHQ.schema.json sample_noHQ.vcz
+```
+We can then ``inspect`` to see that there is no ``call_HQ`` array in the output:
+
+```{code-cell}
+vcf2zarr inspect sample_noHQ.vcz
+```
 
 
 ## Large
