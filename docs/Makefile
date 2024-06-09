@@ -35,8 +35,9 @@ _static/vcf2zarr_convert.cast: sample.vcf.gz
 	asciinema-automation cast_scripts/vcf2zarr_convert.sh $@
 	cp -R sample.vcz vcf2zarr
 
+# TODO rename this cast
 _static/vcf2zarr_explode.cast: sample.vcf.gz
-	rm -Rf sample.icf
+	rm -Rf sample.icf sample.vcz
 	asciinema-automation cast_scripts/vcf2zarr_explode.sh $@
-	cp -R sample.icf vcf2zarr
+	cp -R sample.icf sample.vcz vcf2zarr
 

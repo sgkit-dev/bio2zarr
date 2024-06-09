@@ -33,7 +33,7 @@ jobs:
 
       - name: Install bcftools
         run: |
-          sudo apt-get install bcftools
+          sudo apt-get install bcftools jq
 
       - name: Install package
         run: |
