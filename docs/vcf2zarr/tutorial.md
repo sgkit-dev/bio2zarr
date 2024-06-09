@@ -18,6 +18,17 @@ convert your data, basically providing different levels of
 convenience and flexibility corresponding to what you might
 need for small, intermediate and large datasets.
 
+:::{warning}
+The documentation of vcf2zarr is under development, and 
+some bits are more polished than others. This "tutorial"
+is experimental, and will likely evolve into a slightly
+different format in the near future. It is 
+a work in progress and incomplete. The 
+{ref}`sec-vcf2zarr-cli-ref` should be complete
+and authoritative, however.
+:::
+
+
 ## Small dataset
 
 The simplest way to convert VCF data to Zarr is to use the
@@ -229,7 +240,8 @@ granularity). You should be careful to use this value in your scripts
 
 
 Once ``dexplode-init`` is done and we know how many partitions we have,
-we need to call ``dexplode-partition``  this number of times.
+we need to call 
+{ref}`dexplode-partition<cmd-vcf2zarr-dexplode-partition>` this number of times:
 
 ```{code-cell}
 vcf2zarr dexplode-partition sample-dist.icf 0
@@ -237,3 +249,24 @@ vcf2zarr dexplode-partition sample-dist.icf 1
 vcf2zarr dexplode-partition sample-dist.icf 2
 ```
 
+This is not how it would be done in practise of course: you would 
+use your cluster scheduler of choice to dispatch these operations.
+:::{todo}
+Document how to do this conveniently over some popular schedulers.
+:::
+
+:::{tip}
+Use the ``--one-based`` argument in cases in which it's more convenient
+to index the partitions from 1 to n, rather than 0 to n - 1.
+:::
+
+Finally we need to call 
+{ref}`dexplode-finalise<cmd-vcf2zarr-dexplode-finalise>`:
+```{code-cell}
+vcf2zarr dexplode-finalise sample-dist.icf
+```
+
+:::{todo}
+Document the process for dencode, noting the information output about 
+memory requirements.
+:::
