@@ -116,7 +116,7 @@ class TestWithMocks:
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dexplode-init {self.vcf_path} {icf_path} 1 -C {compressor}",
+            f"dexplode-init {self.vcf_path} {icf_path} -n 1 -C {compressor}",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -294,7 +294,7 @@ class TestWithMocks:
         icf_path = tmp_path / "icf"
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dexplode-init {self.vcf_path} {icf_path} 5 {flag}",
+            f"dexplode-init {self.vcf_path} {icf_path} -n 5 {flag}",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -309,7 +309,7 @@ class TestWithMocks:
             **args,
         )
 
-    @pytest.mark.parametrize("num_partitions", ["-- -1", "0", "asdf", "1.112"])
+    @pytest.mark.parametrize("num_partitions", ["-1", "0", "asdf", "1.112"])
     @mock.patch("bio2zarr.vcf2zarr.explode_init", return_value=5)
     def test_vcf_dexplode_init_bad_num_partitions(
         self, mocked, tmp_path, num_partitions
@@ -318,11 +318,24 @@ class TestWithMocks:
         icf_path = tmp_path / "icf"
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dexplode-init {self.vcf_path} {icf_path} {num_partitions}",
+            f"dexplode-init {self.vcf_path} {icf_path} -n {num_partitions}",
             catch_exceptions=False,
         )
         assert result.exit_code == 2
-        assert "Invalid value for 'NUM_PARTITIONS'" in result.stderr
+        assert "Invalid value for '-n'" in result.stderr
+        mocked.assert_not_called()
+
+    @mock.patch("bio2zarr.vcf2zarr.explode_init", return_value=5)
+    def test_vcf_dexplode_init_no_partitions(self, mocked, tmp_path):
+        runner = ct.CliRunner(mix_stderr=False)
+        icf_path = tmp_path / "icf"
+        result = runner.invoke(
+            cli.vcf2zarr_main,
+            f"dexplode-init {self.vcf_path} {icf_path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 2
+        assert "-n/--num-partitions must currently be specified" in result.stderr
         mocked.assert_not_called()
 
     @mock.patch("bio2zarr.vcf2zarr.explode_partition")
@@ -457,7 +470,7 @@ class TestWithMocks:
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dencode-init {icf_path} {zarr_path} 10 {flag}",
+            f"dencode-init {icf_path} {zarr_path} -n 10 {flag}",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -471,6 +484,21 @@ class TestWithMocks:
             target_num_partitions=10,
             **args,
         )
+
+    @mock.patch("bio2zarr.vcf2zarr.encode_init", return_value=5)
+    def test_vcf_dencode_init_no_partitions(self, mocked, tmp_path):
+        runner = ct.CliRunner(mix_stderr=False)
+        icf_path = tmp_path / "icf"
+        icf_path.mkdir()
+        zarr_path = tmp_path / "zarr"
+        result = runner.invoke(
+            cli.vcf2zarr_main,
+            f"dencode-init {icf_path} {zarr_path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 2
+        assert "-n/--num-partitions must currently be specified" in result.stderr
+        mocked.assert_not_called()
 
     @mock.patch("bio2zarr.vcf2zarr.encode_partition")
     def test_vcf_dencode_partition(self, mocked, tmp_path):
@@ -601,7 +629,7 @@ class TestVcfEndToEnd:
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dexplode-init {self.vcf_path} {icf_path} 5 --json -Q",
+            f"dexplode-init {self.vcf_path} {icf_path} -n 5 --json -Q",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -678,7 +706,7 @@ class TestVcfEndToEnd:
         assert result.exit_code == 0
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dencode-init {icf_path} {zarr_path} 5 --variants-chunk-size=3 --json",
+            f"dencode-init {icf_path} {zarr_path} -n 5 --variants-chunk-size=3 --json",
             catch_exceptions=False,
         )
         assert result.exit_code == 0

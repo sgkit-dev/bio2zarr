@@ -214,7 +214,7 @@ Let's go through the example above using the distributed commands. First, we
 rm -fR sample-dist.icf
 ```
 ```{code-cell}
-vcf2zarr dexplode-init sample.vcf.gz sample-dist.icf -Q 5
+vcf2zarr dexplode-init sample.vcf.gz sample-dist.icf -n 5 -Q
 ```
 
 Here we asked ``dexplode-init`` to set up an ICF store in which the data 
