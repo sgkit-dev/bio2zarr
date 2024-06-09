@@ -121,7 +121,7 @@ head -n 20 sample.schema.json
 ```
 
 We've displayed the first 20 lines here so you can get a feel for the JSON format.
-The [jq](https://jqlang.github.io/jq/) provides a useful way of manipulating
+The [jq](https://jqlang.github.io/jq/) tool provides a useful way of manipulating
 these schemas. Let's look at the schema for just the ``call_genotype``
 field, for example:
 
@@ -158,6 +158,15 @@ vcf2zarr mkschema sample.icf \
 ```
 Then we can use the updated schema as input to ``encode``:
 
+
+<!-- FIXME shouldn't need to do this, but currently the execution model is very --> 
+<!-- fragile. -->
+<!-- https://github.com/sgkit-dev/bio2zarr/issues/238 -->
+```{code-cell}
+:tags: [remove-cell]
+rm -fR sample_noHQ.vcz
+```
+
 ```{code-cell}
 vcf2zarr encode sample.icf -s sample_noHQ.schema.json sample_noHQ.vcz
 ```
@@ -167,95 +176,60 @@ We can then ``inspect`` to see that there is no ``call_HQ`` array in the output:
 vcf2zarr inspect sample_noHQ.vcz
 ```
 
+:::{tip}
+Use the ``max-variants-chunks`` option to encode the first few chunks of your 
+dataset while doing these kinds of schema tuning operations!
+:::
 
-## Large
+## Large dataset
 
+The {ref}`explode<cmd-vcf2zarr-explode>` 
+and {ref}`encode<cmd-vcf2zarr-encode>` commands have powerful features for 
+conversion on a single machine, and can take full advantage of large servers
+with many cores. Current biobank scale datasets, however, are so large that 
+we must go a step further and *distribute* computations over a cluster. 
+Vcf2zarr provides some low-level utilities that allow you to do this, that should 
+be compatible with any cluster scheduler. 
 
+The distributed commands are split into three phases:
 
-## Parallel encode/explode
+- **init <num_partitions>**: Initialise the computation, setting up the data structures needed
+for the bulk computation to be split into ``num_partitions`` independent partitions
+- **partition <j>**: perform the computation of partition ``j``
+- **finalise**: Complete the full process.
 
+When performing large-scale computations like this on a cluster, errors and job
+failures are essentially inevitable, and the commands are resilient to various
+failure modes.
 
-## Common options
+Let's go through the example above using the distributed commands. First, we 
+{ref}`dexplode-init<cmd-vcf2zarr-dexplode-init>` to create an ICF directory:
 
+```{code-cell}
+:tags: [remove-cell]
+rm -fR sample-dist.icf
 ```
-$ vcf2zarr convert <VCF1> <VCF2> <zarr>
-```
-
-Converts the VCF to zarr format.
-
-**Do not use this for anything but the smallest files**
-
-The recommended approach is to use a multi-stage conversion
-
-First, convert the VCF into the intermediate format:
-
-```
-vcf2zarr explode tests/data/vcf/sample.vcf.gz tmp/sample.exploded
-```
-
-Then, (optionally) inspect this representation to get a feel for your dataset
-```
-vcf2zarr inspect tmp/sample.exploded
-```
-
-Then, (optionally) generate a conversion schema to describe the corresponding
-Zarr arrays:
-
-```
-vcf2zarr mkschema tmp/sample.exploded > sample.schema.json
-```
-
-View and edit the schema, deleting any columns you don't want, or tweaking
-dtypes and compression settings to your taste.
-
-Finally, encode to Zarr:
-```
-vcf2zarr encode tmp/sample.exploded tmp/sample.zarr -s sample.schema.json
+```{code-cell}
+vcf2zarr dexplode-init sample.vcf.gz sample-dist.icf 5
 ```
 
-Use the ``-p, --worker-processes`` argument to control the number of workers used
-in the ``explode`` and ``encode`` phases.
+Here we asked ``dexplode-init`` to set up an ICF store in which the data 
+is split into 5 partitions. The number of partitions determines the level
+of parallelism, so we would usually set this to the number of 
+parallel jobs we would like to use. The output of ``dexplode-init`` is 
+important though, as it tells us the **actual** number of partitions that 
+we have (partitioning is based on the VCF indexes, which have a limited
+granularity). You should be careful to use this value in your scripts 
+(the format is designed to be machine readable using e.g. ``cut`` and 
+``grep``).  In this case there are only 3 possible partitions.
 
-## To be merged with above
 
-The simplest usage is:
+Once ``dexplode-init`` is done and we know how many partitions we have,
+we need to call ``dexplode-partition``  this number of times.
 
-```
-$ vcf2zarr convert [VCF_FILE] [ZARR_PATH]
-```
-
-
-This will convert the indexed VCF (or BCF) into the vcfzarr format in a single
-step. As this writes the intermediate columnar format to a temporary directory,
-we only recommend this approach for small files (< 1GB, say).
-
-The recommended approach is to run the conversion in two passes, and
-to keep the intermediate columnar format ("exploded") around to facilitate
-experimentation with chunk sizes and compression settings:
-
-```
-$ vcf2zarr explode [VCF_FILE_1] ... [VCF_FILE_N] [ICF_PATH]
-$ vcf2zarr encode [ICF_PATH] [ZARR_PATH]
-```
-
-The inspect command provides a way to view contents of an exploded ICF
-or Zarr:
-
-```
-$ vcf2zarr inspect [PATH]
-```
-
-This is useful when tweaking chunk sizes and compression settings to suit
-your dataset, using the mkschema command and --schema option to encode:
-
-```
-$ vcf2zarr mkschema [ICF_PATH] > schema.json
-$ vcf2zarr encode [ICF_PATH] [ZARR_PATH] --schema schema.json
-```
-
-By editing the schema.json file you can drop columns that are not of interest
-and edit column specific compression settings. The --max-variant-chunks option
-to encode allows you to try out these options on small subsets, hopefully
-arriving at settings with the desired balance of compression and query
-performance.
+<!-- ```{code-cell} -->
+<!-- vcf2zarr dexplode-partition sample-dist.icf 0 -->
+<!-- vcf2zarr dexplode-partition sample-dist.icf 1 -->
+<!-- vcf2zarr dexplode-partition sample-dist.icf 2 -->
+<!-- ``` -->
 

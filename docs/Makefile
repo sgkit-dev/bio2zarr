@@ -3,6 +3,9 @@ PYPATH=$(shell pwd)/../
 B2Z_VERSION:=$(shell PYTHONPATH=${PYPATH} \
    python3 -c 'import bio2zarr; print(bio2zarr.__version__.split("+")[0])')
 
+
+# FIXME this is all very fragile and needs to be rewritten. 
+# https://github.com/sgkit-dev/bio2zarr/issues/238
 CASTS=_static/vcf2zarr_convert.cast\
 	_static/vcf2zarr_explode.cast
 
