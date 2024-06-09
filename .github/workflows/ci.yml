@@ -48,6 +48,24 @@ jobs:
       - name: Run basic vcf2zarr example
         run: |
           python -m bio2zarr vcf2zarr convert tests/data/vcf/sample.vcf.gz sample.vcz -f
+      - name: Run two-pass vcf2zarr example
+        run: |
+          python -m bio2zarr vcf2zarr explode tests/data/vcf/sample.vcf.gz sample.icf -f
+          python -m bio2zarr vcf2zarr encode sample.icf sample.vcz -f
+      - name: Run distributed explode example
+        run: |
+          python -m bio2zarr vcf2zarr dexplode-init tests/data/vcf/sample.vcf.gz sample.icf 3 -f
+          python -m bio2zarr vcf2zarr dexplode-partition sample.icf 0
+          python -m bio2zarr vcf2zarr dexplode-partition sample.icf 1
+          python -m bio2zarr vcf2zarr dexplode-partition sample.icf 2
+          python -m bio2zarr vcf2zarr dexplode-finalise sample.icf
+      - name: Run distributed encode example
+        run: |
+          python -m bio2zarr vcf2zarr dencode-init sample.icf sample.vcz 3 -f --variants-chunk-size=3
+          python -m bio2zarr vcf2zarr dencode-partition sample.vcz 0
+          python -m bio2zarr vcf2zarr dencode-partition sample.vcz 1
+          python -m bio2zarr vcf2zarr dencode-partition sample.vcz 2
+          python -m bio2zarr vcf2zarr dencode-finalise sample.vcz -f
       - name: Run tests
         run: |
           pytest --cov=bio2zarr
