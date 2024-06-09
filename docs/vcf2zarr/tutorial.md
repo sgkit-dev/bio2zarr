@@ -168,8 +168,12 @@ rm -fR sample_noHQ.vcz
 ```
 
 ```{code-cell}
-vcf2zarr encode sample.icf -s sample_noHQ.schema.json sample_noHQ.vcz
+vcf2zarr encode sample.icf -Qs sample_noHQ.schema.json sample_noHQ.vcz
 ```
+:::{tip}
+Use the ``-Q/--no-progress`` flag to suppress progress bars.
+:::
+
 We can then ``inspect`` to see that there is no ``call_HQ`` array in the output:
 
 ```{code-cell}
@@ -210,7 +214,7 @@ Let's go through the example above using the distributed commands. First, we
 rm -fR sample-dist.icf
 ```
 ```{code-cell}
-vcf2zarr dexplode-init sample.vcf.gz sample-dist.icf 5
+vcf2zarr dexplode-init sample.vcf.gz sample-dist.icf -Q 5
 ```
 
 Here we asked ``dexplode-init`` to set up an ICF store in which the data 
@@ -227,9 +231,9 @@ granularity). You should be careful to use this value in your scripts
 Once ``dexplode-init`` is done and we know how many partitions we have,
 we need to call ``dexplode-partition``  this number of times.
 
-<!-- ```{code-cell} -->
-<!-- vcf2zarr dexplode-partition sample-dist.icf 0 -->
-<!-- vcf2zarr dexplode-partition sample-dist.icf 1 -->
-<!-- vcf2zarr dexplode-partition sample-dist.icf 2 -->
-<!-- ``` -->
+```{code-cell}
+vcf2zarr dexplode-partition sample-dist.icf 0
+vcf2zarr dexplode-partition sample-dist.icf 1
+vcf2zarr dexplode-partition sample-dist.icf 2
+```
 
