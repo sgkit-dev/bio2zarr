@@ -69,21 +69,22 @@ class FakeWorkSummary:
 class TestWithMocks:
     vcf_path = "tests/data/vcf/sample.vcf.gz"
 
+    @pytest.mark.parametrize(("progress", "flag"), [(True, "-P"), (False, "-Q")])
     @mock.patch("bio2zarr.vcf2zarr.explode")
-    def test_vcf_explode(self, mocked, tmp_path):
+    def test_vcf_explode(self, mocked, tmp_path, progress, flag):
         icf_path = tmp_path / "icf"
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"explode {self.vcf_path} {icf_path}",
+            f"explode {self.vcf_path} {icf_path} {flag}",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
         assert len(result.stdout) == 0
         assert len(result.stderr) == 0
-        mocked.assert_called_once_with(
-            str(icf_path), (self.vcf_path,), **DEFAULT_EXPLODE_ARGS
-        )
+        args = dict(DEFAULT_EXPLODE_ARGS)
+        args["show_progress"] = progress
+        mocked.assert_called_once_with(str(icf_path), (self.vcf_path,), **args)
 
     @pytest.mark.parametrize("compressor", ["lz4", "zstd"])
     @mock.patch("bio2zarr.vcf2zarr.explode")
@@ -286,23 +287,26 @@ class TestWithMocks:
         assert "'no_such_file' does not exist" in result.stderr
         mocked.assert_not_called()
 
+    @pytest.mark.parametrize(("progress", "flag"), [(True, "-P"), (False, "-Q")])
     @mock.patch("bio2zarr.vcf2zarr.explode_init", return_value=FakeWorkSummary(5))
-    def test_vcf_dexplode_init(self, mocked, tmp_path):
+    def test_vcf_dexplode_init(self, mocked, tmp_path, progress, flag):
         runner = ct.CliRunner(mix_stderr=False)
         icf_path = tmp_path / "icf"
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dexplode-init {self.vcf_path} {icf_path} 5",
+            f"dexplode-init {self.vcf_path} {icf_path} 5 {flag}",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
         assert len(result.stderr) == 0
         assert list(result.stdout.split()) == ["num_partitions", "5"]
+        args = dict(DEFAULT_DEXPLODE_INIT_ARGS)
+        args["show_progress"] = progress
         mocked.assert_called_once_with(
             str(icf_path),
             (self.vcf_path,),
             target_num_partitions=5,
-            **DEFAULT_DEXPLODE_INIT_ARGS,
+            **args,
         )
 
     @pytest.mark.parametrize("num_partitions", ["-- -1", "0", "asdf", "1.112"])
@@ -421,43 +425,51 @@ class TestWithMocks:
         # mocked.assert_called_once_with("path", stdout)
         mocked.assert_called_once()
 
+    @pytest.mark.parametrize(("progress", "flag"), [(True, "-P"), (False, "-Q")])
     @mock.patch("bio2zarr.vcf2zarr.encode")
-    def test_encode(self, mocked, tmp_path):
-        icf_path = tmp_path / "icf"
-        icf_path.mkdir()
-        zarr_path = tmp_path / "zarr"
-        runner = ct.CliRunner(mix_stderr=False)
-        result = runner.invoke(
-            cli.vcf2zarr_main, f"encode {icf_path} {zarr_path}", catch_exceptions=False
-        )
-        assert result.exit_code == 0
-        assert len(result.stdout) == 0
-        assert len(result.stderr) == 0
-        mocked.assert_called_once_with(
-            str(icf_path),
-            str(zarr_path),
-            **DEFAULT_ENCODE_ARGS,
-        )
-
-    @mock.patch("bio2zarr.vcf2zarr.encode_init", return_value=FakeWorkSummary(10))
-    def test_dencode_init(self, mocked, tmp_path):
+    def test_encode(self, mocked, tmp_path, progress, flag):
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
         zarr_path = tmp_path / "zarr"
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dencode-init {icf_path} {zarr_path} 10",
+            f"encode {icf_path} {zarr_path} {flag}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert len(result.stdout) == 0
+        assert len(result.stderr) == 0
+        args = DEFAULT_ENCODE_ARGS
+        args["show_progress"] = progress
+        mocked.assert_called_once_with(
+            str(icf_path),
+            str(zarr_path),
+            **args,
+        )
+
+    @pytest.mark.parametrize(("progress", "flag"), [(True, "-P"), (False, "-Q")])
+    @mock.patch("bio2zarr.vcf2zarr.encode_init", return_value=FakeWorkSummary(10))
+    def test_dencode_init(self, mocked, tmp_path, progress, flag):
+        icf_path = tmp_path / "icf"
+        icf_path.mkdir()
+        zarr_path = tmp_path / "zarr"
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcf2zarr_main,
+            f"dencode-init {icf_path} {zarr_path} 10 {flag}",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
         assert list(result.stdout.split()) == ["num_partitions", "10"]
         assert len(result.stderr) == 0
+        args = DEFAULT_DENCODE_INIT_ARGS
+        args["show_progress"] = progress
         mocked.assert_called_once_with(
             str(icf_path),
             str(zarr_path),
             target_num_partitions=10,
-            **DEFAULT_DENCODE_INIT_ARGS,
+            **args,
         )
 
     @mock.patch("bio2zarr.vcf2zarr.encode_partition")
@@ -494,32 +506,40 @@ class TestWithMocks:
             str(zarr_path), 0, **DEFAULT_DENCODE_PARTITION_ARGS
         )
 
+    @pytest.mark.parametrize(("progress", "flag"), [(True, "-P"), (False, "-Q")])
     @mock.patch("bio2zarr.vcf2zarr.encode_finalise")
-    def test_vcf_dencode_finalise(self, mocked, tmp_path):
-        runner = ct.CliRunner(mix_stderr=False)
-        result = runner.invoke(
-            cli.vcf2zarr_main, f"dencode-finalise {tmp_path}", catch_exceptions=False
-        )
-        assert result.exit_code == 0
-        assert len(result.stdout) == 0
-        assert len(result.stderr) == 0
-        mocked.assert_called_once_with(str(tmp_path), **DEFAULT_DENCODE_FINALISE_ARGS)
-
-    @mock.patch("bio2zarr.vcf2zarr.convert")
-    def test_convert_vcf(self, mocked):
+    def test_vcf_dencode_finalise(self, mocked, tmp_path, progress, flag):
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"convert {self.vcf_path} zarr_path",
+            f"dencode-finalise {tmp_path} {flag}",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
         assert len(result.stdout) == 0
         assert len(result.stderr) == 0
+        args = DEFAULT_DENCODE_FINALISE_ARGS
+        args["show_progress"] = progress
+        mocked.assert_called_once_with(str(tmp_path), **args)
+
+    @pytest.mark.parametrize(("progress", "flag"), [(True, "-P"), (False, "-Q")])
+    @mock.patch("bio2zarr.vcf2zarr.convert")
+    def test_convert_vcf(self, mocked, progress, flag):
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcf2zarr_main,
+            f"convert {self.vcf_path} zarr_path {flag}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert len(result.stdout) == 0
+        assert len(result.stderr) == 0
+        args = dict(DEFAULT_CONVERT_ARGS)
+        args["show_progress"] = progress
         mocked.assert_called_once_with(
             (self.vcf_path,),
             "zarr_path",
-            **DEFAULT_CONVERT_ARGS,
+            **args,
         )
 
     @pytest.mark.parametrize("response", ["n", "N", "No"])
@@ -538,16 +558,19 @@ class TestWithMocks:
         assert "Aborted" in result.stderr
         mocked.assert_not_called()
 
+    @pytest.mark.parametrize(("progress", "flag"), [(True, "-P"), (False, "-Q")])
     @mock.patch("bio2zarr.plink.convert")
-    def test_convert_plink(self, mocked):
+    def test_convert_plink(self, mocked, progress, flag):
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.plink2zarr, ["convert", "in", "out"], catch_exceptions=False
+            cli.plink2zarr, ["convert", "in", "out", flag], catch_exceptions=False
         )
         assert result.exit_code == 0
         assert len(result.stdout) == 0
         assert len(result.stderr) == 0
-        mocked.assert_called_once_with("in", "out", **DEFAULT_CONVERT_ARGS)
+        args = dict(DEFAULT_CONVERT_ARGS)
+        args["show_progress"] = progress
+        mocked.assert_called_once_with("in", "out", **args)
 
     @pytest.mark.parametrize("response", ["y", "Y", "yes"])
     @mock.patch("bio2zarr.vcf2zarr.convert")
@@ -578,10 +601,11 @@ class TestVcfEndToEnd:
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dexplode-init {self.vcf_path} {icf_path} 5 --json",
+            f"dexplode-init {self.vcf_path} {icf_path} 5 --json -Q",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
+        assert len(result.stderr) == 0
         assert json.loads(result.stdout)["num_partitions"] == 3
 
         for j in range(3):
@@ -595,6 +619,7 @@ class TestVcfEndToEnd:
             cli.vcf2zarr_main, f"dexplode-finalise {icf_path}", catch_exceptions=False
         )
         assert result.exit_code == 0
+        assert len(result.stderr) == 0
 
         result = runner.invoke(
             cli.vcf2zarr_main, f"inspect {icf_path}", catch_exceptions=False
