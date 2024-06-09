@@ -22,15 +22,6 @@ logger = logging.getLogger(__name__)
 
 numcodecs.blosc.use_threads = False
 
-# By default Tqdm creates a multiprocessing Lock to synchronise across processes,
-# which seems to cause some problems with leaked semaphores on certain combinations
-# of Mac and Python versions. We only access tqdm from the main process though,
-# so we don't need it and can override with a simpler threading Lock.
-# NOTE: this gets set multiple times to different locks as subprocesses are
-# spawned, but it doesn't matter because the only tqdm instance that is
-# used is the one in the main process.
-tqdm.tqdm.set_lock(threading.RLock())
-
 
 def display_number(x):
     ret = "n/a"
@@ -207,8 +198,11 @@ _progress_counter = None
 
 
 def update_progress(inc):
-    with _progress_counter.get_lock():
-        _progress_counter.value += inc
+    # If the _progress_counter has not been set we are working in a
+    # synchronous non-progress tracking context
+    if _progress_counter is not None:
+        with _progress_counter.get_lock():
+            _progress_counter.value += inc
 
 
 def get_progress():
