@@ -1,3 +1,7 @@
+# 0.1.0 2024-06-10
+
+- Add -Q/--no-progress flag to CLI
+
 # 0.0.10 2024-05-15
 - Change output format of dexplode-init and dencode-init
 - Bugfix for mac progress, and change of multiprocessing startup strategy.

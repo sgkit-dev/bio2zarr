@@ -58,6 +58,13 @@ force = click.option(
     help="Force overwriting of existing directories",
 )
 
+progress = click.option(
+    "-P /-Q",
+    "--progress/--no-progress",
+    default=True,
+    help="Show progress bars (default: show)",
+)
+
 one_based = click.option(
     "--one-based",
     is_flag=True,
@@ -190,9 +197,17 @@ def show_work_summary(work_summary, json):
 @verbose
 @column_chunk_size
 @compressor
+@progress
 @worker_processes
 def explode(
-    vcfs, icf_path, force, verbose, column_chunk_size, compressor, worker_processes
+    vcfs,
+    icf_path,
+    force,
+    verbose,
+    column_chunk_size,
+    compressor,
+    progress,
+    worker_processes,
 ):
     """
     Convert VCF(s) to intermediate columnar format
@@ -205,7 +220,7 @@ def explode(
         worker_processes=worker_processes,
         column_chunk_size=column_chunk_size,
         compressor=get_compressor(compressor),
-        show_progress=True,
+        show_progress=progress,
     )
 
 
@@ -218,6 +233,7 @@ def explode(
 @compressor
 @json
 @verbose
+@progress
 @worker_processes
 def dexplode_init(
     vcfs,
@@ -228,6 +244,7 @@ def dexplode_init(
     compressor,
     json,
     verbose,
+    progress,
     worker_processes,
 ):
     """
@@ -243,7 +260,7 @@ def dexplode_init(
         column_chunk_size=column_chunk_size,
         worker_processes=worker_processes,
         compressor=get_compressor(compressor),
-        show_progress=True,
+        show_progress=progress,
     )
     show_work_summary(work_summary, json)
 
@@ -310,6 +327,7 @@ def mkschema(icf_path):
 @samples_chunk_size
 @max_variant_chunks
 @max_memory
+@progress
 @worker_processes
 def encode(
     icf_path,
@@ -321,6 +339,7 @@ def encode(
     samples_chunk_size,
     max_variant_chunks,
     max_memory,
+    progress,
     worker_processes,
 ):
     """
@@ -337,7 +356,7 @@ def encode(
         max_variant_chunks=max_variant_chunks,
         worker_processes=worker_processes,
         max_memory=max_memory,
-        show_progress=True,
+        show_progress=progress,
     )
 
 
@@ -351,6 +370,7 @@ def encode(
 @samples_chunk_size
 @max_variant_chunks
 @json
+@progress
 @verbose
 def dencode_init(
     icf_path,
@@ -362,6 +382,7 @@ def dencode_init(
     samples_chunk_size,
     max_variant_chunks,
     json,
+    progress,
     verbose,
 ):
     """
@@ -387,7 +408,7 @@ def dencode_init(
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
         max_variant_chunks=max_variant_chunks,
-        show_progress=True,
+        show_progress=progress,
     )
     show_work_summary(work_summary, json)
 
@@ -413,12 +434,13 @@ def dencode_partition(zarr_path, partition, verbose, one_based):
 @click.command
 @zarr_path
 @verbose
-def dencode_finalise(zarr_path, verbose):
+@progress
+def dencode_finalise(zarr_path, verbose, progress):
     """
     Final step for distributed conversion of ICF to VCF Zarr.
     """
     setup_logging(verbose)
-    vcf2zarr.encode_finalise(zarr_path, show_progress=True)
+    vcf2zarr.encode_finalise(zarr_path, show_progress=progress)
 
 
 @click.command(name="convert")
@@ -428,6 +450,7 @@ def dencode_finalise(zarr_path, verbose):
 @variants_chunk_size
 @samples_chunk_size
 @verbose
+@progress
 @worker_processes
 def convert_vcf(
     vcfs,
@@ -436,6 +459,7 @@ def convert_vcf(
     variants_chunk_size,
     samples_chunk_size,
     verbose,
+    progress,
     worker_processes,
 ):
     """
@@ -448,7 +472,7 @@ def convert_vcf(
         zarr_path,
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
-        show_progress=True,
+        show_progress=progress,
         worker_processes=worker_processes,
     )
 
@@ -481,6 +505,7 @@ vcf2zarr_main.add_command(dencode_finalise)
 @click.argument("in_path", type=click.Path())
 @click.argument("zarr_path", type=click.Path())
 @worker_processes
+@progress
 @verbose
 @variants_chunk_size
 @samples_chunk_size
@@ -489,6 +514,7 @@ def convert_plink(
     zarr_path,
     verbose,
     worker_processes,
+    progress,
     variants_chunk_size,
     samples_chunk_size,
 ):
@@ -499,7 +525,7 @@ def convert_plink(
     plink.convert(
         in_path,
         zarr_path,
-        show_progress=True,
+        show_progress=progress,
         worker_processes=worker_processes,
         samples_chunk_size=samples_chunk_size,
         variants_chunk_size=variants_chunk_size,
