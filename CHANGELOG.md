@@ -1,6 +1,9 @@
 # 0.1.0 2024-06-10
 
+- Initial production-ready version.
 - Add -Q/--no-progress flag to CLI
+- Change num-partitions argument in dexplode-init and dencode-init
+  to a named option.
 
 # 0.0.10 2024-05-15
 - Change output format of dexplode-init and dencode-init

@@ -44,7 +44,13 @@ zarr_path = click.argument(
     "zarr_path", type=click.Path(exists=True, file_okay=False, dir_okay=True)
 )
 
-num_partitions = click.argument("num_partitions", type=click.IntRange(min=1))
+num_partitions = click.option(
+    "-n",
+    "--num-partitions",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Target number of partitions to split into",
+)
 
 partition = click.argument("partition", type=click.IntRange(min=0))
 
@@ -172,6 +178,15 @@ def check_overwrite_dir(path, force):
         shutil.rmtree(tmp_delete_path)
 
 
+def check_partitions(num_partitions):
+    if num_partitions is None:
+        raise click.UsageError(
+            "-n/--num-partitions must currently be specified. Future versions "
+            "will provide reasonable defaults or other means of specifying "
+            "partitions."
+        )
+
+
 def get_compressor(cname):
     if cname is None:
         return None
@@ -249,10 +264,11 @@ def dexplode_init(
 ):
     """
     Initial step for distributed conversion of VCF(s) to intermediate columnar format
-    over the requested number of paritions.
+    over some number of paritions.
     """
     setup_logging(verbose)
     check_overwrite_dir(icf_path, force)
+    check_partitions(num_partitions)
     work_summary = vcf2zarr.explode_init(
         icf_path,
         vcfs,
@@ -388,7 +404,7 @@ def dencode_init(
     """
     Initialise conversion of intermediate format to VCF Zarr. This will
     set up the specified ZARR_PATH to perform this conversion over
-    NUM_PARTITIONS.
+    some number of partitions.
 
     The output of this commmand is the actual number of partitions generated
     (which may be less then the requested number, if there is not sufficient
@@ -400,6 +416,7 @@ def dencode_init(
     """
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)
+    check_partitions(num_partitions)
     work_summary = vcf2zarr.encode_init(
         icf_path,
         zarr_path,
@@ -545,21 +562,15 @@ plink2zarr.add_command(convert_plink)
 @version
 @click.argument("vcf_path", type=click.Path(exists=True, dir_okay=False))
 @verbose
-@click.option(
-    "-n",
-    "--num-parts",
-    type=int,
-    default=None,
-    help="Target number of partitions to split the VCF into",
-)
+@num_partitions
 @click.option(
     "-s",
-    "--part-size",
+    "--partition-size",
     type=str,
     default=None,
     help="Target (compressed) size of VCF partitions, e.g. 100KB, 10MiB, 1G.",
 )
-def vcfpartition(vcf_path, verbose, num_parts, part_size):
+def vcfpartition(vcf_path, verbose, num_partitions, partition_size):
     """
     Output bcftools region strings that partition an indexed VCF/BCF file
     into either an approximate number of parts (-n), or parts of approximately
@@ -574,12 +585,14 @@ def vcfpartition(vcf_path, verbose, num_parts, part_size):
     of records that they contain.
     """
     setup_logging(verbose)
-    if num_parts is None and part_size is None:
-        raise click.UsageError("Either --num-parts or --part-size must be specified")
+    if num_partitions is None and partition_size is None:
+        raise click.UsageError(
+            "Either --num-partitions or --partition-size must be specified"
+        )
 
     indexed_vcf = vcf_utils.IndexedVcf(vcf_path)
     regions = indexed_vcf.partition_into_regions(
-        num_parts=num_parts, target_part_size=part_size
+        num_parts=num_partitions, target_part_size=partition_size
     )
     for region in regions:
         click.echo(f"{region}\t{vcf_path}")
