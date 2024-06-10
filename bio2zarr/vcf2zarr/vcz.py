@@ -1,3 +1,4 @@
+import contextlib
 import dataclasses
 import json
 import logging
@@ -1048,21 +1049,31 @@ def convert(
     samples_chunk_size=None,
     worker_processes=1,
     show_progress=False,
-    # TODO add arguments to control location of tmpdir
+    icf_path=None,
 ):
-    with tempfile.TemporaryDirectory(prefix="vcf2zarr") as tmp:
-        if_dir = pathlib.Path(tmp) / "icf"
+    if icf_path is None:
+        cm = temp_icf_path(prefix="vcf2zarr")
+    else:
+        cm = contextlib.nullcontext(icf_path)
+
+    with cm as icf_path:
         icf.explode(
-            if_dir,
+            icf_path,
             vcfs,
             worker_processes=worker_processes,
             show_progress=show_progress,
         )
         encode(
-            if_dir,
+            icf_path,
             out_path,
             variants_chunk_size=variants_chunk_size,
             samples_chunk_size=samples_chunk_size,
             worker_processes=worker_processes,
             show_progress=show_progress,
         )
+
+
+@contextlib.contextmanager
+def temp_icf_path(prefix=None):
+    with tempfile.TemporaryDirectory(prefix=prefix) as tmp:
+        yield pathlib.Path(tmp) / "icf"
