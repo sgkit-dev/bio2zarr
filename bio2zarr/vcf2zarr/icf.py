@@ -964,7 +964,7 @@ class IntermediateColumnarFormatWriter:
         compressor=None,
     ):
         if self.path.exists():
-            raise ValueError("ICF path already exists")
+            raise ValueError(f"ICF path already exists: {self.path}")
         if compressor is None:
             compressor = ICF_DEFAULT_COMPRESSOR
         vcfs = [pathlib.Path(vcf) for vcf in vcfs]
