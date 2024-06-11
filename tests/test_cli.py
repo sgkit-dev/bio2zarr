@@ -751,7 +751,7 @@ class TestVcfEndToEnd:
 
 class TestVcfPartition:
     path = "tests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz"
-    paths = [path, "tests/data/vcf/1kg_2020_chrM.vcf.gz"]
+    paths = (path, "tests/data/vcf/1kg_2020_chrM.vcf.gz")
 
     def test_num_parts(self):
         runner = ct.CliRunner(mix_stderr=False)
@@ -810,7 +810,7 @@ class TestVcfPartition:
         assert list(result.stdout.splitlines()) == [
             "20:60001-540672\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
             "20:540674-\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
-            "chrM:26-\ttests/data/vcf/1kg_2020_chrM.vcf.gz"
+            "chrM:26-\ttests/data/vcf/1kg_2020_chrM.vcf.gz",
         ]
 
     def test_part_size_multiple_vcfs(self):
@@ -829,7 +829,7 @@ class TestVcfPartition:
             "20:688129-802816\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
             "20:802817-933888\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
             "20:933890-\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
-            "chrM:26-\ttests/data/vcf/1kg_2020_chrM.vcf.gz"
+            "chrM:26-\ttests/data/vcf/1kg_2020_chrM.vcf.gz",
         ]
 
 
