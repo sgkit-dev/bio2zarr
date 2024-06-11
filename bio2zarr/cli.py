@@ -560,7 +560,7 @@ plink2zarr.add_command(convert_plink)
 
 @click.command
 @version
-@click.argument("vcf_path", type=click.Path(exists=True, dir_okay=False))
+@vcfs
 @verbose
 @num_partitions
 @click.option(
@@ -570,11 +570,15 @@ plink2zarr.add_command(convert_plink)
     default=None,
     help="Target (compressed) size of VCF partitions, e.g. 100KB, 10MiB, 1G.",
 )
-def vcfpartition(vcf_path, verbose, num_partitions, partition_size):
+def vcfpartition(vcfs, verbose, num_partitions, partition_size):
     """
-    Output bcftools region strings that partition an indexed VCF/BCF file
+    Output bcftools region strings that partition the indexed VCF/BCF files
     into either an approximate number of parts (-n), or parts of approximately
     a given size (-s). One of -n or -s must be supplied.
+
+    If multiple VCF/BCF files are provided, the number of parts (-n) is
+    interpreted as the total number of partitions across all the files,
+    and the partitions are distributed evenly among the files.
 
     Note that both the number of partitions and sizes are a target, and the
     returned number of partitions may not exactly correspond. In particular,
@@ -590,9 +594,15 @@ def vcfpartition(vcf_path, verbose, num_partitions, partition_size):
             "Either --num-partitions or --partition-size must be specified"
         )
 
-    indexed_vcf = vcf_utils.IndexedVcf(vcf_path)
-    regions = indexed_vcf.partition_into_regions(
-        num_parts=num_partitions, target_part_size=partition_size
-    )
-    for region in regions:
-        click.echo(f"{region}\t{vcf_path}")
+    if num_partitions is None:
+        num_parts_per_path = None
+    else:
+        num_parts_per_path = max(1, num_partitions // len(vcfs))
+
+    for vcf_path in vcfs:
+        indexed_vcf = vcf_utils.IndexedVcf(vcf_path)
+        regions = indexed_vcf.partition_into_regions(
+            num_parts=num_parts_per_path, target_part_size=partition_size
+        )
+        for region in regions:
+            click.echo(f"{region}\t{vcf_path}")
