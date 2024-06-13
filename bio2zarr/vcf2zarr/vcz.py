@@ -68,7 +68,7 @@ class ZarrArraySpec:
         num_samples,
         variants_chunk_size,
         samples_chunk_size,
-        variable_name=None,
+        array_name=None,
     ):
         shape = [num_variants]
         prefix = "variant_"
@@ -79,8 +79,8 @@ class ZarrArraySpec:
             shape.append(num_samples)
             chunks.append(samples_chunk_size)
             dimensions.append("samples")
-        if variable_name is None:
-            variable_name = prefix + vcf_field.name
+        if array_name is None:
+            array_name = prefix + vcf_field.name
         # TODO make an option to add in the empty extra dimension
         if vcf_field.summary.max_number > 1:
             shape.append(vcf_field.summary.max_number)
@@ -96,7 +96,7 @@ class ZarrArraySpec:
                 dimensions.append(f"{vcf_field.category}_{vcf_field.name}_dim")
         return ZarrArraySpec.new(
             vcf_field=vcf_field.full_name,
-            name=variable_name,
+            name=array_name,
             dtype=vcf_field.smallest_dtype(),
             shape=shape,
             chunks=chunks,
@@ -226,14 +226,14 @@ class VcfZarrSchema(core.JsonDataclass):
             f"Generating schema with chunks={variants_chunk_size, samples_chunk_size}"
         )
 
-        def spec_from_field(field, variable_name=None):
+        def spec_from_field(field, array_name=None):
             return ZarrArraySpec.from_field(
                 field,
                 num_samples=n,
                 num_variants=m,
                 samples_chunk_size=samples_chunk_size,
                 variants_chunk_size=variants_chunk_size,
-                variable_name=variable_name,
+                array_name=array_name,
             )
 
         def fixed_field_spec(
@@ -283,8 +283,8 @@ class VcfZarrSchema(core.JsonDataclass):
         # Only two of the fixed fields have a direct one-to-one mapping.
         colspecs.extend(
             [
-                spec_from_field(name_map["QUAL"], variable_name="variant_quality"),
-                spec_from_field(name_map["POS"], variable_name="variant_position"),
+                spec_from_field(name_map["QUAL"], array_name="variant_quality"),
+                spec_from_field(name_map["POS"], array_name="variant_position"),
             ]
         )
         colspecs.extend([spec_from_field(field) for field in icf.metadata.info_fields])
@@ -583,28 +583,28 @@ class VcfZarrWriter:
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["filters"]
 
-    def init_array(self, root, variable, variants_dim_size):
+    def init_array(self, root, array_spec, variants_dim_size):
         object_codec = None
-        if variable.dtype == "O":
+        if array_spec.dtype == "O":
             object_codec = numcodecs.VLenUTF8()
-        shape = list(variable.shape)
+        shape = list(array_spec.shape)
         # Truncate the variants dimension is max_variant_chunks was specified
         shape[0] = variants_dim_size
         a = root.empty(
-            variable.name,
+            array_spec.name,
             shape=shape,
-            chunks=variable.chunks,
-            dtype=variable.dtype,
-            compressor=numcodecs.get_codec(variable.compressor),
-            filters=[numcodecs.get_codec(filt) for filt in variable.filters],
+            chunks=array_spec.chunks,
+            dtype=array_spec.dtype,
+            compressor=numcodecs.get_codec(array_spec.compressor),
+            filters=[numcodecs.get_codec(filt) for filt in array_spec.filters],
             object_codec=object_codec,
             dimension_separator=self.metadata.dimension_separator,
         )
         a.attrs.update(
             {
-                "description": variable.description,
+                "description": array_spec.description,
                 # Dimension names are part of the spec in Zarr v3
-                "_ARRAY_DIMENSIONS": variable.dimensions,
+                "_ARRAY_DIMENSIONS": array_spec.dimensions,
             }
         )
         logger.debug(f"Initialised {a}")
