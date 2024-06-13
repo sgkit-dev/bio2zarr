@@ -46,8 +46,8 @@ class TestSmallExample:
 
     def test_summary_table(self, icf):
         data = icf.summary_table()
-        cols = [d["name"] for d in data]
-        assert tuple(sorted(cols)) == self.fields
+        fields = [d["name"] for d in data]
+        assert tuple(sorted(fields)) == self.fields
 
     def test_inspect(self, icf):
         assert icf.summary_table() == vcf2zarr.inspect(icf.path)
@@ -111,10 +111,10 @@ class TestIcfWriterExample:
         assert icf_path.exists()
         wip_path = icf_path / "wip"
         assert wip_path.exists()
-        for column in self.fields:
-            col_path = icf_path / column
-            assert col_path.exists()
-            assert col_path.is_dir()
+        for field_name in self.fields:
+            field_path = icf_path / field_name
+            assert field_path.exists()
+            assert field_path.is_dir()
 
     def test_finalise_paths(self, tmp_path):
         icf_path = tmp_path / "x.icf"
@@ -427,8 +427,8 @@ class TestSlicing:
         )
 
     def test_pos_values(self, icf):
-        col = icf["POS"]
-        pos = np.array([v[0] for v in col.values])
+        field = icf["POS"]
+        pos = np.array([v[0] for v in field.values])
         # Check the actual values here to make sure other tests make sense
         actual = np.hstack([1 + np.arange(933) for _ in range(5)])
         nt.assert_array_equal(pos, actual)
@@ -465,9 +465,9 @@ class TestSlicing:
         ],
     )
     def test_slice(self, icf, start, stop):
-        col = icf["POS"]
-        pos = np.array(col.values)
-        pos_slice = np.array(list(col.iter_values(start, stop)))
+        field = icf["POS"]
+        pos = np.array(field.values)
+        pos_slice = np.array(list(field.iter_values(start, stop)))
         nt.assert_array_equal(pos[start:stop], pos_slice)
 
 

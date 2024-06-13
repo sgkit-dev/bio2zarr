@@ -249,10 +249,10 @@ class VcfZarrSchema(core.JsonDataclass):
                 chunks=[variants_chunk_size],
             )
 
-        alt_col = icf.fields["ALT"]
-        max_alleles = alt_col.vcf_field.summary.max_number + 1
+        alt_field = icf.fields["ALT"]
+        max_alleles = alt_field.vcf_field.summary.max_number + 1
 
-        colspecs = [
+        array_specs = [
             fixed_field_spec(
                 name="variant_contig",
                 dtype=core.min_int_dtype(0, icf.metadata.num_contigs),
@@ -281,27 +281,29 @@ class VcfZarrSchema(core.JsonDataclass):
         name_map = {field.full_name: field for field in icf.metadata.fields}
 
         # Only two of the fixed fields have a direct one-to-one mapping.
-        colspecs.extend(
+        array_specs.extend(
             [
                 spec_from_field(name_map["QUAL"], array_name="variant_quality"),
                 spec_from_field(name_map["POS"], array_name="variant_position"),
             ]
         )
-        colspecs.extend([spec_from_field(field) for field in icf.metadata.info_fields])
+        array_specs.extend(
+            [spec_from_field(field) for field in icf.metadata.info_fields]
+        )
 
         gt_field = None
         for field in icf.metadata.format_fields:
             if field.name == "GT":
                 gt_field = field
                 continue
-            colspecs.append(spec_from_field(field))
+            array_specs.append(spec_from_field(field))
 
         if gt_field is not None:
             ploidy = gt_field.summary.max_number - 1
             shape = [m, n]
             chunks = [variants_chunk_size, samples_chunk_size]
             dimensions = ["variants", "samples"]
-            colspecs.append(
+            array_specs.append(
                 ZarrArraySpec.new(
                     vcf_field=None,
                     name="call_genotype_phased",
@@ -314,7 +316,7 @@ class VcfZarrSchema(core.JsonDataclass):
             )
             shape += [ploidy]
             dimensions += ["ploidy"]
-            colspecs.append(
+            array_specs.append(
                 ZarrArraySpec.new(
                     vcf_field=None,
                     name="call_genotype",
@@ -325,7 +327,7 @@ class VcfZarrSchema(core.JsonDataclass):
                     description="",
                 )
             )
-            colspecs.append(
+            array_specs.append(
                 ZarrArraySpec.new(
                     vcf_field=None,
                     name="call_genotype_mask",
@@ -341,7 +343,7 @@ class VcfZarrSchema(core.JsonDataclass):
             format_version=ZARR_SCHEMA_FORMAT_VERSION,
             samples_chunk_size=samples_chunk_size,
             variants_chunk_size=variants_chunk_size,
-            fields=colspecs,
+            fields=array_specs,
             samples=icf.metadata.samples,
             contigs=icf.metadata.contigs,
             filters=icf.metadata.filters,
@@ -644,9 +646,9 @@ class VcfZarrWriter:
         self.encode_filters_partition(partition_index)
         self.encode_contig_partition(partition_index)
         self.encode_alleles_partition(partition_index)
-        for col in self.schema.fields:
-            if col.vcf_field is not None:
-                self.encode_array_partition(col, partition_index)
+        for array_spec in self.schema.fields:
+            if array_spec.vcf_field is not None:
+                self.encode_array_partition(array_spec, partition_index)
         if self.has_genotypes():
             self.encode_genotypes_partition(partition_index)
 
@@ -672,21 +674,21 @@ class VcfZarrWriter:
     def finalise_partition_array(self, partition_index, name):
         logger.debug(f"Encoded {name} partition {partition_index}")
 
-    def encode_array_partition(self, column, partition_index):
-        array = self.init_partition_array(partition_index, column.name)
+    def encode_array_partition(self, array_spec, partition_index):
+        array = self.init_partition_array(partition_index, array_spec.name)
 
         partition = self.metadata.partitions[partition_index]
         ba = core.BufferedArray(array, partition.start)
-        source_col = self.icf.fields[column.vcf_field]
-        sanitiser = source_col.sanitiser_factory(ba.buff.shape)
+        source_field = self.icf.fields[array_spec.vcf_field]
+        sanitiser = source_field.sanitiser_factory(ba.buff.shape)
 
-        for value in source_col.iter_values(partition.start, partition.stop):
+        for value in source_field.iter_values(partition.start, partition.stop):
             # We write directly into the buffer in the sanitiser function
             # to make it easier to reason about dimension padding
             j = ba.next_buffer_row()
             sanitiser(ba.buff, j, value)
         ba.flush()
-        self.finalise_partition_array(partition_index, column.name)
+        self.finalise_partition_array(partition_index, array_spec.name)
 
     def encode_genotypes_partition(self, partition_index):
         gt_array = self.init_partition_array(partition_index, "call_genotype")
@@ -700,8 +702,8 @@ class VcfZarrWriter:
         gt_mask = core.BufferedArray(gt_mask_array, partition.start)
         gt_phased = core.BufferedArray(gt_phased_array, partition.start)
 
-        source_col = self.icf.fields["FORMAT/GT"]
-        for value in source_col.iter_values(partition.start, partition.stop):
+        source_field = self.icf.fields["FORMAT/GT"]
+        for value in source_field.iter_values(partition.start, partition.stop):
             j = gt.next_buffer_row()
             icf.sanitise_value_int_2d(gt.buff, j, value[:, :-1])
             j = gt_phased.next_buffer_row()
@@ -723,12 +725,12 @@ class VcfZarrWriter:
         alleles_array = self.init_partition_array(partition_index, array_name)
         partition = self.metadata.partitions[partition_index]
         alleles = core.BufferedArray(alleles_array, partition.start)
-        ref_col = self.icf.fields["REF"]
-        alt_col = self.icf.fields["ALT"]
+        ref_field = self.icf.fields["REF"]
+        alt_field = self.icf.fields["ALT"]
 
         for ref, alt in zip(
-            ref_col.iter_values(partition.start, partition.stop),
-            alt_col.iter_values(partition.start, partition.stop),
+            ref_field.iter_values(partition.start, partition.stop),
+            alt_field.iter_values(partition.start, partition.stop),
         ):
             j = alleles.next_buffer_row()
             alleles.buff[j, :] = constants.STR_FILL
@@ -744,9 +746,9 @@ class VcfZarrWriter:
         partition = self.metadata.partitions[partition_index]
         vid = core.BufferedArray(vid_array, partition.start)
         vid_mask = core.BufferedArray(vid_mask_array, partition.start)
-        col = self.icf.fields["ID"]
+        field = self.icf.fields["ID"]
 
-        for value in col.iter_values(partition.start, partition.stop):
+        for value in field.iter_values(partition.start, partition.stop):
             j = vid.next_buffer_row()
             k = vid_mask.next_buffer_row()
             assert j == k
@@ -769,8 +771,8 @@ class VcfZarrWriter:
         partition = self.metadata.partitions[partition_index]
         var_filter = core.BufferedArray(array, partition.start)
 
-        col = self.icf.fields["FILTERS"]
-        for value in col.iter_values(partition.start, partition.stop):
+        field = self.icf.fields["FILTERS"]
+        for value in field.iter_values(partition.start, partition.stop):
             j = var_filter.next_buffer_row()
             var_filter.buff[j] = False
             for f in value:
@@ -790,9 +792,9 @@ class VcfZarrWriter:
         array = self.init_partition_array(partition_index, array_name)
         partition = self.metadata.partitions[partition_index]
         contig = core.BufferedArray(array, partition.start)
-        col = self.icf.fields["CHROM"]
+        field = self.icf.fields["CHROM"]
 
-        for value in col.iter_values(partition.start, partition.stop):
+        for value in field.iter_values(partition.start, partition.stop):
             j = contig.next_buffer_row()
             # Note: because we are using the indexes to define the lookups
             # and we always have an index, it seems that we the contig lookup
@@ -880,8 +882,8 @@ class VcfZarrWriter:
         Return the approximate maximum memory used to encode a variant chunk.
         """
         max_encoding_mem = 0
-        for col in self.schema.fields:
-            max_encoding_mem = max(max_encoding_mem, col.variant_chunk_nbytes)
+        for array_spec in self.schema.fields:
+            max_encoding_mem = max(max_encoding_mem, array_spec.variant_chunk_nbytes)
         gt_mem = 0
         if self.has_genotypes:
             gt_mem = sum(
@@ -921,9 +923,9 @@ class VcfZarrWriter:
         num_workers = min(max_num_workers, worker_processes)
 
         total_bytes = 0
-        for col in self.schema.fields:
+        for array_spec in self.schema.fields:
             # Open the array definition to get the total size
-            total_bytes += zarr.open(self.arrays_path / col.name).nbytes
+            total_bytes += zarr.open(self.arrays_path / array_spec.name).nbytes
 
         progress_config = core.ProgressConfig(
             total=total_bytes,
