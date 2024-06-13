@@ -2,13 +2,13 @@ import shutil
 
 import pysam
 from hypothesis import HealthCheck, given, note, settings
-from sgkit.tests.io.vcf.hypothesis_vcf import vcf as hypothesis_vcf
+from hypothesis_vcf import vcf
 
 from bio2zarr import vcf2zarr
 
 # Make sure POS starts at 1, since CSI indexing doesn't seem to support zero-based coordinates
 # (even when passing zerobased=True to pysam.tabix_index below)
-@given(vcf_string=hypothesis_vcf(min_pos=1))
+@given(vcf_string=vcf(min_pos=1))
 @settings(suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=None)
 def test_hypothesis_generated_vcf(tmp_path, vcf_string):
     note(f"vcf:\n{vcf_string}")
