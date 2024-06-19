@@ -751,6 +751,7 @@ class TestVcfEndToEnd:
 
 class TestVcfPartition:
     path = "tests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz"
+    paths = (path, "tests/data/vcf/1kg_2020_chrM.vcf.gz")
 
     def test_num_parts(self):
         runner = ct.CliRunner(mix_stderr=False)
@@ -798,6 +799,38 @@ class TestVcfPartition:
         assert result.exit_code != 0
         assert result.stdout == ""
         assert len(result.stderr) > 0
+
+    def test_num_parts_multiple_vcfs(self):
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcfpartition, [*self.paths, "-n", "5"], catch_exceptions=False
+        )
+        assert result.stderr == ""
+        assert result.exit_code == 0
+        assert list(result.stdout.splitlines()) == [
+            "20:60001-540672\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "20:540674-\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "chrM:26-\ttests/data/vcf/1kg_2020_chrM.vcf.gz",
+        ]
+
+    def test_part_size_multiple_vcfs(self):
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcfpartition, [*self.paths, "-s", "512K"], catch_exceptions=False
+        )
+        assert result.stderr == ""
+        assert result.exit_code == 0
+        assert list(result.stdout.splitlines()) == [
+            "20:60001-212992\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "20:213070-327680\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "20:327695-442368\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "20:442381-557056\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "20:557078-688128\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "20:688129-802816\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "20:802817-933888\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "20:933890-\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
+            "chrM:26-\ttests/data/vcf/1kg_2020_chrM.vcf.gz",
+        ]
 
 
 @pytest.mark.parametrize(

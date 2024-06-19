@@ -20,7 +20,7 @@ cp ../../tests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz* ./
 ## Overview
 
 The {ref}`cmd-vcfpartition` utility outputs a set of region strings
-that partition an indexed VCF/BCF into either an approximate number of 
+that partition indexed VCF/BCF files into either an approximate number of 
 parts, or into parts of approximately a given size. This is useful 
 for parallel processing of large VCF files.
 
