@@ -60,7 +60,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["bio2zarr"]
+packages = ["bio2zarr", "bio2zarr.vcf2zarr"]
 
 [tool.setuptools_scm]
 version_file = "bio2zarr/_version.py"
