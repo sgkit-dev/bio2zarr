@@ -408,7 +408,7 @@ def sanitise_value_float_1d(buff, j, value):
     if value is None:
         buff[j] = constants.FLOAT32_MISSING
     else:
-        value = np.array(value, ndmin=1, dtype=buff.dtype, copy=False)
+        value = np.array(value, ndmin=1, dtype=buff.dtype, copy=True)
         # numpy will map None values to Nan, but we need a
         # specific NaN
         value[np.isnan(value)] = constants.FLOAT32_MISSING
@@ -422,7 +422,7 @@ def sanitise_value_float_2d(buff, j, value):
         buff[j] = constants.FLOAT32_MISSING
     else:
         # print("value = ", value)
-        value = np.array(value, ndmin=2, dtype=buff.dtype, copy=False)
+        value = np.array(value, ndmin=2, dtype=buff.dtype, copy=True)
         buff[j] = constants.FLOAT32_FILL
         buff[j, :, : value.shape[1]] = value
 
@@ -432,7 +432,7 @@ def sanitise_int_array(value, ndmin, dtype):
         value = [
             constants.VCF_INT_MISSING if x is None else x for x in value
         ]  # NEEDS TEST
-    value = np.array(value, ndmin=ndmin, copy=False)
+    value = np.array(value, ndmin=ndmin, copy=True)
     value[value == constants.VCF_INT_MISSING] = -1
     value[value == constants.VCF_INT_FILL] = -2
     # TODO watch out for clipping here!
@@ -494,7 +494,7 @@ class VcfValueTransformer:
     def transform(self, vcf_value):
         if isinstance(vcf_value, tuple):
             vcf_value = [self.missing if v is None else v for v in vcf_value]
-        value = np.array(vcf_value, ndmin=self.dimension, copy=False)
+        value = np.array(vcf_value, ndmin=self.dimension, copy=True)
         return value
 
     def transform_and_update_bounds(self, vcf_value):
