@@ -11,8 +11,8 @@ authors = [
   {name = "sgkit Developers", email = "project@sgkit.dev"},
 ]
 dependencies = [
-  "numpy",
-  "zarr >= 2.17",
+  "numpy < 2",
+  "zarr >= 2.17,< 3",
   "click",
   "tabulate",
   "tqdm",
@@ -60,7 +60,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["bio2zarr"]
+packages = ["bio2zarr", "bio2zarr.vcf2zarr"]
 
 [tool.setuptools_scm]
 version_file = "bio2zarr/_version.py"

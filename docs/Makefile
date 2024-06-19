@@ -24,6 +24,7 @@ dist: ${CASTS}
 clean:
 	rm -fR $(BUILDDIR)
 	rm -f _static/*.cast
+	rm sample.vcf.gz*
 
 
 sample.vcf.gz:
@@ -35,12 +36,15 @@ sample.vcf.gz:
 
 _static/vcf2zarr_convert.cast: sample.vcf.gz
 	rm -fR sample.vcz
-	asciinema-automation cast_scripts/vcf2zarr_convert.sh $@
+	asciinema-automation -d cast_scripts/vcf2zarr_convert.sh $@
+	cat _static/vcf2zarr_convert.log
+	asciinema play _static/vcf2zarr_convert.cast 
 	cp -R sample.vcz vcf2zarr
 
 # TODO rename this cast
 _static/vcf2zarr_explode.cast: sample.vcf.gz
 	rm -Rf sample.icf sample.vcz
-	asciinema-automation cast_scripts/vcf2zarr_explode.sh $@
+	asciinema-automation -d cast_scripts/vcf2zarr_explode.sh $@
+	cat _static/vcf2zarr_explode.log
+	asciinema play _static/vcf2zarr_explode.cast 
 	cp -R sample.icf sample.vcz vcf2zarr
-
