@@ -1,3 +1,10 @@
+# 0.1.1 2024-06-19
+
+Maintenance release:
+
+- Pin numpy to < 2 
+- Pin Zarr to < 3
+
 # 0.1.0 2024-06-10
 
 - Initial production-ready version.
