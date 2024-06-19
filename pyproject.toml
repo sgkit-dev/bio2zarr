@@ -11,7 +11,7 @@ authors = [
   {name = "sgkit Developers", email = "project@sgkit.dev"},
 ]
 dependencies = [
-  "numpy",
+  "numpy < 2",
   "zarr >= 2.17,< 3",
   "click",
   "tabulate",
