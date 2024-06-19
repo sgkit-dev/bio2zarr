@@ -364,8 +364,8 @@ class TestCorruptionDetection:
         with pytest.raises(RuntimeError, match="blosc"):
             icf["POS"].values  # noqa B018
 
-    # Chunk file is 195 long
-    @pytest.mark.parametrize("length", [10, 100, 190, 194])
+    # Chunk file is 195 long for numpy v1, and 193 long for v2
+    @pytest.mark.parametrize("length", [10, 100, 190, 192])
     def test_truncated_chunk_file(self, tmp_path, length):
         icf_path = tmp_path / "icf"
         vcf2zarr.explode(icf_path, [self.data_path])
