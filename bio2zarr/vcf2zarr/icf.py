@@ -853,11 +853,11 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
 
     def summary_table(self):
         data = []
-        for name, col in self.fields.items():
-            summary = col.vcf_field.summary
+        for name, icf_field in self.fields.items():
+            summary = icf_field.vcf_field.summary
             d = {
                 "name": name,
-                "type": col.vcf_field.vcf_type,
+                "type": icf_field.vcf_field.vcf_type,
                 "chunks": summary.num_chunks,
                 "size": core.display_size(summary.uncompressed_size),
                 "compressed": core.display_size(summary.compressed_size),
@@ -1009,8 +1009,8 @@ class IntermediateColumnarFormatWriter:
         self.path.mkdir()
         self.wip_path.mkdir()
         for field in self.metadata.fields:
-            col_path = get_vcf_field_path(self.path, field)
-            col_path.mkdir(parents=True)
+            field_path = get_vcf_field_path(self.path, field)
+            field_path.mkdir(parents=True)
 
     def load_partition_summaries(self):
         summaries = []

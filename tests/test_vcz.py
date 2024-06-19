@@ -178,17 +178,17 @@ class TestSchemaEncode:
         zarr_path = tmp_path / "zarr"
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
         schema = vcf2zarr.VcfZarrSchema.generate(icf)
-        for var in schema.fields:
-            var.compressor["cname"] = cname
-            var.compressor["clevel"] = clevel
-            var.compressor["shuffle"] = shuffle
+        for array_spec in schema.fields:
+            array_spec.compressor["cname"] = cname
+            array_spec.compressor["clevel"] = clevel
+            array_spec.compressor["shuffle"] = shuffle
         schema_path = tmp_path / "schema"
         with open(schema_path, "w") as f:
             f.write(schema.asjson())
         vcf2zarr.encode(icf_path, zarr_path, schema_path=schema_path)
         root = zarr.open(zarr_path)
-        for var in schema.fields:
-            a = root[var.name]
+        for array_spec in schema.fields:
+            a = root[array_spec.name]
             assert a.compressor.cname == cname
             assert a.compressor.clevel == clevel
             assert a.compressor.shuffle == shuffle

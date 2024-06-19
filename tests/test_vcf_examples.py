@@ -238,9 +238,9 @@ class TestSmallExample:
         vcf2zarr.convert([path], out)
         ds2 = sg.load_dataset(out)
         assert len(ds2["sample_id"]) == 0
-        for col in ds:
-            if col != "sample_id" and not col.startswith("call_"):
-                xt.assert_equal(ds[col], ds2[col])
+        for field_name in ds:
+            if field_name != "sample_id" and not field_name.startswith("call_"):
+                xt.assert_equal(ds[field_name], ds2[field_name])
 
     @pytest.mark.parametrize(
         ("variants_chunk_size", "samples_chunk_size", "y_chunks", "x_chunks"),
