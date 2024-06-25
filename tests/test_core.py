@@ -198,12 +198,12 @@ class TestChunkAlignedSlices:
 @pytest.mark.parametrize(
     ("path", "expected"),
     [
-        # NOTE: this data was generated using du -sb on a Linux system.
-        # It *might* work in CI, but it may well not either, as it's
-        # probably dependent on a whole bunch of things. Expect to fail
-        # at some point.
-        ("tests/data", 4973315),
-        ("tests/data/vcf", 4961178),
+        # NOTE: this data is generated using du -sb on a Linux system.
+        # It works in CI on Linux, but it'll probably break at some point.
+        # It's also necessary to update these numbers each time a new data
+        # file gets added
+        ("tests/data", 4973751),
+        ("tests/data/vcf", 4961614),
         ("tests/data/vcf/sample.vcf.gz", 1089),
     ],
 )
