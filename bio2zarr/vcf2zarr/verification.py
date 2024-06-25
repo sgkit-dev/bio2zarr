@@ -109,19 +109,17 @@ def assert_info_val_equal(vcf_val, zarr_val, vcf_type):
             assert_all_fill(zarr_val[1:], vcf_type)
 
 
-def assert_format_val_equal(vcf_val, zarr_val, vcf_type):
+def assert_format_val_equal(vcf_val, zarr_val, vcf_type, vcf_number):
     assert vcf_val is not None
     assert isinstance(vcf_val, np.ndarray)
     if vcf_type in ("String", "Character"):
         assert len(vcf_val) == len(zarr_val)
         for v, z in zip(vcf_val, zarr_val):
-            split = list(v.split(","))
-            # Note: deliberately duplicating logic here between this and the
-            # INFO col above to make sure all combinations are covered by tests
-            k = len(split)
-            if k == 1:
+            if vcf_number == "1":
                 assert v == z
             else:
+                split = list(v.split(","))
+                k = len(split)
                 nt.assert_equal(split, z[:k])
                 assert_all_fill(z[k:], vcf_type)
     else:
@@ -173,7 +171,8 @@ def verify(vcf_path, zarr_path, show_progress=False):
         if colname.startswith("call") and not colname.startswith("call_genotype"):
             vcf_name = colname.split("_", 1)[1]
             vcf_type = format_headers[vcf_name]["Type"]
-            format_fields[vcf_name] = vcf_type, iter(root[colname])
+            vcf_number = format_headers[vcf_name]["Number"]
+            format_fields[vcf_name] = vcf_type, vcf_number, iter(root[colname])
         if colname.startswith("variant"):
             name = colname.split("_", 1)[1]
             if name.isupper():
@@ -221,10 +220,10 @@ def verify(vcf_path, zarr_path, show_progress=False):
             else:
                 assert_info_val_equal(vcf_val, zarr_val, vcf_type)
 
-        for name, (vcf_type, zarr_iter) in format_fields.items():
+        for name, (vcf_type, vcf_number, zarr_iter) in format_fields.items():
             vcf_val = row.format(name)
             zarr_val = next(zarr_iter)
             if vcf_val is None:
                 assert_format_val_missing(zarr_val, vcf_type)
             else:
-                assert_format_val_equal(vcf_val, zarr_val, vcf_type)
+                assert_format_val_equal(vcf_val, zarr_val, vcf_type, vcf_number)

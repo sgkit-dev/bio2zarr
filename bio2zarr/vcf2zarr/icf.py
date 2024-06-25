@@ -500,9 +500,9 @@ class VcfValueTransformer:
     def transform_and_update_bounds(self, vcf_value):
         if vcf_value is None:
             return None
+        # print(self, self.field.full_name, "T", vcf_value)
         value = self.transform(vcf_value)
         self.update_bounds(value)
-        # print(self.field.full_name, "T", vcf_value, "->", value)
         return value
 
 
@@ -531,13 +531,15 @@ class FloatValueTransformer(VcfValueTransformer):
 class StringValueTransformer(VcfValueTransformer):
     def update_bounds(self, value):
         summary = self.field.summary
-        number = value.shape[-1]
+        if self.field.category == "FORMAT":
+            number = max(len(v) for v in value)
+        else:
+            number = value.shape[-1]
         # TODO would be nice to report string lengths, but not
         # really necessary.
         summary.max_number = max(summary.max_number, number)
 
     def transform(self, vcf_value):
-        # print("transform", vcf_value)
         if self.dimension == 1:
             value = np.array(list(vcf_value.split(",")))
         else:
