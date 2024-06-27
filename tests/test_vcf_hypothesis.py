@@ -30,4 +30,4 @@ def test_hypothesis_generated_vcf(tmp_path, vcf_string):
     pysam.tabix_index(str(path), preset="vcf", force=True, csi=True)
 
     # test that we can convert VCFs to Zarr without error
-    vcf2zarr.convert([str(path) + ".gz"], zarr_path, icf_path=icf_path)
+    vcf2zarr.convert([str(path) + ".gz"], zarr_path, icf_path=icf_path, worker_processes=0)
