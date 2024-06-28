@@ -295,7 +295,7 @@ class TestDefaultSchema:
             "shape": (9,),
             "chunks": (10000,),
             "dimensions": ("variants",),
-            "description": "",
+            "description": "An identifier from the reference genome",
             "vcf_field": None,
             "compressor": {
                 "id": "blosc",
