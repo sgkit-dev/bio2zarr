@@ -6,6 +6,7 @@ import pathlib
 import struct
 from collections.abc import Sequence
 from dataclasses import dataclass
+from enum import Enum
 from typing import IO, Any, Optional, Union
 
 import cyvcf2
@@ -382,17 +383,30 @@ def read_tabix(
         )
 
 
+class VcfFileType(Enum):
+    VCF = ".vcf"
+    BCF = ".bcf"
+
+
+class VcfIndexType(Enum):
+    CSI = ".csi"
+    TABIX = ".tbi"
+
+
 class IndexedVcf(contextlib.AbstractContextManager):
     def __init__(self, vcf_path, index_path=None):
         self.vcf = None
         vcf_path = pathlib.Path(vcf_path)
         if not vcf_path.exists():
             raise FileNotFoundError(vcf_path)
-        # TODO use constants here instead of strings
         if index_path is None:
-            index_path = vcf_path.with_suffix(vcf_path.suffix + ".tbi")
+            index_path = vcf_path.with_suffix(
+                vcf_path.suffix + VcfIndexType.TABIX.value
+            )
             if not index_path.exists():
-                index_path = vcf_path.with_suffix(vcf_path.suffix + ".csi")
+                index_path = vcf_path.with_suffix(
+                    vcf_path.suffix + VcfIndexType.CSI.value
+                )
                 if not index_path.exists():
                     raise FileNotFoundError(
                         f"Cannot find .tbi or .csi file for {vcf_path}"
@@ -402,26 +416,28 @@ class IndexedVcf(contextlib.AbstractContextManager):
 
         self.vcf_path = vcf_path
         self.index_path = index_path
-        # TODO use Enums for these
         self.file_type = None
         self.index_type = None
-        if index_path.suffix == ".csi":
-            self.index_type = "csi"
-        elif index_path.suffix == ".tbi":
-            self.index_type = "tabix"
-            self.file_type = "vcf"
+
+        if index_path.suffix == VcfIndexType.CSI.value:
+            self.index_type = VcfIndexType.CSI
+        elif index_path.suffix == VcfIndexType.TABIX.value:
+            self.index_type = VcfIndexType.TABIX
+            self.file_type = VcfFileType.VCF
         else:
             raise ValueError("Only .tbi or .csi indexes are supported.")
+
         self.vcf = cyvcf2.VCF(vcf_path)
         self.vcf.set_index(str(self.index_path))
         logger.debug(f"Loaded {vcf_path} with index {self.index_path}")
         self.sequence_names = None
-        if self.index_type == "csi":
+
+        if self.index_type == VcfIndexType.CSI:
             # Determine the file-type based on the "aux" field.
             self.index = read_csi(self.index_path)
-            self.file_type = "bcf"
+            self.file_type = VcfFileType.BCF
             if len(self.index.aux) > 0:
-                self.file_type = "vcf"
+                self.file_type = VcfFileType.VCF
                 self.sequence_names = self.index.parse_vcf_aux()
             else:
                 self.sequence_names = self.vcf.seqnames
@@ -437,7 +453,7 @@ class IndexedVcf(contextlib.AbstractContextManager):
 
     def contig_record_counts(self):
         d = dict(zip(self.sequence_names, self.index.record_counts))
-        if self.file_type == "bcf":
+        if self.file_type == VcfFileType.BCF:
             d = {k: v for k, v in d.items() if v > 0}
         return d
 
