@@ -32,6 +32,16 @@ def inspect(path):
 
 DEFAULT_ZARR_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7)
 
+_fixed_field_descriptions = {
+    "variant_contig": "An identifier from the reference genome or an angle-bracketed ID"
+    " string pointing to a contig in the assembly file",
+    "variant_position": "The reference position",
+    "variant_id": "List of unique identifiers where applicable",
+    "variant_allele": "List of the reference and alternate alleles",
+    "variant_quality": "Phred-scaled quality score",
+    "variant_filter": "Filter status of the variant",
+}
+
 
 @dataclasses.dataclass
 class ZarrArraySpec:
@@ -46,6 +56,9 @@ class ZarrArraySpec:
     filters: list
 
     def __post_init__(self):
+        if self.name in _fixed_field_descriptions:
+            self.description = self.description or _fixed_field_descriptions[self.name]
+
         # Ensure these are tuples for ease of comparison and consistency
         self.shape = tuple(self.shape)
         self.chunks = tuple(self.chunks)
