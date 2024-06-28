@@ -295,7 +295,8 @@ class TestDefaultSchema:
             "shape": (9,),
             "chunks": (10000,),
             "dimensions": ("variants",),
-            "description": "An identifier from the reference genome",
+            "description": "An identifier from the reference genome or an "
+            "angle-bracketed ID string pointing to a contig in the assembly file",
             "vcf_field": None,
             "compressor": {
                 "id": "blosc",
