@@ -50,7 +50,7 @@ vcfpartition = "bio2zarr.cli:vcfpartition"
 
 [project.optional-dependencies]
 dev = [
-  "git+https://github.com/sgkit-dev/hypothesis-vcf.git",
+  "hypothesis-vcf @ git+https://github.com/sgkit-dev/hypothesis-vcf.git",
   "msprime",
   "pysam",
   "pytest",
