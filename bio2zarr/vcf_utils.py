@@ -395,7 +395,7 @@ class IndexedVcf(contextlib.AbstractContextManager):
                 index_path = vcf_path.with_suffix(vcf_path.suffix + ".csi")
                 if not index_path.exists():
                     raise FileNotFoundError(
-                        "Cannot find .tbi or .csi file for {vcf_path}"
+                        f"Cannot find .tbi or .csi file for {vcf_path}"
                     )
         else:
             index_path = pathlib.Path(index_path)
