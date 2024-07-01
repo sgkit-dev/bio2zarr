@@ -240,7 +240,7 @@ def scan_vcf(path, target_num_partitions):
         for h in vcf.header_iter():
             if h["HeaderType"] in ["INFO", "FORMAT"]:
                 field = VcfField.from_header(h)
-                if field.name == "GT":
+                if h["HeaderType"] == "FORMAT" and field.name == "GT":
                     field.vcf_type = "Integer"
                     field.vcf_number = "."
                 fields.append(field)
