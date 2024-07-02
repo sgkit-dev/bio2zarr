@@ -14,6 +14,7 @@ DEFAULT_EXPLODE_ARGS = dict(
     compressor=None,
     worker_processes=1,
     show_progress=True,
+    local_alleles=True,
 )
 
 DEFAULT_DEXPLODE_PARTITION_ARGS = dict()
@@ -23,6 +24,7 @@ DEFAULT_DEXPLODE_INIT_ARGS = dict(
     column_chunk_size=64,
     compressor=None,
     show_progress=True,
+    local_alleles=True,
 )
 
 DEFAULT_ENCODE_ARGS = dict(
@@ -286,6 +288,24 @@ class TestWithMocks:
         assert len(result.stdout) == 0
         assert "'no_such_file' does not exist" in result.stderr
         mocked.assert_not_called()
+
+    @pytest.mark.parametrize("local_alleles", [False, True])
+    @mock.patch("bio2zarr.vcf2zarr.explode")
+    def test_vcf_explode_local_alleles(self, mocked, tmp_path, local_alleles):
+        icf_path = tmp_path / "icf"
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcf2zarr_main,
+            f"explode {self.vcf_path} {icf_path}"
+            f" --local-alleles {str(local_alleles).lower()}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert len(result.stdout) == 0
+        assert len(result.stderr) == 0
+        args = dict(DEFAULT_EXPLODE_ARGS)
+        args["local_alleles"] = local_alleles
+        mocked.assert_called_once_with(str(icf_path), (self.vcf_path,), **args)
 
     @pytest.mark.parametrize(("progress", "flag"), [(True, "-P"), (False, "-Q")])
     @mock.patch("bio2zarr.vcf2zarr.explode_init", return_value=FakeWorkSummary(5))

@@ -216,7 +216,7 @@ def fixed_vcf_field_definitions():
     return fields
 
 
-def scan_vcf(path, target_num_partitions):
+def scan_vcf(path, target_num_partitions, *, local_alleles):
     with vcf_utils.IndexedVcf(path) as indexed_vcf:
         vcf = indexed_vcf.vcf
         filters = []
@@ -1011,6 +1011,7 @@ class IntermediateColumnarFormatWriter:
         target_num_partitions=None,
         show_progress=False,
         compressor=None,
+        local_alleles,
     ):
         if self.path.exists():
             raise ValueError(f"ICF path already exists: {self.path}")
@@ -1025,6 +1026,7 @@ class IntermediateColumnarFormatWriter:
             worker_processes=worker_processes,
             show_progress=show_progress,
             target_num_partitions=target_num_partitions,
+            local_alleles=local_alleles,
         )
         check_field_clobbering(icf_metadata)
         self.metadata = icf_metadata
@@ -1245,6 +1247,7 @@ def explode(
     worker_processes=1,
     show_progress=False,
     compressor=None,
+    local_alleles=True,
 ):
     writer = IntermediateColumnarFormatWriter(icf_path)
     writer.init(
@@ -1255,6 +1258,7 @@ def explode(
         show_progress=show_progress,
         column_chunk_size=column_chunk_size,
         compressor=compressor,
+        local_alleles=local_alleles,
     )
     writer.explode(worker_processes=worker_processes, show_progress=show_progress)
     writer.finalise()
@@ -1270,6 +1274,7 @@ def explode_init(
     worker_processes=1,
     show_progress=False,
     compressor=None,
+    local_alleles=True,
 ):
     writer = IntermediateColumnarFormatWriter(icf_path)
     return writer.init(
@@ -1279,6 +1284,7 @@ def explode_init(
         show_progress=show_progress,
         column_chunk_size=column_chunk_size,
         compressor=compressor,
+        local_alleles=local_alleles,
     )
 
 
