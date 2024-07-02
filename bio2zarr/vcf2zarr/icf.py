@@ -236,6 +236,8 @@ def scan_vcf(path, target_num_partitions):
             pass_filter = filters.pop(pass_index)
             filters.insert(0, pass_filter)
 
+        # Indicates whether vcf2zarr can introduce local alleles
+        can_localize = False
         fields = fixed_vcf_field_definitions()
         for h in vcf.header_iter():
             if h["HeaderType"] in ["INFO", "FORMAT"]:
@@ -244,6 +246,20 @@ def scan_vcf(path, target_num_partitions):
                     field.vcf_type = "Integer"
                     field.vcf_number = "."
                 fields.append(field)
+                if field.category == "FORMAT" and field.name in {"GT", "AD"}:
+                    can_localize = True
+
+        if local_alleles and can_localize:
+            laa_field = VcfField(
+                category="FORMAT",
+                name="LAA",
+                vcf_type="Integer",
+                vcf_number=".",
+                description="1-based indices into ALT, indicating which alleles"
+                " are relevant (local) for the current sample",
+                summary=VcfFieldSummary(),
+            )
+            fields.append(laa_field)
 
         try:
             contig_lengths = vcf.seqlens
@@ -280,7 +296,14 @@ def scan_vcf(path, target_num_partitions):
         return metadata, vcf.raw_header
 
 
-def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
+def scan_vcfs(
+    paths,
+    show_progress,
+    target_num_partitions,
+    worker_processes=1,
+    *,
+    local_alleles,
+):
     logger.info(
         f"Scanning {len(paths)} VCFs attempting to split into {target_num_partitions}"
         f" partitions."
@@ -300,7 +323,12 @@ def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
     )
     with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
         for path in paths:
-            pwm.submit(scan_vcf, path, max(1, target_num_partitions // len(paths)))
+            pwm.submit(
+                scan_vcf,
+                path,
+                max(1, target_num_partitions // len(paths)),
+                local_alleles=local_alleles,
+            )
         results = list(pwm.results_as_completed())
 
     # Sort to make the ordering deterministic
@@ -456,6 +484,27 @@ def sanitise_value_int_2d(buff, j, value):
         value = sanitise_int_array(value, 2, buff.dtype)
         buff[j] = -2
         buff[j, :, : value.shape[1]] = value
+
+
+def compute_laa_field(variant) -> list[list[int]]:
+    sample_count = variant.num_called + variant.num_unknown
+    laa_val = [set() for _ in range(sample_count)]
+
+    if "GT" in variant.FORMAT:
+        for sample_index, genotype in enumerate(variant.genotypes):
+            # The last element in the genotype is not an allele.
+            for allele in genotype[:-1]:
+                if allele > 0:
+                    laa_val[sample_index].add(allele)
+    if "AD" in variant.FORMAT:
+        for sample_index, ad in enumerate(variant.format("AD")):
+            # The first depth in AD is for the reference allele.
+            alt_alleles = set(
+                allele_index for allele_index, depth in enumerate(ad[1:]) if depth > 0
+            )
+            laa_val[sample_index] |= alt_alleles
+
+    return [sorted(laa) for laa in laa_val]
 
 
 missing_value_map = {
@@ -1085,8 +1134,24 @@ class IntermediateColumnarFormatWriter:
                             val = variant.genotype.array()
                         tcw.append("FORMAT/GT", val)
                     for field in format_fields:
+                        if field.full_name == "FORMAT/LAA":
+                            laa_val = compute_laa_field(variant)
+                            # Convert laa_val to a NumPy array
+                            max_laa_len = max(len(laa) for laa in laa_val)
+                            # At minimum, we want to have at least one value per sample
+                            # so that the field is present.
+                            max_laa_len = max(1, max_laa_len)
+                            laa_val = [
+                                sorted(laa)
+                                + [constants.INT_FILL] * (max_laa_len - len(laa))
+                                for laa in laa_val
+                            ]
+                            laa_val = np.array(laa_val)
+                            tcw.append("FORMAT/LAA", laa_val)
+                            continue
                         val = variant.format(field.name)
                         tcw.append(field.full_name, val)
+
                     # Note: an issue with updating the progress per variant here like
                     # this is that we get a significant pause at the end of the counter
                     # while all the "small" fields get flushed. Possibly not much to be
