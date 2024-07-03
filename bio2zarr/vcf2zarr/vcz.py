@@ -96,7 +96,7 @@ class ZarrArraySpec:
         if array_name is None:
             array_name = prefix + vcf_field.name
         # TODO make an option to add in the empty extra dimension
-        if vcf_field.summary.max_number > 1:
+        if vcf_field.summary.max_number > 1 or vcf_field.full_name == "FORMAT/LAA":
             shape.append(vcf_field.summary.max_number)
             chunks.append(vcf_field.summary.max_number)
             # TODO we should really be checking this to see if the named dimensions
