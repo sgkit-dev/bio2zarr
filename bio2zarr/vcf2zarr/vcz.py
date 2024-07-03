@@ -98,6 +98,7 @@ class ZarrArraySpec:
         # TODO make an option to add in the empty extra dimension
         if vcf_field.summary.max_number > 1:
             shape.append(vcf_field.summary.max_number)
+            chunks.append(vcf_field.summary.max_number)
             # TODO we should really be checking this to see if the named dimensions
             # are actually correct.
             if vcf_field.vcf_number == "R":
@@ -251,7 +252,12 @@ class VcfZarrSchema(core.JsonDataclass):
             )
 
         def fixed_field_spec(
-            name, dtype, vcf_field=None, shape=(m,), dimensions=("variants",)
+            name,
+            dtype,
+            vcf_field=None,
+            shape=(m,),
+            dimensions=("variants",),
+            chunks=None,
         ):
             return ZarrArraySpec.new(
                 vcf_field=vcf_field,
@@ -260,7 +266,7 @@ class VcfZarrSchema(core.JsonDataclass):
                 shape=shape,
                 description="",
                 dimensions=dimensions,
-                chunks=[variants_chunk_size],
+                chunks=chunks or [variants_chunk_size],
             )
 
         alt_field = icf.fields["ALT"]
@@ -276,12 +282,14 @@ class VcfZarrSchema(core.JsonDataclass):
                 dtype="bool",
                 shape=(m, icf.metadata.num_filters),
                 dimensions=["variants", "filters"],
+                chunks=(variants_chunk_size, icf.metadata.num_filters),
             ),
             fixed_field_spec(
                 name="variant_allele",
                 dtype="O",
                 shape=(m, max_alleles),
                 dimensions=["variants", "alleles"],
+                chunks=(variants_chunk_size, max_alleles),
             ),
             fixed_field_spec(
                 name="variant_id",
@@ -329,6 +337,7 @@ class VcfZarrSchema(core.JsonDataclass):
                 )
             )
             shape += [ploidy]
+            chunks += [ploidy]
             dimensions += ["ploidy"]
             array_specs.append(
                 ZarrArraySpec.new(
