@@ -232,6 +232,20 @@ class TestSmallExample:
         ]
         nt.assert_array_equal(ds["call_HQ"], call_HQ)
 
+    def test_call_LAA(self, ds):
+        call_LAA = [
+            [[-2, -2], [-2, -2], [1, -2]],
+            [[-2, -2], [-2, -2], [1, -2]],
+            [[-2, -2], [1, -2], [1, -2]],
+            [[-2, -2], [1, -2], [-2, -2]],
+            [[1, 2], [1, 2], [2, -2]],
+            [[-2, -2], [-2, -2], [-2, -2]],
+            [[1, -2], [2, -2], [-2, -2]],
+            [[-2, -2], [-2, -2], [-2, -2]],
+            [[-2, -2], [1, -2], [2, -2]],
+        ]
+        nt.assert_array_equal(ds["call_LAA"], call_LAA)
+
     def test_no_genotypes(self, ds, tmp_path):
         path = "tests/data/vcf/sample_no_genotypes.vcf.gz"
         out = tmp_path / "example.vcf.zarr"
@@ -530,6 +544,36 @@ class Test1000G2020Example:
             [[446, 0, 0, 0, -2], [393, 0, 0, 0, -2], [486, 0, 0, 0, -2]],
         ]
         nt.assert_array_equal(ds.call_AD.values, call_AD)
+
+    def test_call_LAA(self, ds):
+        # The shape is (23, 3, 1).
+        # None of the entries use any alternate alleles.
+        call_LAA = [
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+            [[-2], [-2], [-2]],
+        ]
+        nt.assert_array_equal(ds.call_LAA.values, call_LAA)
 
     def test_call_PID(self, ds):
         call_PGT = ds["call_PGT"].values
