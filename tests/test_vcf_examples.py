@@ -233,18 +233,8 @@ class TestSmallExample:
         nt.assert_array_equal(ds["call_HQ"], call_HQ)
 
     def test_call_LAA(self, ds):
-        call_LAA = [
-            [[-2, -2], [-2, -2], [1, -2]],
-            [[-2, -2], [-2, -2], [1, -2]],
-            [[-2, -2], [1, -2], [1, -2]],
-            [[-2, -2], [1, -2], [-2, -2]],
-            [[1, 2], [1, 2], [2, -2]],
-            [[-2, -2], [-2, -2], [-2, -2]],
-            [[1, -2], [2, -2], [-2, -2]],
-            [[-2, -2], [-2, -2], [-2, -2]],
-            [[-2, -2], [1, -2], [2, -2]],
-        ]
-        nt.assert_array_equal(ds["call_LAA"], call_LAA)
+        # The small example VCF does not have a PL field
+        assert "call_LA" not in ds
 
     def test_no_genotypes(self, ds, tmp_path):
         path = "tests/data/vcf/sample_no_genotypes.vcf.gz"

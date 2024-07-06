@@ -239,6 +239,7 @@ def scan_vcf(path, target_num_partitions, *, local_alleles):
         # Indicates whether vcf2zarr can introduce local alleles
         can_localize = False
         should_add_laa_field = True
+        has_PL = False
         fields = fixed_vcf_field_definitions()
         for h in vcf.header_iter():
             if h["HeaderType"] in ["INFO", "FORMAT"]:
@@ -247,12 +248,15 @@ def scan_vcf(path, target_num_partitions, *, local_alleles):
                     field.vcf_type = "Integer"
                     field.vcf_number = "."
                 fields.append(field)
-                if field.category == "FORMAT" and field.name in {"GT", "AD"}:
-                    can_localize = True
-                if (field.category, field.name) == ("FORMAT", "LAA"):
-                    should_add_laa_field = False
+                if field.category == "FORMAT":
+                    if field.name in {"GT", "AD", "PL"}:
+                        can_localize = True
+                    if field.name == "PL":
+                        has_PL = True
+                    if field.name == "LAA":
+                        should_add_laa_field = False
 
-        if local_alleles and can_localize and should_add_laa_field:
+        if local_alleles and can_localize and should_add_laa_field and has_PL:
             laa_field = VcfField(
                 category="FORMAT",
                 name="LAA",
