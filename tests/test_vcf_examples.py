@@ -440,6 +440,27 @@ class TestSmallExample:
         assert ds[field].attrs["description"] == description
 
 
+class TestLocalAllelesExample:
+    data_path = "tests/data/vcf/local_alleles.vcf.gz"
+
+    @pytest.fixture(scope="class")
+    def ds(self, tmp_path_factory):
+        out = tmp_path_factory.mktemp("data") / "local_alleles.vcf.zarr"
+        vcf2zarr.convert([self.data_path], out, worker_processes=0)
+        return sg.load_dataset(out)
+
+    def test_call_LAA(self, ds):
+        call_LAA = [
+            [[1, -2, -2], [1, -2, -2]],
+            [[1, -2, -2], [1, -2, -2]],
+            [[1, 2, -2], [1, 2, -2]],
+            [[1, 2, 3], [2, 3, -2]],
+            [[1, -2, -2], [1, -2, -2]],
+            [[2, -2, -2], [1, -2, -2]],
+        ]
+        nt.assert_array_equal(ds.call_LAA.values, call_LAA)
+
+
 class Test1000G2020Example:
     data_path = "tests/data/vcf/1kg_2020_chrM.vcf.gz"
 
@@ -546,9 +567,31 @@ class Test1000G2020Example:
         nt.assert_array_equal(ds.call_AD.values, call_AD)
 
     def test_call_LAA(self, ds):
-        # The shape is (23, 3, 1).
-        # None of the entries use any alternate alleles.
-        call_LAA = np.full((23, 3, 1), -2, dtype=int)
+        call_LAA = [
+            [[1, -2, -2, -2], [1, -2, -2, -2], [1, -2, -2, -2]],
+            [[1, -2, -2, -2], [1, -2, -2, -2], [1, -2, -2, -2]],
+            [[1, -2, -2, -2], [1, -2, -2, -2], [1, -2, -2, -2]],
+            [[1, 2, -2, -2], [1, 2, -2, -2], [1, 2, -2, -2]],
+            [[1, 2, 3, -2], [1, 2, 3, -2], [1, 2, 3, -2]],
+            [[1, -2, -2, -2], [1, -2, -2, -2], [1, -2, -2, -2]],
+            [[1, -2, -2, -2], [1, -2, -2, -2], [1, -2, -2, -2]],
+            [[1, -2, -2, -2], [1, -2, -2, -2], [1, -2, -2, -2]],
+            [[1, -2, -2, -2], [1, -2, -2, -2], [1, -2, -2, -2]],
+            [[1, -2, -2, -2], [1, -2, -2, -2], [1, -2, -2, -2]],
+            [[1, -2, -2, -2], [1, -2, -2, -2], [1, -2, -2, -2]],
+            [[1, 2, 3, 4], [1, 2, 3, 4], [1, 2, 3, 4]],
+            [[1, 2, 3, 4], [1, 2, 3, 4], [1, 2, 3, 4]],
+            [[1, 2, 3, 4], [1, 2, 3, 4], [1, 2, 3, 4]],
+            [[1, 2, 3, -2], [1, 2, 3, -2], [1, 2, 3, -2]],
+            [[1, -2, -2, -2], [1, -2, -2, -2], [1, -2, -2, -2]],
+            [[1, -2, -2, -2], [1, -2, -2, -2], [1, -2, -2, -2]],
+            [[1, 2, -2, -2], [1, 2, -2, -2], [1, 2, -2, -2]],
+            [[1, -2, -2, -2], [1, -2, -2, -2], [1, -2, -2, -2]],
+            [[1, 2, -2, -2], [1, 2, -2, -2], [1, 2, -2, -2]],
+            [[1, 2, 3, -2], [1, 2, 3, -2], [1, 2, 3, -2]],
+            [[1, 2, 3, 4], [1, 2, 3, 4], [1, 2, 3, 4]],
+            [[1, 2, 3, -2], [1, 2, 3, -2], [1, 2, 3, -2]],
+        ]
         nt.assert_array_equal(ds.call_LAA.values, call_LAA)
 
     def test_call_PID(self, ds):

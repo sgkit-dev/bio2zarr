@@ -238,6 +238,7 @@ def scan_vcf(path, target_num_partitions, *, local_alleles):
 
         # Indicates whether vcf2zarr can introduce local alleles
         can_localize = False
+        should_add_laa_field = True
         fields = fixed_vcf_field_definitions()
         for h in vcf.header_iter():
             if h["HeaderType"] in ["INFO", "FORMAT"]:
@@ -248,8 +249,10 @@ def scan_vcf(path, target_num_partitions, *, local_alleles):
                 fields.append(field)
                 if field.category == "FORMAT" and field.name in {"GT", "AD"}:
                     can_localize = True
+                if (field.category, field.name) == ("FORMAT", "LAA"):
+                    should_add_laa_field = False
 
-        if local_alleles and can_localize:
+        if local_alleles and can_localize and should_add_laa_field:
             laa_field = VcfField(
                 category="FORMAT",
                 name="LAA",
@@ -509,8 +512,36 @@ def compute_laa_field(variant) -> np.ndarray:
         )
         alleles = np.concatenate((alleles, depths), axis=1)
     if "PL" in variant.FORMAT:
-        # TODO
-        pass
+
+        def infer_and_pad(arr: np.ndarray, *, ploidy: int, length: int):
+            assert ploidy in {1, 2}
+            indices = arr.nonzero()[0]
+
+            if ploidy == 2:
+                b = np.ceil(np.sqrt(2 * indices + 9 / 4) - 3 / 2)
+                a = indices - b * (b + 1) / 2
+                pad_length = length - len(a) - len(b)
+            else:
+                a = indices
+                b = np.empty(0)
+                pad_length = length - len(a)
+            return np.pad(
+                np.concatenate((a, b)),
+                (0, pad_length),
+                mode="constant",
+                constant_values=0,
+            )
+
+        likelihoods = variant.format("PL")
+        ploidy = variant.ploidy
+        likelihoods = np.apply_along_axis(
+            infer_and_pad,
+            axis=1,
+            arr=likelihoods,
+            length=ploidy * likelihoods.shape[1],
+            ploidy=ploidy,
+        )
+        alleles = np.concatenate((alleles, likelihoods), axis=1)
 
     max_unique_size = 1
 
@@ -529,7 +560,7 @@ def compute_laa_field(variant) -> np.ndarray:
         )
 
     alleles = np.apply_along_axis(
-        unique_pad, axis=1, arr=alleles, length=alleles.shape[0]
+        unique_pad, axis=1, arr=alleles, length=alleles.shape[1]
     )
     alleles = alleles[:, :max_unique_size]
 
@@ -1165,12 +1196,14 @@ class IntermediateColumnarFormatWriter:
                             val = variant.genotype.array()
                         tcw.append("FORMAT/GT", val)
                     for field in format_fields:
-                        if field.full_name == "FORMAT/LAA":
-                            laa_val = compute_laa_field(variant)
-                            tcw.append("FORMAT/LAA", laa_val)
+                        if (
+                            field.full_name == "FORMAT/LAA"
+                            and "LAA" not in variant.FORMAT
+                        ):
+                            val = compute_laa_field(variant)
                         else:
                             val = variant.format(field.name)
-                            tcw.append(field.full_name, val)
+                        tcw.append(field.full_name, val)
 
                     # Note: an issue with updating the progress per variant here like
                     # this is that we get a significant pause at the end of the counter
