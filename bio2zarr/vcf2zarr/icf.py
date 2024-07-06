@@ -486,25 +486,54 @@ def sanitise_value_int_2d(buff, j, value):
         buff[j, :, : value.shape[1]] = value
 
 
-def compute_laa_field(variant) -> list[list[int]]:
+def compute_laa_field(variant) -> np.ndarray:
     sample_count = variant.num_called + variant.num_unknown
-    laa_val = [set() for _ in range(sample_count)]
+    alleles = np.empty((sample_count, 0), dtype=int)
 
     if "GT" in variant.FORMAT:
-        for sample_index, genotype in enumerate(variant.genotypes):
-            # The last element in the genotype is not an allele.
-            for allele in genotype[:-1]:
-                if allele > 0:
-                    laa_val[sample_index].add(allele)
+        # The last element of each sample's genotype indicates the phasing
+        # and is not an allele.
+        genotypes = variant.genotype.array()[:, :-1]
+        genotypes[genotypes < 0] = 0
+        alleles = np.concatenate((alleles, genotypes), axis=1)
     if "AD" in variant.FORMAT:
-        for sample_index, ad in enumerate(variant.format("AD")):
-            # The first depth in AD is for the reference allele.
-            alt_alleles = set(
-                allele_index for allele_index, depth in enumerate(ad[1:]) if depth > 0
-            )
-            laa_val[sample_index] |= alt_alleles
 
-    return [sorted(laa) for laa in laa_val]
+        def positive_pad(arr, *, length):
+            positive = np.where(arr > 0)[0]
+            pad_length = length - len(positive)
+            return np.pad(positive, (0, pad_length), mode="constant", constant_values=0)
+
+        depths = variant.format("AD")
+        depths = np.apply_along_axis(
+            positive_pad, axis=1, arr=depths, length=depths.shape[1]
+        )
+        alleles = np.concatenate((alleles, depths), axis=1)
+    if "PL" in variant.FORMAT:
+        # TODO
+        pass
+
+    max_unique_size = 1
+
+    def unique_pad(arr: np.ndarray, *, length: int):
+        unique = np.unique(arr)
+
+        if unique[0] == 0:
+            # We don't include the reference allele
+            unique = unique[1:]
+
+        nonlocal max_unique_size
+        max_unique_size = max(max_unique_size, len(unique))
+        pad_length = length - len(unique)
+        return np.pad(
+            unique, (0, pad_length), mode="constant", constant_values=constants.INT_FILL
+        )
+
+    alleles = np.apply_along_axis(
+        unique_pad, axis=1, arr=alleles, length=alleles.shape[0]
+    )
+    alleles = alleles[:, :max_unique_size]
+
+    return alleles
 
 
 missing_value_map = {
@@ -1138,21 +1167,10 @@ class IntermediateColumnarFormatWriter:
                     for field in format_fields:
                         if field.full_name == "FORMAT/LAA":
                             laa_val = compute_laa_field(variant)
-                            # Convert laa_val to a NumPy array
-                            max_laa_len = max(len(laa) for laa in laa_val)
-                            # At minimum, we want to have at least one value per sample
-                            # so that the field is present.
-                            max_laa_len = max(1, max_laa_len)
-                            laa_val = [
-                                sorted(laa)
-                                + [constants.INT_FILL] * (max_laa_len - len(laa))
-                                for laa in laa_val
-                            ]
-                            laa_val = np.array(laa_val)
                             tcw.append("FORMAT/LAA", laa_val)
-                            continue
-                        val = variant.format(field.name)
-                        tcw.append(field.full_name, val)
+                        else:
+                            val = variant.format(field.name)
+                            tcw.append(field.full_name, val)
 
                     # Note: an issue with updating the progress per variant here like
                     # this is that we get a significant pause at the end of the counter
