@@ -153,7 +153,7 @@ def verify(vcf_path, zarr_path, show_progress=False):
     chrom = root["contig_id"][:][root["variant_contig"][:]]
     vid = root["variant_id"][:]
     call_genotype = None
-    if "call_genotype" in root:
+    if "call_genotype" in root and root["call_genotype"].size > 0:
         call_genotype = iter(root["call_genotype"])
 
     vcf = cyvcf2.VCF(vcf_path)
