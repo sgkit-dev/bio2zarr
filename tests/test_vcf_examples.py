@@ -834,6 +834,7 @@ class TestSplitFileErrors:
         "sample.vcf.gz",
         "sample_old_tabix.vcf.gz",
         "sample_no_genotypes.vcf.gz",
+        "sample_no_genotypes_with_gt_header.vcf.gz",
         "1kg_2020_chrM.vcf.gz",
         "field_type_combos.vcf.gz",
         "out_of_order_contigs.vcf.gz",
