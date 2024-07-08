@@ -321,7 +321,7 @@ class VcfZarrSchema(core.JsonDataclass):
             array_specs.append(spec_from_field(field))
 
         if gt_field is not None:
-            ploidy = gt_field.summary.max_number - 1
+            ploidy = max(gt_field.summary.max_number - 1, 1)
             shape = [m, n]
             chunks = [variants_chunk_size, samples_chunk_size]
             dimensions = ["variants", "samples"]
@@ -728,9 +728,13 @@ class VcfZarrWriter:
         source_field = self.icf.fields["FORMAT/GT"]
         for value in source_field.iter_values(partition.start, partition.stop):
             j = gt.next_buffer_row()
-            icf.sanitise_value_int_2d(gt.buff, j, value[:, :-1])
+            icf.sanitise_value_int_2d(
+                gt.buff, j, value[:, :-1] if value is not None else None
+            )
             j = gt_phased.next_buffer_row()
-            icf.sanitise_value_int_1d(gt_phased.buff, j, value[:, -1])
+            icf.sanitise_value_int_1d(
+                gt_phased.buff, j, value[:, -1] if value is not None else None
+            )
             # TODO check is this the correct semantics when we are padding
             # with mixed ploidies?
             j = gt_mask.next_buffer_row()
