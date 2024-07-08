@@ -1079,7 +1079,11 @@ class IntermediateColumnarFormatWriter:
                     for field in info_fields:
                         tcw.append(field.full_name, variant.INFO.get(field.name, None))
                     if has_gt:
-                        tcw.append("FORMAT/GT", variant.genotype.array())
+                        if variant.genotype is None:
+                            val = None
+                        else:
+                            val = variant.genotype.array()
+                        tcw.append("FORMAT/GT", val)
                     for field in format_fields:
                         val = variant.format(field.name)
                         tcw.append(field.full_name, val)
