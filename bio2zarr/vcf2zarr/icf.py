@@ -492,78 +492,81 @@ def sanitise_value_int_2d(buff, j, value):
 
 def compute_laa_field(variant) -> np.ndarray:
     sample_count = variant.num_called + variant.num_unknown
-    alleles = np.empty((sample_count, 0), dtype=int)
+    alt_allele_count = len(variant.ALT)
+    allele_count = alt_allele_count + 1
+    allele_counts = np.zeros((sample_count, allele_count), dtype=int)
 
     if "GT" in variant.FORMAT:
         # The last element of each sample's genotype indicates the phasing
         # and is not an allele.
         genotypes = variant.genotype.array()[:, :-1]
-        genotypes[genotypes < 0] = 0
-        alleles = np.concatenate((alleles, genotypes), axis=1)
+        genotypes.clip(0, None, out=genotypes)
+        genotype_allele_counts = np.apply_along_axis(
+            np.bincount, axis=1, arr=genotypes, minlength=allele_count
+        )
+        allele_counts += genotype_allele_counts
     if "AD" in variant.FORMAT:
-
-        def positive_pad(arr, *, length):
-            positive = np.where(arr > 0)[0]
-            pad_length = length - len(positive)
-            return np.pad(positive, (0, pad_length), mode="constant", constant_values=0)
-
         depths = variant.format("AD")
-        depths = np.apply_along_axis(
-            positive_pad, axis=1, arr=depths, length=depths.shape[1]
+        depths.clip(0, None, out=depths)
+
+        def bincount_nonzero(arr, *, minlength):
+            # nonzero returns the indices of the nonzero elements for each axis
+            return np.bincount(arr.nonzero()[0], minlength=minlength)
+
+        depths_allele_counts = np.apply_along_axis(
+            bincount_nonzero, axis=1, arr=depths, minlength=allele_count
         )
-        alleles = np.concatenate((alleles, depths), axis=1)
+        allele_counts += depths_allele_counts
     if "PL" in variant.FORMAT:
-
-        def infer_and_pad(arr: np.ndarray, *, ploidy: int, length: int):
-            assert ploidy in {1, 2}
-            indices = arr.nonzero()[0]
-
-            if ploidy == 2:
-                b = np.ceil(np.sqrt(2 * indices + 9 / 4) - 3 / 2)
-                a = indices - b * (b + 1) / 2
-                pad_length = length - len(a) - len(b)
-            else:
-                a = indices
-                b = np.empty(0)
-                pad_length = length - len(a)
-            return np.pad(
-                np.concatenate((a, b)),
-                (0, pad_length),
-                mode="constant",
-                constant_values=0,
-            )
-
         likelihoods = variant.format("PL")
+        likelihoods.clip(0, None, out=likelihoods)
+        # n is the indices of the nonzero likelihoods
+        n = np.tile(np.arange(likelihoods.shape[1]), (likelihoods.shape[0], 1))
+        assert n.shape == likelihoods.shape
+        n[likelihoods <= 0] = 0
         ploidy = variant.ploidy
-        likelihoods = np.apply_along_axis(
-            infer_and_pad,
-            axis=1,
-            arr=likelihoods,
-            length=ploidy * likelihoods.shape[1],
-            ploidy=ploidy,
+
+        if ploidy == 1:
+            a = n
+            b = np.zeros_like(a)
+        elif ploidy == 2:
+            # We have n = b(b+1) / 2 + a
+            # We need to compute a and b
+            b = np.ceil(np.sqrt(2 * n + 9 / 4) - 3 / 2).astype(int)
+            a = (n - b * (b + 1) / 2).astype(int)
+        else:
+            # TODO: Handle all possible ploidy
+            raise ValueError(f"Cannot handle ploidy = {ploidy}")
+
+        a_counts = np.apply_along_axis(
+            np.bincount, axis=1, arr=a, minlength=allele_count
         )
-        alleles = np.concatenate((alleles, likelihoods), axis=1)
+        b_counts = np.apply_along_axis(
+            np.bincount, axis=1, arr=b, minlength=allele_count
+        )
+        assert a_counts.shape == b_counts.shape == allele_counts.shape
+        allele_counts += a_counts
+        allele_counts += b_counts
 
-    max_unique_size = 1
+    allele_counts[:, 0] = 0  # We don't count the reference allele
+    max_row_length = 1
 
-    def unique_pad(arr: np.ndarray, *, length: int):
-        unique = np.unique(arr)
-
-        if unique[0] == 0:
-            # We don't include the reference allele
-            unique = unique[1:]
-
-        nonlocal max_unique_size
-        max_unique_size = max(max_unique_size, len(unique))
-        pad_length = length - len(unique)
+    def nonzero_pad(arr: np.ndarray, *, length: int):
+        nonlocal max_row_length
+        alleles = arr.nonzero()[0]
+        max_row_length = max(max_row_length, len(alleles))
+        pad_length = length - len(alleles)
         return np.pad(
-            unique, (0, pad_length), mode="constant", constant_values=constants.INT_FILL
+            alleles,
+            (0, pad_length),
+            mode="constant",
+            constant_values=constants.INT_FILL,
         )
 
     alleles = np.apply_along_axis(
-        unique_pad, axis=1, arr=alleles, length=alleles.shape[1]
+        nonzero_pad, axis=1, arr=allele_counts, length=max(1, alt_allele_count)
     )
-    alleles = alleles[:, :max_unique_size]
+    alleles = alleles[:, :max_row_length]
 
     return alleles
 
