@@ -96,7 +96,7 @@ class VcfField:
         elif self.vcf_type == "Flag":
             ret = "bool"
         elif self.vcf_type == "Character":
-            ret = "U1"
+            ret = "S1"
         else:
             assert self.vcf_type == "String"
             ret = "O"
