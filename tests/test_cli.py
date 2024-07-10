@@ -294,10 +294,15 @@ class TestWithMocks:
     def test_vcf_explode_local_alleles(self, mocked, tmp_path, local_alleles):
         icf_path = tmp_path / "icf"
         runner = ct.CliRunner(mix_stderr=False)
+
+        if local_alleles:
+            local_alleles_flag = "--local-alleles"
+        else:
+            local_alleles_flag = "--no-local-alleles"
+
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"explode {self.vcf_path} {icf_path}"
-            f" --local-alleles {str(local_alleles).lower()}",
+            f"explode {self.vcf_path} {icf_path} {local_alleles_flag}",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
