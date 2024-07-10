@@ -491,6 +491,14 @@ def sanitise_value_int_2d(buff, j, value):
 
 
 def compute_laa_field(variant) -> np.ndarray:
+    """
+    Computes the value of the LAA field for each sample given a variant.
+
+    The LAA field is a list of one-based indices into the ALT alleles
+    that indicates which alternate alleles are observed in the sample.
+
+    This method infers which alleles are observed from the GT, AD, and PL fields.
+    """
     sample_count = variant.num_called + variant.num_unknown
     alt_allele_count = len(variant.ALT)
     allele_count = alt_allele_count + 1
