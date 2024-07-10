@@ -1,5 +1,6 @@
 import collections
 import pathlib
+import re
 
 import cyvcf2
 import numpy as np
@@ -449,6 +450,15 @@ class TestLocalAllelesExample:
             [[2, -2, -2], [1, -2, -2]],
         ]
         nt.assert_array_equal(ds.call_LAA.values, call_LAA)
+
+
+class TestTriploidExample:
+    data_path = "tests/data/vcf/triploid.vcf.gz"
+
+    def test_value_error(self, tmp_path_factory):
+        icf_path = tmp_path_factory.mktemp("data") / "triploid.icf"
+        with pytest.raises(ValueError, match=re.escape("Cannot handle ploidy = 3")):
+            vcf2zarr.explode(icf_path, [self.data_path], worker_processes=0)
 
 
 class Test1000G2020Example:
