@@ -1061,6 +1061,7 @@ def convert(
     variants_chunk_size=None,
     samples_chunk_size=None,
     worker_processes=1,
+    local_alleles=None,
     show_progress=False,
     icf_path=None,
 ):
@@ -1075,6 +1076,7 @@ def convert(
             vcfs,
             worker_processes=worker_processes,
             show_progress=show_progress,
+            local_alleles=local_alleles,
         )
         encode(
             icf_path,

@@ -54,6 +54,14 @@ DEFAULT_CONVERT_ARGS = dict(
     samples_chunk_size=None,
     show_progress=True,
     worker_processes=1,
+    local_alleles=True,
+)
+
+DEFAULT_PLINK_CONVERT_ARGS = dict(
+    variants_chunk_size=None,
+    samples_chunk_size=None,
+    show_progress=True,
+    worker_processes=1,
 )
 
 
@@ -621,7 +629,7 @@ class TestWithMocks:
         assert result.exit_code == 0
         assert len(result.stdout) == 0
         assert len(result.stderr) == 0
-        args = dict(DEFAULT_CONVERT_ARGS)
+        args = dict(DEFAULT_PLINK_CONVERT_ARGS)
         args["show_progress"] = progress
         mocked.assert_called_once_with("in", "out", **args)
 

@@ -1083,12 +1083,14 @@ class IntermediateColumnarFormatWriter:
         target_num_partitions=None,
         show_progress=False,
         compressor=None,
-        local_alleles,
+        local_alleles=None,
     ):
         if self.path.exists():
             raise ValueError(f"ICF path already exists: {self.path}")
         if compressor is None:
             compressor = ICF_DEFAULT_COMPRESSOR
+        if local_alleles is None:
+            local_alleles = True
         vcfs = [pathlib.Path(vcf) for vcf in vcfs]
         target_num_partitions = max(target_num_partitions, len(vcfs))
 
@@ -1310,7 +1312,7 @@ def explode(
     worker_processes=1,
     show_progress=False,
     compressor=None,
-    local_alleles=True,
+    local_alleles=None,
 ):
     writer = IntermediateColumnarFormatWriter(icf_path)
     writer.init(
@@ -1337,7 +1339,7 @@ def explode_init(
     worker_processes=1,
     show_progress=False,
     compressor=None,
-    local_alleles=True,
+    local_alleles=None,
 ):
     writer = IntermediateColumnarFormatWriter(icf_path)
     return writer.init(

@@ -482,6 +482,7 @@ def dencode_finalise(zarr_path, verbose, progress):
 @verbose
 @progress
 @worker_processes
+@local_alleles
 def convert_vcf(
     vcfs,
     zarr_path,
@@ -491,6 +492,7 @@ def convert_vcf(
     verbose,
     progress,
     worker_processes,
+    local_alleles,
 ):
     """
     Convert input VCF(s) directly to vcfzarr (not recommended for large files).
@@ -504,6 +506,7 @@ def convert_vcf(
         samples_chunk_size=samples_chunk_size,
         show_progress=progress,
         worker_processes=worker_processes,
+        local_alleles=local_alleles,
     )
 
 
