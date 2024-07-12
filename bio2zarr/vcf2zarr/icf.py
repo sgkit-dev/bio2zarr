@@ -239,6 +239,7 @@ def scan_vcf(path, target_num_partitions, *, local_alleles):
         # Indicates whether vcf2zarr can introduce local alleles
         can_localize = False
         should_add_laa_field = True
+        should_add_lpl_field = True
         fields = fixed_vcf_field_definitions()
         for h in vcf.header_iter():
             if h["HeaderType"] in ["INFO", "FORMAT"]:
@@ -252,18 +253,31 @@ def scan_vcf(path, target_num_partitions, *, local_alleles):
                         can_localize = True
                     if field.name == "LAA":
                         should_add_laa_field = False
+                    if field.name == "LPL":
+                        should_add_lpl_field = False
 
-        if local_alleles and can_localize and should_add_laa_field:
-            laa_field = VcfField(
-                category="FORMAT",
-                name="LAA",
-                vcf_type="Integer",
-                vcf_number=".",
-                description="1-based indices into ALT, indicating which alleles"
-                " are relevant (local) for the current sample",
-                summary=VcfFieldSummary(),
-            )
-            fields.append(laa_field)
+        if local_alleles and can_localize:
+            if should_add_laa_field:
+                laa_field = VcfField(
+                    category="FORMAT",
+                    name="LAA",
+                    vcf_type="Integer",
+                    vcf_number=".",
+                    description="1-based indices into ALT, indicating which alleles"
+                    " are relevant (local) for the current sample",
+                    summary=VcfFieldSummary(),
+                )
+                fields.append(laa_field)
+            if should_add_lpl_field:
+                lpl_field = VcfField(
+                    category="FORMAT",
+                    name="LPL",
+                    vcf_type="Integer",
+                    vcf_number="LG",
+                    description="Local-allele representation of PL",
+                    summary=VcfFieldSummary(),
+                )
+                fields.append(lpl_field)
 
         try:
             contig_lengths = vcf.seqlens
@@ -577,6 +591,56 @@ def compute_laa_field(variant) -> np.ndarray:
     alleles = alleles[:, :max_row_length]
 
     return alleles
+
+
+def compute_lpl_field(variant, laa_val: np.ndarray) -> np.ndarray:
+    assert laa_val is not None
+
+    la_val = np.zeros((laa_val.shape[0], laa_val.shape[1] + 1), dtype=laa_val.dtype)
+    la_val[:, 1:] = laa_val
+    ploidy = variant.ploidy
+
+    if "PL" not in variant.FORMAT:
+        sample_count = variant.num_called + variant.num_unknown
+        local_allele_count = la_val.shape[1]
+
+        if ploidy == 1:
+            local_genotype_count = local_allele_count
+        elif ploidy == 2:
+            local_genotype_count = local_allele_count * (local_allele_count + 1) // 2
+        else:
+            raise ValueError(f"Cannot handle ploidy = {ploidy}")
+
+        return np.full((sample_count, local_genotype_count), constants.INT_MISSING)
+
+    # Compute a and b
+    if ploidy == 1:
+        a = la_val
+        b = np.zeros_like(la_val)
+    elif ploidy == 2:
+        repeats = np.arange(1, la_val.shape[1] + 1)
+        b = np.repeat(la_val, repeats, axis=1)
+        arange_tile = np.tile(np.arange(la_val.shape[1]), (la_val.shape[1], 1))
+        tril_indices = np.tril_indices_from(arange_tile)
+        a_index = np.tile(arange_tile[tril_indices], (b.shape[0], 1))
+        row_index = np.arange(la_val.shape[0]).reshape(-1, 1)
+        a = la_val[row_index, a_index]
+    else:
+        raise ValueError(f"Cannot handle ploidy = {ploidy}")
+
+    # Compute n, the local indices of the PL field
+    n = (b * (b + 1) / 2 + a).astype(int)
+
+    pl_val = variant.format("PL")
+    pl_val[pl_val == constants.VCF_INT_MISSING] = constants.INT_MISSING
+    # When the PL value is missing in all samples, pl_val has shape (sample_count, 1).
+    # In that case, we need to broadcast the PL value.
+    if pl_val.shape[1] < n.shape[1]:
+        pl_val = np.broadcast_to(pl_val, n.shape)
+    row_index = np.arange(pl_val.shape[0]).reshape(-1, 1)
+    lpl_val = pl_val[row_index, n]
+
+    return lpl_val
 
 
 missing_value_map = {
@@ -1183,6 +1247,25 @@ class IntermediateColumnarFormatWriter:
             else:
                 format_fields.append(field)
 
+        # We need to determine LAA before LPL
+        try:
+            laa_index = next(
+                index
+                for index, format_field in enumerate(format_fields)
+                if format_field.name == "LAA"
+            )
+            lpl_index = next(
+                index
+                for index, format_field in enumerate(format_fields)
+                if format_field.name == "LPL"
+            )
+
+            if lpl_index < laa_index:
+                format_fields.insert(laa_index + 1, format_fields[lpl_index])
+                format_fields.pop(lpl_index)
+        except StopIteration:
+            pass
+
         last_position = None
         with IcfPartitionWriter(
             self.metadata,
@@ -1209,12 +1292,16 @@ class IntermediateColumnarFormatWriter:
                         else:
                             val = variant.genotype.array()
                         tcw.append("FORMAT/GT", val)
+                    laa_val = None
                     for field in format_fields:
-                        if (
-                            field.full_name == "FORMAT/LAA"
-                            and "LAA" not in variant.FORMAT
-                        ):
-                            val = compute_laa_field(variant)
+                        if field.name == "LAA":
+                            if "LAA" not in variant.FORMAT:
+                                laa_val = compute_laa_field(variant)
+                            else:
+                                laa_val = variant.format("LAA")
+                            val = laa_val
+                        elif field.name == "LPL" and "LPL" not in variant.FORMAT:
+                            val = compute_lpl_field(variant, laa_val)
                         else:
                             val = variant.format(field.name)
                         tcw.append(field.full_name, val)
