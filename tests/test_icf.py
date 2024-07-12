@@ -103,6 +103,7 @@ class TestLocalAllelesExample:
         "FORMAT/GQ",
         "FORMAT/GT",
         "FORMAT/LAA",
+        "FORMAT/LPL",
         "FORMAT/PL",
         "ID",
         "INFO/AA",

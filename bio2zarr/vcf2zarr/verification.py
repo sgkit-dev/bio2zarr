@@ -172,6 +172,8 @@ def verify(vcf_path, zarr_path, show_progress=False):
             vcf_name = colname.split("_", 1)[1]
             if vcf_name == "LAA" and vcf_name not in format_headers:
                 continue  # LAA could have been computed during the explode step.
+            if vcf_name == "LPL" and vcf_name not in format_headers:
+                continue  # LPL could have been computed during the explode step.
             vcf_type = format_headers[vcf_name]["Type"]
             vcf_number = format_headers[vcf_name]["Number"]
             format_fields[vcf_name] = vcf_type, vcf_number, iter(root[colname])
