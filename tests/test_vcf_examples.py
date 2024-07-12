@@ -233,9 +233,10 @@ class TestSmallExample:
         ]
         nt.assert_array_equal(ds["call_HQ"], call_HQ)
 
-    def test_call_LAA(self, ds):
+    def test_no_local_alleles(self, ds):
         # The small example VCF does not have a PL field
-        assert "call_LA" not in ds
+        assert "call_LAA" not in ds
+        assert "call_LPL" not in ds
 
     def test_no_genotypes(self, ds, tmp_path):
         path = "tests/data/vcf/sample_no_genotypes.vcf.gz"
@@ -451,6 +452,35 @@ class TestLocalAllelesExample:
         ]
         nt.assert_array_equal(ds.call_LAA.values, call_LAA)
 
+    def test_call_LPL(self, ds):
+        call_LPL = [
+            [
+                [100, 0, 105, -2, -2, -2, -2, -2, -2, -2],
+                [0, 100, 200, -2, -2, -2, -2, -2, -2, -2],
+            ],
+            [
+                [0, 100, 200, -2, -2, -2, -2, -2, -2, -2],
+                [154, 22, 0, -2, -2, -2, -2, -2, -2, -2],
+            ],
+            [
+                [1002, 55, 1002, 0, 55, 1002, -2, -2, -2, -2],
+                [154, 154, 0, 154, 102, 102, -2, -2, -2, -2],
+            ],
+            [
+                [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
+                [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
+            ],
+            [
+                [30, 30, 30, -2, -2, -2, -2, -2, -2, -2],
+                [30, 60, 0, -2, -2, -2, -2, -2, -2, -2],
+            ],
+            [
+                [0, 30, -2, -2, -2, -2, -2, -2, -2, -2],
+                [0, 0, -2, -2, -2, -2, -2, -2, -2, -2],
+            ],
+        ]
+        nt.assert_array_equal(ds.call_LPL.values, call_LPL)
+
 
 class TestTriploidExample:
     data_path = "tests/data/vcf/triploid.vcf.gz"
@@ -475,12 +505,17 @@ class TestTriploidExample:
 
 class Test1000G2020Example:
     data_path = "tests/data/vcf/1kg_2020_chrM.vcf.gz"
+    expected_call_lpl_path = "tests/data/numpy/expected_call_LPL.npy"
 
     @pytest.fixture(scope="class")
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
         vcf2zarr.convert([self.data_path], out, worker_processes=0)
         return sg.load_dataset(out)
+
+    @pytest.fixture(scope="class")
+    def expected_call_lpl(self):
+        return np.load(self.expected_call_lpl_path)
 
     def test_position(self, ds):
         # fmt: off
@@ -605,6 +640,9 @@ class Test1000G2020Example:
             [[1, 2, 3, -2], [1, 2, 3, -2], [1, 2, 3, -2]],
         ]
         nt.assert_array_equal(ds.call_LAA.values, call_LAA)
+
+    def test_call_LPL(self, ds, expected_call_lpl):
+        nt.assert_array_equal(ds.call_LPL.values, expected_call_lpl)
 
     def test_call_PID(self, ds):
         call_PGT = ds["call_PGT"].values
