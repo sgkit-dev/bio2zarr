@@ -202,8 +202,8 @@ class TestChunkAlignedSlices:
         # It works in CI on Linux, but it'll probably break at some point.
         # It's also necessary to update these numbers each time a new data
         # file gets added
-        ("tests/data", 4976351),
-        ("tests/data/vcf", 4964214),
+        ("tests/data", 4976425),
+        ("tests/data/vcf", 4964288),
         ("tests/data/vcf/sample.vcf.gz", 1089),
     ],
 )
