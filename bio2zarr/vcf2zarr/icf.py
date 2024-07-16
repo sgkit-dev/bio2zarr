@@ -1247,24 +1247,16 @@ class IntermediateColumnarFormatWriter:
             else:
                 format_fields.append(field)
 
-        # We need to determine LAA before LPL
-        try:
-            laa_index = next(
-                index
-                for index, format_field in enumerate(format_fields)
-                if format_field.name == "LAA"
-            )
-            lpl_index = next(
-                index
-                for index, format_field in enumerate(format_fields)
-                if format_field.name == "LPL"
-            )
-
+        format_field_names = [format_field.name for format_field in format_fields]
+        if "LAA" in format_field_names and "LPL" in format_field_names:
+            laa_index = format_field_names.index("LAA")
+            lpl_index = format_field_names.index("LPL")
+            # LAA needs to come before LPL
             if lpl_index < laa_index:
-                format_fields.insert(laa_index + 1, format_fields[lpl_index])
-                format_fields.pop(lpl_index)
-        except StopIteration:
-            pass
+                format_fields[laa_index], format_fields[lpl_index] = (
+                    format_fields[lpl_index],
+                    format_fields[laa_index],
+                )
 
         last_position = None
         with IcfPartitionWriter(
