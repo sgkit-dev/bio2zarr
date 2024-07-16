@@ -451,6 +451,7 @@ class TestLocalAllelesExample:
             [[2, -2, -2], [1, -2, -2]],
             [[1, -2, -2], [-1, -2, -2]],
             [[2, -2, -2], [2, -2, -2]],
+            [[1, -2, -2], [-2, -2, -2]],
         ]
         nt.assert_array_equal(ds.call_LAA.values, call_LAA)
 
