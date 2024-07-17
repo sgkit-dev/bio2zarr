@@ -959,9 +959,12 @@ def test_split_explode(tmp_path):
         vcf2zarr.explode_partition(out, j)
     vcf2zarr.explode_finalise(out)
     pcvcf = vcf2zarr.IntermediateColumnarFormat(out)
-    assert pcvcf.fields["POS"].vcf_field.summary.asdict() == {
+    summary_d = pcvcf.fields["POS"].vcf_field.summary.asdict()
+    # The compressed size can vary with different numcodecs versions
+    assert summary_d["compressed_size"] == 571 or summary_d["compressed_size"] == 587
+    del summary_d["compressed_size"]
+    assert summary_d == {
         "num_chunks": 3,
-        "compressed_size": 587,
         "uncompressed_size": 1008,
         "max_number": 1,
         "max_value": 1235237,
