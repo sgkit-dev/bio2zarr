@@ -37,6 +37,7 @@ _fixed_field_descriptions = {
     "variant_contig": "An identifier from the reference genome or an angle-bracketed ID"
     " string pointing to a contig in the assembly file",
     "variant_position": "The reference position",
+    "variant_length": "The length of the variant measured in bases",
     "variant_id": "List of unique identifiers where applicable",
     "variant_allele": "List of the reference and alternate alleles",
     "variant_quality": "Phred-scaled quality score",
@@ -302,11 +303,12 @@ class VcfZarrSchema(core.JsonDataclass):
         ]
         name_map = {field.full_name: field for field in icf.metadata.fields}
 
-        # Only two of the fixed fields have a direct one-to-one mapping.
+        # Only three of the fixed fields have a direct one-to-one mapping.
         array_specs.extend(
             [
                 spec_from_field(name_map["QUAL"], array_name="variant_quality"),
                 spec_from_field(name_map["POS"], array_name="variant_position"),
+                spec_from_field(name_map["rlen"], array_name="variant_length"),
             ]
         )
         array_specs.extend(

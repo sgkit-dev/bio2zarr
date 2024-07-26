@@ -18,7 +18,7 @@ class TestSmallExample:
         'ALT', 'CHROM', 'FILTERS', 'FORMAT/DP', 'FORMAT/GQ',
         'FORMAT/GT', 'FORMAT/HQ', 'ID', 'INFO/AA', 'INFO/AC',
         'INFO/AF', 'INFO/AN', 'INFO/DB', 'INFO/DP', 'INFO/H2',
-        'INFO/NS', 'POS', 'QUAL', 'REF'
+        'INFO/NS', 'POS', 'QUAL', 'REF', 'rlen'
     )
     # fmt: on
 
@@ -117,6 +117,7 @@ class TestLocalAllelesExample:
         "POS",
         "QUAL",
         "REF",
+        "rlen",
     )
 
     @pytest.fixture(scope="class")
@@ -451,7 +452,7 @@ class TestSlicing:
 
     def test_repr(self, icf):
         assert repr(icf).startswith(
-            "IntermediateColumnarFormat(fields=7, partitions=5, records=4665, path="
+            "IntermediateColumnarFormat(fields=8, partitions=5, records=4665, path="
         )
 
     def test_pos_repr(self, icf):
