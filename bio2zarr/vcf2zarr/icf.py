@@ -212,6 +212,7 @@ def fixed_vcf_field_definitions():
         make_field_def("FILTERS", "String", "."),
         make_field_def("REF", "String", "1"),
         make_field_def("ALT", "String", "."),
+        make_field_def("rlen", "Integer", "1"),  # computed field
     ]
     return fields
 
@@ -1276,6 +1277,7 @@ class IntermediateColumnarFormatWriter:
                     tcw.append("FILTERS", variant.FILTERS)
                     tcw.append("REF", variant.REF)
                     tcw.append("ALT", variant.ALT)
+                    tcw.append("rlen", variant.end - variant.start)
                     for field in info_fields:
                         tcw.append(field.full_name, variant.INFO.get(field.name, None))
                     if has_gt:

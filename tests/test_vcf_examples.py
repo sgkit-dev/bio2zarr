@@ -56,6 +56,9 @@ class TestSmallExample:
             [111, 112, 14370, 17330, 1110696, 1230237, 1234567, 1235237, 10],
         )
 
+    def test_length(self, ds):
+        nt.assert_array_equal(ds["variant_length"], [1, 1, 1, 1, 1, 1, 1, 1, 2])
+
     def test_int_info_fields(self, ds):
         nt.assert_array_equal(
             ds["variant_NS"],
@@ -938,6 +941,7 @@ class Test1000G2020AnnotationsExample:
             "variant_filter",
             "variant_contig",
             "variant_position",
+            "variant_length",
             "variant_allele",
             "variant_id",
             "variant_id_mask",
