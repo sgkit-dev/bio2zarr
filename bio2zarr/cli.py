@@ -152,7 +152,7 @@ max_memory = click.option(
 local_alleles = click.option(
     "--local-alleles/--no-local-alleles",
     show_default=True,
-    default=True,
+    default=False,
     help="Use local allele fields to reduce the storage requirements of the output.",
 )
 

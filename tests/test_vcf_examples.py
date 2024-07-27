@@ -537,7 +537,7 @@ class Test1000G2020Example:
     @pytest.fixture(scope="class")
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
-        vcf2zarr.convert([self.data_path], out, worker_processes=0)
+        vcf2zarr.convert([self.data_path], out, worker_processes=0, local_alleles=True)
         return sg.load_dataset(out)
 
     def test_position(self, ds):
