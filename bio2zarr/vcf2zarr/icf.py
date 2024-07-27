@@ -1155,7 +1155,7 @@ class IntermediateColumnarFormatWriter:
         if compressor is None:
             compressor = ICF_DEFAULT_COMPRESSOR
         if local_alleles is None:
-            local_alleles = True
+            local_alleles = False
         vcfs = [pathlib.Path(vcf) for vcf in vcfs]
         target_num_partitions = max(target_num_partitions, len(vcfs))
 

@@ -14,7 +14,7 @@ DEFAULT_EXPLODE_ARGS = dict(
     compressor=None,
     worker_processes=1,
     show_progress=True,
-    local_alleles=True,
+    local_alleles=False,
 )
 
 DEFAULT_DEXPLODE_PARTITION_ARGS = dict()
@@ -24,7 +24,7 @@ DEFAULT_DEXPLODE_INIT_ARGS = dict(
     column_chunk_size=64,
     compressor=None,
     show_progress=True,
-    local_alleles=True,
+    local_alleles=False,
 )
 
 DEFAULT_ENCODE_ARGS = dict(
@@ -54,7 +54,7 @@ DEFAULT_CONVERT_ARGS = dict(
     samples_chunk_size=None,
     show_progress=True,
     worker_processes=1,
-    local_alleles=True,
+    local_alleles=False,
 )
 
 DEFAULT_PLINK_CONVERT_ARGS = dict(
