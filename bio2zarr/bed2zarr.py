@@ -91,7 +91,7 @@ def bed2zarr(
         dtype = core.min_int_dtype(0, len(store["contig_id"]))
         n_bases = np.sum(store["contig_length"])
 
-        store.create_dataset(bed_array, fill_value=0, dtype=dtype, shape=(n_bases,))
+        store.create_dataset(bed_array, fill_value=0, dtype="u1", shape=(n_bases,))
         store.create_dataset(
             bed_array_contig,
             data=np.repeat(
