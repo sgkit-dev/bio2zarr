@@ -582,7 +582,7 @@ plink2zarr.add_command(convert_plink)
 )
 @zarr_path
 @click.argument(
-    "zarr_field",
+    "bed_array",
     type=str,
 )
 @verbose
