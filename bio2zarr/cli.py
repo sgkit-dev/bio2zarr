@@ -8,7 +8,7 @@ import coloredlogs
 import numcodecs
 import tabulate
 
-from . import plink, provenance, vcf2zarr, vcf_utils
+from . import plink, provenance, vcf2zarr, vcf_utils, bed2zarr
 from .vcf2zarr import icf as icf_mod
 
 logger = logging.getLogger(__name__)
@@ -572,6 +572,41 @@ def plink2zarr():
 
 
 plink2zarr.add_command(convert_plink)
+
+
+@click.command
+@version
+@click.argument(
+    "bed_path",
+    type=click.Path(exists=True, dir_okay=False),
+)
+@zarr_path
+@click.argument(
+    "zarr_field",
+    type=str,
+)
+@verbose
+@force
+@progress
+def bed2zarr_main(bed_path, zarr_path, bed_array, verbose, force, progress):
+    """
+    Convert BED file to the Zarr format. The BED regions will be
+    converted to binary-encoded arrays whose length is equal to the
+    length of the reference genome. The BED file regions are used to
+    mask the reference genome, where the masked regions are set to 1
+    and the unmasked regions are set to 0.
+
+    The BED file must be compressed and tabix-indexed.
+    """
+    setup_logging(verbose)
+    path = pathlib.Path(zarr_path) / bed_array
+    check_overwrite_dir(path, force)
+    bed2zarr(
+        bed_path,
+        zarr_path,
+        bed_array,
+        show_progress=progress,
+    )
 
 
 @click.command
