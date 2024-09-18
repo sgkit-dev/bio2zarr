@@ -8,7 +8,7 @@ import coloredlogs
 import numcodecs
 import tabulate
 
-from . import plink, provenance, vcf2zarr, vcf_utils, bed2zarr
+from . import bed2zarr, plink, provenance, vcf2zarr, vcf_utils
 from .vcf2zarr import icf as icf_mod
 
 logger = logging.getLogger(__name__)
@@ -580,15 +580,11 @@ plink2zarr.add_command(convert_plink)
     "bed_path",
     type=click.Path(exists=True, dir_okay=False),
 )
-@zarr_path
-@click.argument(
-    "bed_array",
-    type=str,
-)
+@new_zarr_path
 @verbose
 @force
 @progress
-def bed2zarr_main(bed_path, zarr_path, bed_array, verbose, force, progress):
+def bed2zarr_main(bed_path, zarr_path, verbose, force, progress):
     """
     Convert BED file to the Zarr format. The BED regions will be
     converted to binary-encoded arrays whose length is equal to the
@@ -599,12 +595,10 @@ def bed2zarr_main(bed_path, zarr_path, bed_array, verbose, force, progress):
     The BED file must be compressed and tabix-indexed.
     """
     setup_logging(verbose)
-    path = pathlib.Path(zarr_path) / bed_array
-    check_overwrite_dir(path, force)
-    bed2zarr(
+    check_overwrite_dir(zarr_path, force)
+    bed2zarr.bed2zarr(
         bed_path,
         zarr_path,
-        bed_array,
         show_progress=progress,
     )
 
