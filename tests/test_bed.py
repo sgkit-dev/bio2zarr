@@ -1,9 +1,113 @@
+import pandas as pd
 import pytest
-import zarr
+
 from bio2zarr import bed2zarr
 
+ALLOWED_BED_FORMATS = [3, 4, 5, 6, 7, 8, 9, 12]
+DISALLOWED_BED_FORMATS = [2, 10, 11, 13]
+ALL_BED_FORMATS = ALLOWED_BED_FORMATS + DISALLOWED_BED_FORMATS
 
-class TestBed:
+
+@pytest.fixture()
+def bed_data(request):
+    data = [
+        [
+            "chr22",
+            1000,
+            5000,
+            "cloneA",
+            960,
+            "+",
+            1000,
+            5000,
+            0,
+            2,
+            "567,488",
+            "0,3512",
+            "foo",
+        ],
+        [
+            "chr22",
+            2000,
+            6000,
+            "cloneB",
+            900,
+            "-",
+            2000,
+            6000,
+            0,
+            2,
+            "433,399",
+            "0,3601",
+            "bar",
+        ],
+    ]
+    return [row[0 : request.param] for row in data]
+
+
+@pytest.fixture()
+def bed_df(bed_data):
+    return pd.DataFrame(bed_data)
+
+
+@pytest.fixture()
+def bed_path(bed_data, tmp_path):
+    out = tmp_path / "sample_mask.bed"
+    with open(out, "w") as fh:
+        for row in bed_data:
+            fh.write("\t".join(map(str, row)) + "\n")
+    return out
+
+
+@pytest.fixture()
+def schema_path(bed_path, tmp_path_factory):
+    out = tmp_path_factory.mktemp("data") / "example.schema.json"
+    with open(out, "w") as f:
+        bed2zarr.mkschema(bed_path, f)
+    return out
+
+
+@pytest.fixture()
+def schema(schema_path):
+    with open(schema_path) as f:
+        return bed2zarr.BedZarrSchema.fromjson(f.read())
+
+
+class TestDefaultSchema:
+    @pytest.mark.parametrize("bed_data", ALLOWED_BED_FORMATS, indirect=True)
+    def test_format_version(self, schema):
+        assert schema.format_version == bed2zarr.ZARR_SCHEMA_FORMAT_VERSION
+
+
+class TestSchema:
+    @pytest.mark.parametrize("bed_data", ALLOWED_BED_FORMATS, indirect=True)
+    def test_generate_schema(self, bed_df, request):
+        bedspec = request.node.callspec.params["bed_data"]
+        bed_type = bed2zarr.BedType(bedspec)
+        schema = bed2zarr.BedZarrSchema.generate(bed_df.shape[0], bed_type)
+        assert schema.bed_type == bed_type.name
+        assert schema.records_chunk_size == 1000
+
+
+class TestBedData:
+    @pytest.mark.parametrize("bed_data", ALL_BED_FORMATS, indirect=True)
+    def test_guess_bed_type_from_path(self, bed_path, request):
+        bedspec = request.node.callspec.params["bed_data"]
+        if bedspec in [2, 10, 11, 13]:
+            with pytest.raises(ValueError):
+                bed2zarr.guess_bed_file_type(bed_path)
+        else:
+            bed_type = bed2zarr.guess_bed_file_type(bed_path)
+            assert bed_type.value == bedspec
+
+    @pytest.mark.parametrize("bed_data", ALLOWED_BED_FORMATS, indirect=True)
+    def test_bed_fields(self, bed_path, request):
+        bedspec = request.node.callspec.params["bed_data"]
+        fields = bed2zarr.mkfields(bed2zarr.BedType(bedspec))
+        assert len(fields) == bedspec
+
+
+class TestSampleMaskBed:
     bed_path = "tests/data/bed/sample_mask.bed.gz"
 
     @pytest.fixture()
@@ -12,7 +116,7 @@ class TestBed:
         return out
 
     def test_bed2zarr(self, zarr):
-        bed2zarr.bed2zarr(bed_path=self.bed_path, zarr_path=zarr, show_progress=True)
+        bed2zarr.bed2zarr(bed_path=self.bed_path, zarr_path=zarr)
 
 
 class Test1kgBed:
@@ -24,4 +128,4 @@ class Test1kgBed:
         return out
 
     def test_bed2zarr(self, zarr):
-        bed2zarr.bed2zarr(bed_path=self.bed_path, zarr_path=zarr, show_progress=True)
+        bed2zarr.bed2zarr(bed_path=self.bed_path, zarr_path=zarr)

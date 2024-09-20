@@ -583,8 +583,7 @@ plink2zarr.add_command(convert_plink)
 @new_zarr_path
 @verbose
 @force
-@progress
-def bed2zarr_main(bed_path, zarr_path, verbose, force, progress):
+def bed2zarr_main(bed_path, zarr_path, verbose, force):
     """
     Convert BED file to the Zarr format. The BED regions will be
     converted to binary-encoded arrays whose length is equal to the
@@ -599,7 +598,6 @@ def bed2zarr_main(bed_path, zarr_path, verbose, force, progress):
     bed2zarr.bed2zarr(
         bed_path,
         zarr_path,
-        show_progress=progress,
     )
 
 
