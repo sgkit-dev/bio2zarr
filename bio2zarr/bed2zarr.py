@@ -325,6 +325,12 @@ def optional_bed_field_definitions(num_fields=0):
     return fields[:num_fields]
 
 
+def mkfields(bed_type):
+    mandatory = mandatory_bed_field_definitions()
+    optional = optional_bed_field_definitions(bed_type.value - BedType.BED3.value)
+    return mandatory + optional
+
+
 def mkschema(bed_path, out):
     bed_type = guess_bed_file_type(bed_path)
     data = pd.read_table(bed_path, header=None)
@@ -333,12 +339,6 @@ def mkschema(bed_path, out):
         bed_type,
     )
     out.write(spec.asjson())
-
-
-def mkfields(bed_type):
-    mandatory = mandatory_bed_field_definitions()
-    optional = optional_bed_field_definitions(bed_type.value - BedType.BED3.value)
-    return mandatory + optional
 
 
 def bed2zarr_init(

@@ -93,7 +93,7 @@ class TestBedData:
     @pytest.mark.parametrize("bed_data", ALL_BED_FORMATS, indirect=True)
     def test_guess_bed_type_from_path(self, bed_path, request):
         bedspec = request.node.callspec.params["bed_data"]
-        if bedspec in [2, 10, 11, 13]:
+        if bedspec in DISALLOWED_BED_FORMATS:
             with pytest.raises(ValueError):
                 bed2zarr.guess_bed_file_type(bed_path)
         else:
