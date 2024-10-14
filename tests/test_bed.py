@@ -84,7 +84,11 @@ class TestSchema:
     def test_generate_schema(self, bed_df, request):
         bedspec = request.node.callspec.params["bed_data"]
         bed_type = bed2zarr.BedType(bedspec)
-        schema = bed2zarr.BedZarrSchema.generate(bed_df.shape[0], bed_type)
+        fields = bed2zarr.mkfields(bed_type)
+        bed_df.columns = [f.name for f in fields]
+        bed_df, contig_id, feature_id = bed2zarr.encode_categoricals(bed_df, bed_type)
+        fields = bed2zarr.update_field_bounds(bed_type, bed_df)
+        schema = bed2zarr.BedZarrSchema.generate(bed_df.shape[0], bed_type, fields)
         assert schema.bed_type == bed_type.name
         assert schema.records_chunk_size == 1000
 
@@ -129,3 +133,33 @@ class Test1kgBed:
 
     def test_bed2zarr(self, zarr):
         bed2zarr.bed2zarr(bed_path=self.bed_path, zarr_path=zarr)
+
+
+class TestContigRename:
+    bed_path = "tests/data/bed/1kg_2020_chr20_annotations_mask.bed.gz"
+    bed_data = [
+        "chr21\t50000\t60000\texon",
+        "chr21\t60000\t90000\tfive_prime_utr",
+        "chr20\t50000\t60000\texon",
+        "chr20\t60000\t80000\tintron",
+    ]
+
+    @pytest.fixture()
+    def bed(self, tmp_path):
+        out = tmp_path / "test.bed"
+        with open(out, "w") as fh:
+            for row in self.bed_data:
+                fh.write(row + "\n")
+        return out
+    
+    def test_bed2zarr(self, bed, tmp_path):
+        zarr = tmp_path / "test.zarr"
+
+        data = pd.read_table(bed, header=None)
+        print(data)
+        print(data.describe(percentiles=[]))
+        bedzw = bed2zarr.BedZarrWriter(zarr)
+        print(bedzw)
+        #print(bedzw.schema)
+        print(bedzw.data)
+
