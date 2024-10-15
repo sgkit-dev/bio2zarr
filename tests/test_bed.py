@@ -132,8 +132,9 @@ class TestBedData:
     @pytest.mark.parametrize("bed_data", ALL_BED_FORMATS, indirect=True)
     def test_guess_bed_type_from_path(self, bed_path, request):
         bedspec = request.node.callspec.params["bed_data"]
+        match_str = rf"(got {bedspec}|prohibited|unsupported)"
         if bedspec not in SUPPORTED_BED_FORMATS:
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match=match_str):
                 bed2zarr.guess_bed_file_type(bed_path)
         else:
             bed_type = bed2zarr.guess_bed_file_type(bed_path)

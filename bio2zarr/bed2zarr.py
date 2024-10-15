@@ -30,21 +30,6 @@ class BedType(Enum):
     BED12 = 12
 
 
-class BedColumns(Enum):
-    contig = 0
-    start = 1
-    end = 2
-    name = 3
-    score = 4
-    strand = 5
-    thickStart = 6
-    thickEnd = 7
-    itemRgb = 8
-    blockCount = 9
-    blockSizes = 10
-    blockStarts = 11
-
-
 @dataclasses.dataclass
 class ZarrArraySpec:
     name: str
