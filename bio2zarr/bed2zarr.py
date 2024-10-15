@@ -102,14 +102,14 @@ class Contig:
 
 
 @dataclasses.dataclass
-class Feature:
+class Name:
     id: str
 
 
 @dataclasses.dataclass
 class BedMetadata(core.JsonDataclass):
     contigs: list
-    features: list
+    names: list
     fields: list
     bed_type: BedType
     num_records: int = -1
@@ -120,8 +120,8 @@ class BedMetadata(core.JsonDataclass):
         return len(self.contigs)
 
     @property
-    def num_features(self):
-        return len(self.features)
+    def num_names(self):
+        return len(self.names)
 
 
 @dataclasses.dataclass
@@ -129,7 +129,7 @@ class BedZarrSchema(core.JsonDataclass):
     format_version: str
     fields: list
     contigs: list
-    features: list
+    names: list
     bed_type: str
     records_chunk_size: int
 
@@ -147,8 +147,8 @@ class BedZarrSchema(core.JsonDataclass):
             )
         ret = BedZarrSchema(**d)
         ret.fields = [ZarrArraySpec(**sd) for sd in d["fields"]]
-        ret.contigs = [Contig(**sd) for sd in d["contigs"]]
-        ret.features = [Feature(**sd) for sd in d["features"]]
+        ret.contig_ids = [Contig(**sd) for sd in d["contigs"]]
+        ret.name_ids = [Name(**sd) for sd in d["names"]]
         return ret
 
     @staticmethod
@@ -156,43 +156,45 @@ class BedZarrSchema(core.JsonDataclass):
         return BedZarrSchema.fromdict(json.loads(s))
 
     @staticmethod
-    def generate(num_records, bed_type, fields, contigs, features, records_chunk_size=None):
+    def generate(metadata, records_chunk_size=None):
         if records_chunk_size is None:
             records_chunk_size = 1000
         logger.info("Generating schema with chunks=%d", records_chunk_size)
+        fields = metadata.fields
 
         def spec_from_field(field):
             return ZarrArraySpec.from_field(
                 field,
-                num_records=num_records,
+                num_records=metadata.num_records,
                 records_chunk_size=records_chunk_size,
             )
 
         specs = [spec_from_field(f) for f in fields]
 
-        contig_spec = ZarrArraySpec.new(
+        # Contig_id and name_id specs unnecessary?
+        contig_id_spec = ZarrArraySpec.new(
             name="contig_id",
             dtype="O",
-            shape=[len(contigs)],
-            chunks=[len(contigs)],
+            shape=[metadata.num_contigs],
+            chunks=[metadata.num_contigs],
             dimensions=["contigs"],
             description="Contig ID",
         )
-        feature_spec = ZarrArraySpec.new(
-            name="feature_id",
+        name_id_spec = ZarrArraySpec.new(
+            name="name_id",
             dtype="O",
-            shape=[len(features)],
-            chunks=[len(features)],
-            dimensions=["features"],
-            description="Feature ID",
+            shape=[metadata.num_names],
+            chunks=[metadata.num_names],
+            dimensions=["names"],
+            description="Name ID",
         )
-        fields.extend([contig_spec, feature_spec])
+        specs.extend([contig_id_spec, name_id_spec])
         return BedZarrSchema(
             format_version=ZARR_SCHEMA_FORMAT_VERSION,
             fields=specs,
-            contigs=contigs,
-            features=features,
-            bed_type=bed_type.name,
+            contigs=metadata.contigs,
+            names=metadata.names,
+            bed_type=metadata.bed_type.name,
             records_chunk_size=records_chunk_size,
         )
 
@@ -206,9 +208,9 @@ class BedFieldSummary(core.JsonDataclass):
     min_value: Any = math.inf
 
     def update(self, other):
-        self.num_chunks = array.nchunks
-        self.compressed_size = array.nbytes
-        self.uncompressed_size = array.nbytes
+        self.num_chunks = other.num_chunks
+        self.compressed_size = other.compressed_size
+        self.uncompressed_size = other.uncompressed_size
         self.min_value = min(self.min_value, other.min_value)
         self.max_value = max(self.max_value, other.max_value)
 
@@ -216,7 +218,7 @@ class BedFieldSummary(core.JsonDataclass):
     def fromdict(d):
         return BedFieldSummary(**d)
 
-    
+
 @dataclasses.dataclass
 class BedField:
     category: str
@@ -227,7 +229,8 @@ class BedField:
     summary: BedFieldSummary
 
     def smallest_dtype(self):
-        """Return the smallest dtype suitable for this field based on type and values"""
+        """Return the smallest dtype suitable for this field based on
+        type and values"""
         s = self.summary
         if self.bed_dtype == "Integer":
             if not math.isfinite(s.max_value):
@@ -255,6 +258,8 @@ def guess_bed_file_type(path):
         raise ValueError(f"Expected at most 12 columns in BED file, got {num_cols}")
     if num_cols in (10, 11):
         raise ValueError(f"BED10 and BED11 are prohibited, got {num_cols} columns")
+    if num_cols in (9, 12):
+        raise ValueError("BED9 and BED12 are valid but currently unsupported formats")
     return BedType(num_cols)
 
 
@@ -266,7 +271,7 @@ class BedZarrWriterMetadata(core.JsonDataclass):
     format_version: str
     fields: list
     contigs: list
-    features: list
+    names: list
     bed_type: str
     schema: BedZarrSchema
 
@@ -319,7 +324,7 @@ class BedZarrWriter:
             bed_type=self.bed_metadata.bed_type.name,
             fields=self.fields,
             contigs=self.bed_metadata.contigs,
-            features=self.bed_metadata.features,
+            names=self.bed_metadata.names,
             schema=schema,
         )
         self.path.mkdir()
@@ -337,14 +342,14 @@ class BedZarrWriter:
                 "source": f"bio2zarr-{provenance.__version__}",
             }
         )
-        d = {i: f.name for i, f in enumerate(self.schema.fields)}
+        datafields = self.schema.fields[0 : BedType[self.schema.bed_type].value]
+        d = {i: f.name for i, f in enumerate(datafields)}
         self.data.rename(columns=d, inplace=True)
-        self.encode_fields(root)
+        self.encode_fields(root, datafields)
         self.encode_contig_id(root)
-        self.encode_feature_id(root)
+        self.encode_name_id(root)
 
     def encode_contig_id(self, root):
-        print(self.schema.contigs)
         array = root.array(
             "contig_id",
             [contig.id for contig in self.schema.contigs],
@@ -353,28 +358,29 @@ class BedZarrWriter:
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
 
-
-    def encode_feature_id(self, root):
+    def encode_name_id(self, root):
         array = root.array(
-            "feature_id",
-            [feature.id for feature in self.schema.features],
+            "name_id",
+            [name.id for name in self.schema.names],
             dtype="str",
             compressor=DEFAULT_ZARR_COMPRESSOR,
         )
-        array.attrs["_ARRAY_DIMENSIONS"] = ["features"]
+        array.attrs["_ARRAY_DIMENSIONS"] = ["names"]
 
-        
     def finalise(self):
+        self.load_metadata()
         logger.debug("Removing %s", self.wip_path)
         shutil.rmtree(self.wip_path)
+        logger.info("Consolidating Zarr metadata")
+        zarr.consolidate_metadata(self.path)
 
     def load_metadata(self):
         if self.metadata is None:
             with open(self.wip_path / "metadata.json") as f:
                 self.metadata = BedZarrWriterMetadata.fromdict(json.load(f))
 
-    def encode_fields(self, root):
-        for field in self.schema.fields:
+    def encode_fields(self, root, datafields):
+        for field in datafields:
             object_codec = None
             if field.dtype == "O":
                 object_codec = numcodecs.VLenUTF8()
@@ -405,8 +411,8 @@ def mandatory_bed_field_definitions():
 
     fields = [
         make_field_def("contig", "chrom", "Category", "Chromosome name"),
-        make_field_def("start", "chromStart", "Integer", "Feature start position"),
-        make_field_def("end", "chromEnd", "Integer", "Feature end position"),
+        make_field_def("start", "chromStart", "Integer", "Name start position"),
+        make_field_def("end", "chromEnd", "Integer", "Name end position"),
     ]
     return fields
 
@@ -423,12 +429,10 @@ def optional_bed_field_definitions(num_fields=0):
         )
 
     fields = [
-        make_field_def("name", "name", "Category", "Feature description"),
+        make_field_def("name", "name", "Category", "Name description"),
         make_field_def("score", "score", "Integer", "A numerical value"),
-        make_field_def("strand", "strand", "Character", "Feature strand"),
-        make_field_def(
-            "thickStart", "thickStart", "Integer", "Thick start position"
-        ),
+        make_field_def("strand", "strand", "Character", "Name strand"),
+        make_field_def("thickStart", "thickStart", "Integer", "Thick start position"),
         make_field_def("thickEnd", "thickEnd", "Integer", "Thick end position"),
         make_field_def("itemRgb", "itemRgb", "Integer", "Display"),
         make_field_def("blockCount", "blockCount", "Integer", "Number of blocks"),
@@ -447,11 +451,41 @@ def mkfields(bed_type):
     return mandatory + optional
 
 
-def read_bed(bed_path, bed_type):
-    """Read BED file."""
-    fields = mkfields(bed_type)    
-    data = pd.read_table(bed_path, header=None,
-                         names=[f.name for f in fields])
+def parse_bed(bed_path, records_chunk_size=None):
+    """Read and parse BED file and return data frame and metadata."""
+    bed_type = guess_bed_file_type(bed_path)
+    fields = mkfields(bed_type)
+    data = pd.read_table(bed_path, header=None, names=[f.name for f in fields])
+    data, contig_id, name_id = encode_categoricals(data, bed_type)
+    data = parse_csv_fields(data, bed_type)
+    fields = update_field_bounds(bed_type, data)
+    metadata = BedMetadata(
+        contigs=[Contig(c) for c in contig_id],
+        names=[Name(f) for f in name_id],
+        fields=fields,
+        bed_type=bed_type,
+        num_records=data.shape[0],
+        records_chunk_size=records_chunk_size,
+    )
+    return data, metadata
+
+
+def parse_csv_fields(data, bed_type):
+    if bed_type.value < BedType.BED8.value:
+        return data
+
+    def _convert_csv_data(values):
+        if values.dtype == "O":
+            ret = values.str.split(",").apply(lambda x: np.array([int(y) for y in x]))
+        else:
+            ret = values
+        return ret
+
+    if bed_type.value >= BedType.BED9.value:
+        data["itemRgb"] = _convert_csv_data(data["itemRgb"])
+    if bed_type.value == BedType.BED12.value:
+        data["blockSizes"] = _convert_csv_data(data["blockSizes"])
+        data["blockStarts"] = _convert_csv_data(data["blockStarts"])
     return data
 
 
@@ -463,14 +497,14 @@ def encode_categoricals(data, bed_type):
     contig_id = contig.categories.values
     data["contig"] = contig.codes
     if bed_type.value >= BedType.BED4.value:
-        feature = pd.Categorical(
+        name = pd.Categorical(
             data["name"], categories=data["name"].unique(), ordered=True
         )
-        feature_id = feature.categories.values
-        data["name"] = feature.codes
+        name_id = name.categories.values
+        data["name"] = name.codes
     else:
-        feature_id = None
-    return data, contig_id, feature_id
+        name_id = []
+    return data, contig_id, name_id
 
 
 def update_field_bounds(bed_type, data):
@@ -481,10 +515,7 @@ def update_field_bounds(bed_type, data):
         if f.bed_dtype == "Integer":
             if f.name in ("itemRgb", "blockSizes", "blockStarts"):
                 if data[f.name].dtype == "O":
-                    values = np.concatenate(
-                        data[f.name].str.split(",").apply(
-                            lambda x: np.array([int(y) for y in x])
-                        ))
+                    values = np.concatenate(data[f.name])
                 else:
                     values = data[f.name]
                 f.summary.min_value = min(values)
@@ -499,16 +530,19 @@ def update_field_bounds(bed_type, data):
     return ret
 
 
-def mkschema(schema_path, metadata):
-    """Read schema or make schema from fields."""
+def mkschema(bed_path, out):
+    """Write schema to file"""
+    _, metadata = parse_bed(bed_path)
+    spec = BedZarrSchema.generate(
+        metadata, records_chunk_size=metadata.records_chunk_size
+    )
+    out.write(spec.asjson())
+
+
+def init_schema(schema_path, metadata):
     if schema_path is None:
         schema = BedZarrSchema.generate(
-            num_records=metadata.num_records,
-            bed_type=metadata.bed_type,
-            fields=metadata.fields,
-            contigs=metadata.contigs,
-            features=metadata.features,
-            records_chunk_size=metadata.records_chunk_size,
+            metadata, records_chunk_size=metadata.records_chunk_size
         )
     else:
         logger.info("Reading schema from %s", schema_path)
@@ -520,28 +554,15 @@ def mkschema(schema_path, metadata):
             schema = BedZarrSchema.fromjson(f.read())
     return schema
 
+
 def bed2zarr(
     bed_path,
     zarr_path,
     schema_path=None,
     records_chunk_size=None,
 ):
-    bed_type = guess_bed_file_type(bed_path)
-    data = read_bed(bed_path, bed_type)
-    data, contig_id, feature_id = encode_categoricals(data, bed_type)
-    fields = update_field_bounds(bed_type, data)
-    metadata = BedMetadata(
-        contigs=[Contig(c) for c in contig_id],
-        features=[Feature(f) for f in feature_id],
-        fields=fields,
-        bed_type=bed_type,
-        num_records=data.shape[0],
-        records_chunk_size=records_chunk_size,
-    )
-    schema = mkschema(
-        schema_path,
-        metadata,
-    )
+    data, metadata = parse_bed(bed_path, records_chunk_size)
+    schema = init_schema(schema_path, metadata)
     bedzw = BedZarrWriter(zarr_path)
     bedzw.init(
         data=data,
