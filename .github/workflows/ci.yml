@@ -132,3 +132,25 @@ jobs:
           # We just run the CLI tests here because it doesn't require other upstream
           # packages like sgkit (which are tangled up with the numpy 2 dependency)
           python -m pytest tests/test_cli.py
+
+  test-zarr-version:
+    name: Test Zarr versions
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        zarr: ["zarr==2.18.3", "git+https://github.com/zarr-developers/zarr-python.git"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install '.[dev]'
+      - name: Install ${{ matrix.zarr }}
+        run: |
+          python -m pip install --pre '${{ matrix.zarr }}'
+      - name: Run tests
+        run: |
+          python -m pytest 

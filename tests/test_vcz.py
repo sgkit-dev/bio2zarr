@@ -9,6 +9,7 @@ import zarr
 from bio2zarr import core, vcf2zarr
 from bio2zarr.vcf2zarr import icf as icf_mod
 from bio2zarr.vcf2zarr import vcz as vcz_mod
+from bio2zarr.zarr_utils import zarr_v3
 
 
 @pytest.fixture(scope="module")
@@ -112,6 +113,9 @@ class TestJsonVersions:
             vcz_mod.VcfZarrWriterMetadata.fromdict(d)
 
 
+@pytest.mark.skipif(
+    zarr_v3(), reason="Zarr-python v3 does not support dimension_separator"
+)
 class TestEncodeDimensionSeparator:
     @pytest.mark.parametrize("dimension_separator", [None, "/"])
     def test_directories(self, tmp_path, icf_path, dimension_separator):

@@ -13,7 +13,7 @@ import numcodecs
 import numpy as np
 import zarr
 
-from bio2zarr.zarr_utils import ZARR_FORMAT_KWARGS
+from bio2zarr.zarr_utils import ZARR_FORMAT_KWARGS, zarr_v3
 
 from .. import constants, core, provenance
 from . import icf
@@ -572,7 +572,7 @@ class VcfZarrWriter:
     def encode_samples(self, root):
         if self.schema.samples != self.icf.metadata.samples:
             raise ValueError("Subsetting or reordering samples not supported currently")
-        array = root.array(
+        array = root.create_dataset(
             "sample_id",
             data=[sample.id for sample in self.schema.samples],
             shape=len(self.schema.samples),
@@ -584,7 +584,7 @@ class VcfZarrWriter:
         logger.debug("Samples done")
 
     def encode_contig_id(self, root):
-        array = root.array(
+        array = root.create_dataset(
             "contig_id",
             data=[contig.id for contig in self.schema.contigs],
             shape=len(self.schema.contigs),
@@ -593,7 +593,7 @@ class VcfZarrWriter:
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
         if all(contig.length is not None for contig in self.schema.contigs):
-            array = root.array(
+            array = root.create_dataset(
                 "contig_length",
                 data=[contig.length for contig in self.schema.contigs],
                 shape=len(self.schema.contigs),
@@ -605,7 +605,7 @@ class VcfZarrWriter:
     def encode_filter_id(self, root):
         # TODO need a way to store description also
         # https://github.com/sgkit-dev/vcf-zarr-spec/issues/19
-        array = root.array(
+        array = root.create_dataset(
             "filter_id",
             data=[filt.id for filt in self.schema.filters],
             shape=len(self.schema.filters),
@@ -615,9 +615,17 @@ class VcfZarrWriter:
         array.attrs["_ARRAY_DIMENSIONS"] = ["filters"]
 
     def init_array(self, root, array_spec, variants_dim_size):
-        object_codec = None
+        kwargs = dict(ZARR_FORMAT_KWARGS)
+        filters = [numcodecs.get_codec(filt) for filt in array_spec.filters]
         if array_spec.dtype == "O":
-            object_codec = numcodecs.VLenUTF8()
+            if zarr_v3():
+                filters = [*list(filters), numcodecs.VLenUTF8()]
+            else:
+                kwargs["object_codec"] = numcodecs.VLenUTF8()
+
+        if not zarr_v3():
+            kwargs["dimension_separator"] = self.metadata.dimension_separator
+
         shape = list(array_spec.shape)
         # Truncate the variants dimension is max_variant_chunks was specified
         shape[0] = variants_dim_size
@@ -627,10 +635,8 @@ class VcfZarrWriter:
             chunks=array_spec.chunks,
             dtype=array_spec.dtype,
             compressor=numcodecs.get_codec(array_spec.compressor),
-            filters=[numcodecs.get_codec(filt) for filt in array_spec.filters],
-            object_codec=object_codec,
-            dimension_separator=self.metadata.dimension_separator,
-            **ZARR_FORMAT_KWARGS,
+            filters=filters,
+            **kwargs,
         )
         a.attrs.update(
             {
@@ -946,13 +952,16 @@ class VcfZarrWriter:
                 c_start_idx = c_end_idx + 1
 
         index = np.array(index, dtype=np.int32)
-        array = root.array(
+        kwargs = {}
+        if not zarr_v3():
+            kwargs["dimension_separator"] = self.metadata.dimension_separator
+        array = root.create_dataset(
             "region_index",
             data=index,
             shape=index.shape,
             dtype=index.dtype,
             compressor=numcodecs.Blosc("zstd", clevel=9, shuffle=0),
-            dimension_separator=self.metadata.dimension_separator,
+            **kwargs,
         )
         array.attrs["_ARRAY_DIMENSIONS"] = [
             "region_index_values",
