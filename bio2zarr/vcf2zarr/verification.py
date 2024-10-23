@@ -77,7 +77,7 @@ def assert_info_val_equal(vcf_val, zarr_val, vcf_type):
     if vcf_type in ("String", "Character"):
         split = list(vcf_val.split(","))
         k = len(split)
-        if isinstance(zarr_val, str):
+        if isinstance(zarr_val, str) or zarr_val.ndim == 0:
             assert k == 1
             # Scalar
             assert vcf_val == zarr_val
