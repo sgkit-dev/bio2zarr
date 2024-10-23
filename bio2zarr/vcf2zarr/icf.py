@@ -540,36 +540,6 @@ def compute_laa_field(variant) -> np.ndarray:
             bincount_nonzero, axis=1, arr=depths, minlength=allele_count
         )
         allele_counts += depths_allele_counts
-    if "PL" in variant.FORMAT:
-        likelihoods = variant.format("PL")
-        likelihoods.clip(0, None, out=likelihoods)
-        # n is the indices of the nonzero likelihoods
-        n = np.tile(np.arange(likelihoods.shape[1]), (likelihoods.shape[0], 1))
-        assert n.shape == likelihoods.shape
-        n[likelihoods <= 0] = 0
-        ploidy = variant.ploidy
-
-        if ploidy == 1:
-            a = n
-            b = np.zeros_like(a)
-        elif ploidy == 2:
-            # We have n = b(b+1) / 2 + a
-            # We need to compute a and b
-            b = np.ceil(np.sqrt(2 * n + 9 / 4) - 3 / 2).astype(int)
-            a = (n - b * (b + 1) / 2).astype(int)
-        else:
-            # TODO: Handle all possible ploidy
-            raise ValueError(f"Cannot handle ploidy = {ploidy}")
-
-        a_counts = np.apply_along_axis(
-            np.bincount, axis=1, arr=a, minlength=allele_count
-        )
-        b_counts = np.apply_along_axis(
-            np.bincount, axis=1, arr=b, minlength=allele_count
-        )
-        assert a_counts.shape == b_counts.shape == allele_counts.shape
-        allele_counts += a_counts
-        allele_counts += b_counts
 
     allele_counts[:, 0] = 0  # We don't count the reference allele
     max_row_length = 1
