@@ -110,7 +110,7 @@ class VcfPartition:
     num_records: int = -1
 
 
-ICF_METADATA_FORMAT_VERSION = "0.3"
+ICF_METADATA_FORMAT_VERSION = "0.4"
 ICF_DEFAULT_COMPRESSOR = numcodecs.Blosc(
     cname="zstd", clevel=7, shuffle=numcodecs.Blosc.NOSHUFFLE
 )
