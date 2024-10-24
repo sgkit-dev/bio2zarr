@@ -598,6 +598,7 @@ def compute_lpl_field(variant, laa_val: np.ndarray) -> np.ndarray:
         pl_val = np.broadcast_to(pl_val, n.shape)
     row_index = np.arange(pl_val.shape[0]).reshape(-1, 1)
     lpl_val = pl_val[row_index, n]
+    lpl_val[b == constants.INT_FILL] = constants.INT_FILL
 
     return lpl_val
 
