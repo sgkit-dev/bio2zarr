@@ -512,7 +512,7 @@ def compute_laa_field(variant) -> np.ndarray:
     The LAA field is a list of one-based indices into the ALT alleles
     that indicates which alternate alleles are observed in the sample.
 
-    This method infers which alleles are observed from the GT, AD, and PL fields.
+    This method infers which alleles are observed from the GT field.
     """
     sample_count = variant.num_called + variant.num_unknown
     alt_allele_count = len(variant.ALT)
@@ -528,18 +528,6 @@ def compute_laa_field(variant) -> np.ndarray:
             np.bincount, axis=1, arr=genotypes, minlength=allele_count
         )
         allele_counts += genotype_allele_counts
-    if "AD" in variant.FORMAT:
-        depths = variant.format("AD")
-        depths.clip(0, None, out=depths)
-
-        def bincount_nonzero(arr, *, minlength):
-            # nonzero returns the indices of the nonzero elements for each axis
-            return np.bincount(arr.nonzero()[0], minlength=minlength)
-
-        depths_allele_counts = np.apply_along_axis(
-            bincount_nonzero, axis=1, arr=depths, minlength=allele_count
-        )
-        allele_counts += depths_allele_counts
 
     allele_counts[:, 0] = 0  # We don't count the reference allele
     max_row_length = 1
