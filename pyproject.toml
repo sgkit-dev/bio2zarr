@@ -11,7 +11,9 @@ authors = [
   {name = "sgkit Developers", email = "project@sgkit.dev"},
 ]
 dependencies = [
-  "numpy < 2",
+  # Pin numpy to >= 1.26 because this enables ICF files to be supported
+  # across numpy 1 and 2 (due to pickle format)
+  "numpy >= 1.26",
   "zarr >= 2.17,< 3",
   "click",
   "tabulate",
