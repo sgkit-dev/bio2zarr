@@ -145,9 +145,7 @@ def assert_format_val_equal(vcf_val, zarr_val, vcf_type, vcf_number):
 
 
 def verify(vcf_path, zarr_path, show_progress=False):
-    store = zarr.DirectoryStore(zarr_path)
-
-    root = zarr.group(store=store)
+    root = zarr.open(store=zarr_path, mode="r")
     pos = root["variant_position"][:]
     allele = root["variant_allele"][:]
     chrom = root["contig_id"][:][root["variant_contig"][:]]

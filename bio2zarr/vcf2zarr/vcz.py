@@ -532,8 +532,7 @@ class VcfZarrWriter:
         )
 
         self.path.mkdir()
-        store = zarr.DirectoryStore(self.path)
-        root = zarr.group(store=store)
+        root = zarr.open(store=self.path, mode="a")
         root.attrs.update(
             {
                 "vcf_zarr_version": "0.2",
@@ -549,8 +548,7 @@ class VcfZarrWriter:
         self.wip_path.mkdir()
         self.arrays_path.mkdir()
         self.partitions_path.mkdir()
-        store = zarr.DirectoryStore(self.arrays_path)
-        root = zarr.group(store=store)
+        root = zarr.open(store=self.arrays_path, mode="a")
 
         total_chunks = 0
         for field in self.schema.fields:
@@ -690,8 +688,7 @@ class VcfZarrWriter:
         # Overwrite any existing WIP files
         wip_path = self.wip_partition_array_path(partition_index, name)
         shutil.copytree(src, wip_path, dirs_exist_ok=True)
-        store = zarr.DirectoryStore(self.wip_partition_path(partition_index))
-        wip_root = zarr.group(store=store)
+        wip_root = zarr.open(store=self.wip_partition_path(partition_index), mode="a")
         array = wip_root[name]
         logger.debug(f"Opened empty array {array.name} <{array.dtype}> @ {wip_path}")
         return array
