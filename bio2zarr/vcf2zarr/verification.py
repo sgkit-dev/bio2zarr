@@ -114,7 +114,7 @@ def assert_format_val_equal(vcf_val, zarr_val, vcf_type, vcf_number):
     assert isinstance(vcf_val, np.ndarray)
     if vcf_type in ("String", "Character"):
         assert len(vcf_val) == len(zarr_val)
-        for v, z in zip(vcf_val, zarr_val):
+        for v, z in zip(vcf_val, zarr_val, strict=False):
             if vcf_number == "1":
                 assert v == z
             else:

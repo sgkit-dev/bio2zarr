@@ -185,11 +185,11 @@ def validate(bed_path, zarr_path):
     assert call_genotype.shape[2] == 2
 
     row_id = 0
-    for bed_row, zarr_row in zip(bed_genotypes, call_genotype):
+    for bed_row, zarr_row in zip(bed_genotypes, call_genotype, strict=False):
         # print("ROW", row_id)
         # print(bed_row, zarr_row)
         row_id += 1
-        for bed_call, zarr_call in zip(bed_row, zarr_row):
+        for bed_call, zarr_call in zip(bed_row, zarr_row, strict=False):
             if bed_call == -127:
                 assert list(zarr_call) == [-1, -1]
             elif bed_call == 0:

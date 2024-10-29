@@ -289,7 +289,7 @@ def scan_vcf(path, target_num_partitions, *, local_alleles):
             samples=[Sample(sample_id) for sample_id in vcf.samples],
             contigs=[
                 Contig(contig_id, length)
-                for contig_id, length in zip(vcf.seqnames, contig_lengths)
+                for contig_id, length in zip(vcf.seqnames, contig_lengths, strict=False)
             ],
             filters=filters,
             fields=fields,
@@ -764,7 +764,9 @@ class IntermediateColumnarFormatField:
         chunk_cumulative_records = self.chunk_record_index(partition_id)
         chunk_num_records = np.diff(chunk_cumulative_records)
         for count, cumulative in zip(
-            chunk_num_records[start_chunk:], chunk_cumulative_records[start_chunk + 1 :]
+            chunk_num_records[start_chunk:],
+            chunk_cumulative_records[start_chunk + 1 :],
+            strict=False,
         ):
             path = partition_path / f"{cumulative}"
             chunk = self.read_chunk(path)
