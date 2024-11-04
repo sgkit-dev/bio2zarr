@@ -450,7 +450,7 @@ class IndexedVcf(contextlib.AbstractContextManager):
         return False
 
     def contig_record_counts(self):
-        d = dict(zip(self.sequence_names, self.index.record_counts, strict=False))
+        d = dict(zip(self.sequence_names, self.index.record_counts, strict=True))
         if self.file_type == VcfFileType.BCF:
             d = {k: v for k, v in d.items() if v > 0}
         return d
