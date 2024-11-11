@@ -760,6 +760,7 @@ class VcfZarrWriter:
         for ref, alt in zip(
             ref_field.iter_values(partition.start, partition.stop),
             alt_field.iter_values(partition.start, partition.stop),
+            strict=True,
         ):
             j = alleles.next_buffer_row()
             alleles.buff[j, :] = constants.STR_FILL
