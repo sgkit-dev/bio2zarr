@@ -99,7 +99,7 @@ class VcfField:
             ret = "U1"
         else:
             assert self.vcf_type == "String"
-            ret = "O"
+            ret = "str"
         return ret
 
 

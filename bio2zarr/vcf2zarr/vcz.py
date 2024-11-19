@@ -289,14 +289,14 @@ class VcfZarrSchema(core.JsonDataclass):
             ),
             fixed_field_spec(
                 name="variant_allele",
-                dtype="O",
+                dtype="str",
                 shape=(m, max_alleles),
                 dimensions=["variants", "alleles"],
                 chunks=(variants_chunk_size, max_alleles),
             ),
             fixed_field_spec(
                 name="variant_id",
-                dtype="O",
+                dtype="str",
             ),
             fixed_field_spec(
                 name="variant_id_mask",
@@ -400,9 +400,11 @@ class VcfZarr:
                 "avg_chunk_stored": core.display_size(int(stored / array.nchunks)),
                 "shape": str(array.shape),
                 "chunk_shape": str(array.chunks),
-                "compressor": str(array.compressor),
-                "filters": str(array.filters),
             }
+            if hasattr(array, "compressor"):
+                d["compressor"] = array.compressor
+            if hasattr(array, "filters"):
+                d["filters"] = array.filters
             data.append(d)
         return data
 
