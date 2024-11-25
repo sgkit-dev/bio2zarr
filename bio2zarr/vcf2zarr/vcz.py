@@ -13,7 +13,7 @@ import numcodecs
 import numpy as np
 import zarr
 
-from bio2zarr.zarr_utils import ZARR_FORMAT_KWARGS
+from bio2zarr.zarr_utils import ZARR_FORMAT_KWARGS, zarr_v3
 
 from .. import constants, core, provenance
 from . import icf
@@ -395,6 +395,8 @@ class VcfZarr:
         arrays = [(core.du(self.path / a.basename), a) for _, a in self.root.arrays()]
         arrays.sort(key=lambda x: x[0])
         for stored, array in reversed(arrays):
+            compressor = array.metadata.compressor if zarr_v3 else array.compressor
+            filters = array.metadata.filters if zarr_v3 else array.filters
             d = {
                 "name": array.name,
                 "dtype": str(array.dtype),
@@ -406,11 +408,9 @@ class VcfZarr:
                 "avg_chunk_stored": core.display_size(int(stored / array.nchunks)),
                 "shape": str(array.shape),
                 "chunk_shape": str(array.chunks),
+                "compressor": str(compressor),
+                "filters": str(filters),
             }
-            if hasattr(array, "compressor"):
-                d["compressor"] = array.compressor
-            if hasattr(array, "filters"):
-                d["filters"] = array.filters
             data.append(d)
         return data
 
