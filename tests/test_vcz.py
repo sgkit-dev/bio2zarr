@@ -130,7 +130,10 @@ class TestEncodeDimensionSeparator:
     @pytest.mark.parametrize("dimension_separator", ["\\", "X", []])
     def test_bad_value(self, tmp_path, icf_path, dimension_separator):
         zarr_path = tmp_path / "zarr"
-        with pytest.raises(ValueError, match="dimension_separator must be either"):
+        with pytest.raises(
+            ValueError,
+            match="dimension_separator must be either|Expected an '.' or '/' separator",
+        ):
             vcf2zarr.encode(
                 icf_path, zarr_path, dimension_separator=dimension_separator
             )
