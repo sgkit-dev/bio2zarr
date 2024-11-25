@@ -159,8 +159,11 @@ class ZarrArraySpec:
         # Include sizes for extra dimensions.
         for size in self.shape[dim:]:
             items *= size
-        dt = np.dtype(self.dtype)
-        return items * dt.itemsize
+        if self.dtype == "str":
+            itemsize = 8  # same as object itemsize
+        else:
+            itemsize = np.dtype(self.dtype).itemsize
+        return items * itemsize
 
     @property
     def variant_chunk_nbytes(self):
@@ -170,13 +173,16 @@ class ZarrArraySpec:
         chunk_items = self.chunks[0]
         for size in self.shape[1:]:
             chunk_items *= size
-        dt = np.dtype(self.dtype)
-        if dt.kind == "O" and "samples" in self.dimensions:
-            logger.warning(
-                f"Field {self.name} is a string; max memory usage may "
-                "be a significant underestimate"
-            )
-        return chunk_items * dt.itemsize
+        if self.dtype == "str":
+            itemsize = 8  # same as object itemsize
+            if "samples" in self.dimensions:
+                logger.warning(
+                    f"Field {self.name} is a string; max memory usage may "
+                    "be a significant underestimate"
+                )
+        else:
+            itemsize = np.dtype(self.dtype).itemsize
+        return chunk_items * itemsize
 
 
 ZARR_SCHEMA_FORMAT_VERSION = "0.4"
