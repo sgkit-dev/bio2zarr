@@ -24,7 +24,7 @@ dependencies = [
   "cyvcf2",
   "bed_reader",
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 classifiers = [
   "Development Status :: 4 - Beta",
   "License :: OSI Approved :: Apache Software License",
@@ -35,6 +35,7 @@ classifiers = [
   "Intended Audience :: Science/Research",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -73,8 +74,8 @@ testpaths = "tests"
 addopts = "--cov=bio2zarr --cov-report term-missing"
 
 [tool.ruff]
-# Assume Python 3.10
-target-version = "py310"
+# Assume Python 3.9
+target-version = "py39"
 
 # Same as Black.
 line-length = 88
