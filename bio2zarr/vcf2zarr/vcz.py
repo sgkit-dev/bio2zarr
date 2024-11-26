@@ -902,6 +902,63 @@ class VcfZarrWriter:
         logger.info("Consolidating Zarr metadata")
         zarr.consolidate_metadata(self.path)
 
+    #######################
+    # index
+    #######################
+
+    def create_index(self):
+        """Create an index to support efficient region queries."""
+
+        store = zarr.DirectoryStore(self.path)
+        root = zarr.open_group(store=store, mode="r+")
+
+        contig = root["variant_contig"]
+        pos = root["variant_position"]
+        length = root["variant_length"]
+
+        assert contig.cdata_shape == pos.cdata_shape
+
+        index = []
+
+        logger.info("Creating region index")
+        for v_chunk in range(pos.cdata_shape[0]):
+            c = contig.blocks[v_chunk]
+            p = pos.blocks[v_chunk]
+            e = p + length.blocks[v_chunk] - 1
+
+            # create a row for each contig in the chunk
+            d = np.diff(c, append=-1)
+            c_start_idx = 0
+            for c_end_idx in np.nonzero(d)[0]:
+                assert c[c_start_idx] == c[c_end_idx]
+                index.append(
+                    (
+                        v_chunk,  # chunk index
+                        c[c_start_idx],  # contig ID
+                        p[c_start_idx],  # start
+                        p[c_end_idx],  # end
+                        np.max(e[c_start_idx : c_end_idx + 1]),  # max end
+                        c_end_idx - c_start_idx + 1,  # num records
+                    )
+                )
+                c_start_idx = c_end_idx + 1
+
+        index = np.array(index, dtype=np.int32)
+        array = root.array(
+            "region_index",
+            data=index,
+            shape=index.shape,
+            dtype=index.dtype,
+            compressor=numcodecs.Blosc("zstd", clevel=9, shuffle=0),
+        )
+        array.attrs["_ARRAY_DIMENSIONS"] = [
+            "region_index_values",
+            "region_index_fields",
+        ]
+
+        logger.info("Consolidating Zarr metadata")
+        zarr.consolidate_metadata(self.path)
+
     ######################
     # encode_all_partitions
     ######################
@@ -1004,6 +1061,7 @@ def encode(
         max_memory=max_memory,
     )
     vzw.finalise(show_progress)
+    vzw.create_index()
 
 
 def encode_init(
