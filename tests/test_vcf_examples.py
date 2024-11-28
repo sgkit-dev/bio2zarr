@@ -863,6 +863,7 @@ class Test1000G2020AnnotationsExample:
             "contig_id",
             "contig_length",
             "filter_id",
+            "region_index",
             "sample_id",
         ]
         assert sorted(list(ds)) == sorted(info_vars + standard_vars)
