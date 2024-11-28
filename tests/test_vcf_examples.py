@@ -12,6 +12,13 @@ import xarray.testing as xt
 from bio2zarr import constants, provenance, vcf2zarr
 
 
+def assert_dataset_equal(ds1, ds2, drop_vars=None):
+    if drop_vars is None:
+        xt.assert_equal(ds1, ds2)
+    else:
+        xt.assert_equal(ds1.drop_vars(drop_vars), ds2.drop_vars(drop_vars))
+
+
 class TestSmallExample:
     data_path = "tests/data/vcf/sample.vcf.gz"
 
@@ -273,7 +280,7 @@ class TestSmallExample:
         ds2 = sg.load_dataset(out)
         # print(ds2.call_genotype.values)
         # print(ds.call_genotype.values)
-        xt.assert_equal(ds, ds2)
+        assert_dataset_equal(ds, ds2, drop_vars=["region_index"])
         assert ds2.call_DP.chunks == (y_chunks, x_chunks)
         assert ds2.call_GQ.chunks == (y_chunks, x_chunks)
         assert ds2.call_HQ.chunks == (y_chunks, x_chunks, (2,))
@@ -341,8 +348,10 @@ class TestSmallExample:
             max_variant_chunks=max_variant_chunks,
         )
         ds2 = sg.load_dataset(out)
-        xt.assert_equal(
-            ds.isel(variants=slice(None, variants_chunk_size * max_variant_chunks)), ds2
+        assert_dataset_equal(
+            ds.isel(variants=slice(None, variants_chunk_size * max_variant_chunks)),
+            ds2,
+            drop_vars=["region_index"],
         )
 
     @pytest.mark.parametrize("worker_processes", [0, 1, 2])
@@ -355,7 +364,7 @@ class TestSmallExample:
             worker_processes=worker_processes,
         )
         ds2 = sg.load_dataset(out)
-        xt.assert_equal(ds, ds2)
+        assert_dataset_equal(ds, ds2, drop_vars=["region_index"])
 
     def test_inspect(self, tmp_path):
         # TODO pretty weak test, we should be doing this better somewhere else
@@ -391,8 +400,8 @@ class TestSmallExample:
             ds_c1 = ds.isel(variants=ds["variant_contig"].values == id1)
             id2 = contig_id_2.index(contig)
             ds_c2 = ds2.isel(variants=ds2["variant_contig"].values == id2)
-            drop_vars = ["contig_id", "variant_contig"]
-            xt.assert_equal(ds_c1.drop_vars(drop_vars), ds_c2.drop_vars(drop_vars))
+            drop_vars = ["contig_id", "variant_contig", "region_index"]
+            assert_dataset_equal(ds_c1, ds_c2, drop_vars=drop_vars)
 
     def test_vcf_dimensions(self, ds):
         assert ds.call_genotype.dims == ("variants", "samples", "ploidy")
