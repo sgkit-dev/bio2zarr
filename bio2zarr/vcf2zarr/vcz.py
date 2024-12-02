@@ -950,6 +950,7 @@ class VcfZarrWriter:
             shape=index.shape,
             dtype=index.dtype,
             compressor=numcodecs.Blosc("zstd", clevel=9, shuffle=0),
+            dimension_separator=self.metadata.dimension_separator,
         )
         array.attrs["_ARRAY_DIMENSIONS"] = [
             "region_index_values",
