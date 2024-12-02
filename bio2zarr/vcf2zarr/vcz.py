@@ -13,6 +13,8 @@ import numcodecs
 import numpy as np
 import zarr
 
+from bio2zarr.zarr_utils import ZARR_FORMAT_KWARGS
+
 from .. import constants, core, provenance
 from . import icf
 
@@ -532,8 +534,7 @@ class VcfZarrWriter:
         )
 
         self.path.mkdir()
-        store = zarr.DirectoryStore(self.path)
-        root = zarr.group(store=store)
+        root = zarr.open(store=self.path, mode="a", **ZARR_FORMAT_KWARGS)
         root.attrs.update(
             {
                 "vcf_zarr_version": "0.2",
@@ -549,8 +550,7 @@ class VcfZarrWriter:
         self.wip_path.mkdir()
         self.arrays_path.mkdir()
         self.partitions_path.mkdir()
-        store = zarr.DirectoryStore(self.arrays_path)
-        root = zarr.group(store=store)
+        root = zarr.open(store=self.arrays_path, mode="a", **ZARR_FORMAT_KWARGS)
 
         total_chunks = 0
         for field in self.schema.fields:
@@ -574,7 +574,8 @@ class VcfZarrWriter:
             raise ValueError("Subsetting or reordering samples not supported currently")
         array = root.array(
             "sample_id",
-            [sample.id for sample in self.schema.samples],
+            data=[sample.id for sample in self.schema.samples],
+            shape=len(self.schema.samples),
             dtype="str",
             compressor=DEFAULT_ZARR_COMPRESSOR,
             chunks=(self.schema.samples_chunk_size,),
@@ -585,7 +586,8 @@ class VcfZarrWriter:
     def encode_contig_id(self, root):
         array = root.array(
             "contig_id",
-            [contig.id for contig in self.schema.contigs],
+            data=[contig.id for contig in self.schema.contigs],
+            shape=len(self.schema.contigs),
             dtype="str",
             compressor=DEFAULT_ZARR_COMPRESSOR,
         )
@@ -593,7 +595,8 @@ class VcfZarrWriter:
         if all(contig.length is not None for contig in self.schema.contigs):
             array = root.array(
                 "contig_length",
-                [contig.length for contig in self.schema.contigs],
+                data=[contig.length for contig in self.schema.contigs],
+                shape=len(self.schema.contigs),
                 dtype=np.int64,
                 compressor=DEFAULT_ZARR_COMPRESSOR,
             )
@@ -604,7 +607,8 @@ class VcfZarrWriter:
         # https://github.com/sgkit-dev/vcf-zarr-spec/issues/19
         array = root.array(
             "filter_id",
-            [filt.id for filt in self.schema.filters],
+            data=[filt.id for filt in self.schema.filters],
+            shape=len(self.schema.filters),
             dtype="str",
             compressor=DEFAULT_ZARR_COMPRESSOR,
         )
@@ -618,7 +622,7 @@ class VcfZarrWriter:
         # Truncate the variants dimension is max_variant_chunks was specified
         shape[0] = variants_dim_size
         a = root.empty(
-            array_spec.name,
+            name=array_spec.name,
             shape=shape,
             chunks=array_spec.chunks,
             dtype=array_spec.dtype,
@@ -626,6 +630,7 @@ class VcfZarrWriter:
             filters=[numcodecs.get_codec(filt) for filt in array_spec.filters],
             object_codec=object_codec,
             dimension_separator=self.metadata.dimension_separator,
+            **ZARR_FORMAT_KWARGS,
         )
         a.attrs.update(
             {
@@ -690,9 +695,7 @@ class VcfZarrWriter:
         # Overwrite any existing WIP files
         wip_path = self.wip_partition_array_path(partition_index, name)
         shutil.copytree(src, wip_path, dirs_exist_ok=True)
-        store = zarr.DirectoryStore(self.wip_partition_path(partition_index))
-        wip_root = zarr.group(store=store)
-        array = wip_root[name]
+        array = zarr.open_array(store=wip_path, mode="a")
         logger.debug(f"Opened empty array {array.name} <{array.dtype}> @ {wip_path}")
         return array
 
@@ -909,8 +912,7 @@ class VcfZarrWriter:
     def create_index(self):
         """Create an index to support efficient region queries."""
 
-        store = zarr.DirectoryStore(self.path)
-        root = zarr.open_group(store=store, mode="r+")
+        root = zarr.open_group(store=self.path, mode="r+")
 
         contig = root["variant_contig"]
         pos = root["variant_position"]
