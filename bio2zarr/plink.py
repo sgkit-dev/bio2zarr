@@ -6,6 +6,8 @@ import numcodecs
 import numpy as np
 import zarr
 
+from bio2zarr.zarr_utils import ZARR_FORMAT_KWARGS
+
 from . import core
 
 logger = logging.getLogger(__name__)
@@ -17,8 +19,7 @@ def encode_genotypes_slice(bed_path, zarr_path, start, stop):
     # the correct approach is, but it is important to note that the
     # 0th allele is *not* necessarily the REF for these datasets.
     bed = bed_reader.open_bed(bed_path, num_threads=1, count_A1=False)
-    store = zarr.DirectoryStore(zarr_path)
-    root = zarr.group(store=store)
+    root = zarr.open(store=zarr_path, mode="a", **ZARR_FORMAT_KWARGS)
     gt = core.BufferedArray(root["call_genotype"], start)
     gt_mask = core.BufferedArray(root["call_genotype_mask"], start)
     gt_phased = core.BufferedArray(root["call_genotype_phased"], start)
@@ -73,8 +74,7 @@ def convert(
     if variants_chunk_size is None:
         variants_chunk_size = 10_000
 
-    store = zarr.DirectoryStore(zarr_path)
-    root = zarr.group(store=store, overwrite=True)
+    root = zarr.open_group(store=zarr_path, mode="w", **ZARR_FORMAT_KWARGS)
 
     ploidy = 2
     shape = [m, n]
@@ -88,7 +88,8 @@ def convert(
 
     a = root.array(
         "sample_id",
-        bed.iid,
+        data=bed.iid,
+        shape=bed.iid.shape,
         dtype="str",
         compressor=default_compressor,
         chunks=(samples_chunk_size,),
@@ -100,7 +101,8 @@ def convert(
     # fetching repeatedly from bim file
     a = root.array(
         "variant_position",
-        bed.bp_position,
+        data=bed.bp_position,
+        shape=bed.bp_position.shape,
         dtype=np.int32,
         compressor=default_compressor,
         chunks=(variants_chunk_size,),
@@ -111,7 +113,8 @@ def convert(
     alleles = np.stack([bed.allele_1, bed.allele_2], axis=1)
     a = root.array(
         "variant_allele",
-        alleles,
+        data=alleles,
+        shape=alleles.shape,
         dtype="str",
         compressor=default_compressor,
         chunks=(variants_chunk_size,),
@@ -121,31 +124,34 @@ def convert(
 
     # TODO remove this?
     a = root.empty(
-        "call_genotype_phased",
+        name="call_genotype_phased",
         dtype="bool",
         shape=list(shape),
         chunks=list(chunks),
         compressor=default_compressor,
+        **ZARR_FORMAT_KWARGS,
     )
     a.attrs["_ARRAY_DIMENSIONS"] = list(dimensions)
 
     shape += [ploidy]
     dimensions += ["ploidy"]
     a = root.empty(
-        "call_genotype",
+        name="call_genotype",
         dtype="i1",
         shape=list(shape),
         chunks=list(chunks),
         compressor=default_compressor,
+        **ZARR_FORMAT_KWARGS,
     )
     a.attrs["_ARRAY_DIMENSIONS"] = list(dimensions)
 
     a = root.empty(
-        "call_genotype_mask",
+        name="call_genotype_mask",
         dtype="bool",
         shape=list(shape),
         chunks=list(chunks),
         compressor=default_compressor,
+        **ZARR_FORMAT_KWARGS,
     )
     a.attrs["_ARRAY_DIMENSIONS"] = list(dimensions)
 
@@ -154,7 +160,7 @@ def convert(
     num_slices = max(1, worker_processes * 4)
     slices = core.chunk_aligned_slices(a, num_slices)
 
-    total_chunks = sum(a.nchunks for a in root.values())
+    total_chunks = sum(a.nchunks for _, a in root.arrays())
 
     progress_config = core.ProgressConfig(
         total=total_chunks, title="Convert", units="chunks", show=show_progress
@@ -171,8 +177,7 @@ def convert(
 # FIXME do this more efficiently - currently reading the whole thing
 # in for convenience, and also comparing call-by-call
 def validate(bed_path, zarr_path):
-    store = zarr.DirectoryStore(zarr_path)
-    root = zarr.group(store=store)
+    root = zarr.open(store=zarr_path, mode="r")
     call_genotype = root["call_genotype"][:]
 
     bed = bed_reader.open_bed(bed_path, count_A1=False, num_threads=1)
