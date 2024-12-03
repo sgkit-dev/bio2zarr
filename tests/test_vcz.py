@@ -193,7 +193,7 @@ class TestSchemaEncode:
         root = zarr.open(zarr_path)
         for array_spec in schema.fields:
             a = root[array_spec.name]
-            compressor = a.metadata.compressor if zarr_v3 else a.compressor
+            compressor = a.metadata.compressor if zarr_v3() else a.compressor
             assert compressor.cname == cname
             assert compressor.clevel == clevel
             assert compressor.shuffle == shuffle

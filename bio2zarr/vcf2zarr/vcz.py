@@ -395,8 +395,8 @@ class VcfZarr:
         arrays = [(core.du(self.path / a.basename), a) for _, a in self.root.arrays()]
         arrays.sort(key=lambda x: x[0])
         for stored, array in reversed(arrays):
-            compressor = array.metadata.compressor if zarr_v3 else array.compressor
-            filters = array.metadata.filters if zarr_v3 else array.filters
+            compressor = array.metadata.compressor if zarr_v3() else array.compressor
+            filters = array.metadata.filters if zarr_v3() else array.filters
             d = {
                 "name": array.name,
                 "dtype": str(array.dtype),
