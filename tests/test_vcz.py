@@ -9,6 +9,7 @@ import zarr
 from bio2zarr import core, vcf2zarr
 from bio2zarr.vcf2zarr import icf as icf_mod
 from bio2zarr.vcf2zarr import vcz as vcz_mod
+from bio2zarr.zarr_utils import zarr_v3
 
 
 @pytest.fixture(scope="module")
@@ -130,7 +131,10 @@ class TestEncodeDimensionSeparator:
     @pytest.mark.parametrize("dimension_separator", ["\\", "X", []])
     def test_bad_value(self, tmp_path, icf_path, dimension_separator):
         zarr_path = tmp_path / "zarr"
-        with pytest.raises(ValueError, match="dimension_separator must be either"):
+        with pytest.raises(
+            ValueError,
+            match="dimension_separator must be either|Expected an '.' or '/' separator",
+        ):
             vcf2zarr.encode(
                 icf_path, zarr_path, dimension_separator=dimension_separator
             )
@@ -189,9 +193,10 @@ class TestSchemaEncode:
         root = zarr.open(zarr_path)
         for array_spec in schema.fields:
             a = root[array_spec.name]
-            assert a.compressor.cname == cname
-            assert a.compressor.clevel == clevel
-            assert a.compressor.shuffle == shuffle
+            compressor = a.metadata.compressor if zarr_v3() else a.compressor
+            assert compressor.cname == cname
+            assert compressor.clevel == clevel
+            assert compressor.shuffle == shuffle
 
     @pytest.mark.parametrize("dtype", ["i4", "i8"])
     def test_genotype_dtype(self, tmp_path, icf_path, dtype):
