@@ -461,7 +461,9 @@ class TestWithMocks:
     def test_mkschema(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
-            cli.vcf2zarr_main, f"mkschema {tmp_path}", catch_exceptions=False
+            cli.vcf2zarr_main,
+            f"mkschema {tmp_path} --variants-chunk-size=3 " "--samples-chunk-size=4",
+            catch_exceptions=False,
         )
         assert result.exit_code == 0
         assert len(result.stdout) == 0
@@ -704,6 +706,25 @@ class TestVcfEndToEnd:
         assert result.exit_code == 0
         # Arbitrary check
         assert "CHROM" in result.stdout
+
+    def test_mkschema(self, tmp_path):
+        icf_path = tmp_path / "icf"
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcf2zarr_main,
+            f"explode {self.vcf_path} {icf_path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        result = runner.invoke(
+            cli.vcf2zarr_main,
+            f"mkschema {icf_path} --variants-chunk-size=3 " "--samples-chunk-size=2",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        d = json.loads(result.stdout)
+        assert d["samples_chunk_size"] == 2
+        assert d["variants_chunk_size"] == 3
 
     def test_encode(self, tmp_path):
         icf_path = tmp_path / "icf"

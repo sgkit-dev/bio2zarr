@@ -5,6 +5,8 @@ Breaking changes
 - ICF metadata format version bumped to ensure long-term compatility between numpy 1.26.x
   and numpy >= 2. Existing ICFs will need to be recreated.
 
+- Add chunksize options to mkschema (issue:294)
+
 # 0.1.1 2024-06-19
 
 Maintenance release:

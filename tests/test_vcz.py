@@ -136,6 +136,35 @@ class TestEncodeDimensionSeparator:
             )
 
 
+class TestSchemaChunkSize:
+    @pytest.mark.parametrize(
+        ("samples_chunk_size", "variants_chunk_size"),
+        [
+            (1, 2),
+            (2, 1),
+            (3, 5),
+        ],
+    )
+    def test_chunk_sizes(self, icf_path, samples_chunk_size, variants_chunk_size):
+        icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        schema = vcf2zarr.VcfZarrSchema.generate(
+            icf,
+            variants_chunk_size=variants_chunk_size,
+            samples_chunk_size=samples_chunk_size,
+        )
+        assert schema.samples_chunk_size == samples_chunk_size
+        assert schema.variants_chunk_size == variants_chunk_size
+        found = 0
+        for field in schema.fields:
+            assert field.dimensions[0] == "variants"
+            assert field.chunks[0] == variants_chunk_size
+            if "samples" in field.dimensions:
+                dim = field.dimensions.index("samples")
+                assert field.chunks[dim] == samples_chunk_size
+                found += 1
+        assert found > 0
+
+
 class TestSchemaJsonRoundTrip:
     def assert_json_round_trip(self, schema):
         schema2 = vcf2zarr.VcfZarrSchema.fromjson(schema.asjson())
