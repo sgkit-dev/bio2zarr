@@ -338,12 +338,19 @@ def inspect(path, verbose):
 
 @click.command
 @icf_path
-def mkschema(icf_path):
+@variants_chunk_size
+@samples_chunk_size
+def mkschema(icf_path, variants_chunk_size, samples_chunk_size):
     """
     Generate a schema for zarr encoding
     """
     stream = click.get_text_stream("stdout")
-    vcf2zarr.mkschema(icf_path, stream)
+    vcf2zarr.mkschema(
+        icf_path,
+        stream,
+        variants_chunk_size=variants_chunk_size,
+        samples_chunk_size=samples_chunk_size,
+    )
 
 
 @click.command

@@ -1027,9 +1027,13 @@ class VcfZarrWriter:
                 pwm.submit(self.encode_partition, partition_index)
 
 
-def mkschema(if_path, out):
+def mkschema(if_path, out, *, variants_chunk_size=None, samples_chunk_size=None):
     store = icf.IntermediateColumnarFormat(if_path)
-    spec = VcfZarrSchema.generate(store)
+    spec = VcfZarrSchema.generate(
+        store,
+        variants_chunk_size=variants_chunk_size,
+        samples_chunk_size=samples_chunk_size,
+    )
     out.write(spec.asjson())
 
 
