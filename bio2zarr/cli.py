@@ -585,13 +585,11 @@ plink2zarr.add_command(convert_plink)
 @force
 def bed2zarr_main(bed_path, zarr_path, verbose, force):
     """
-    Convert BED file to the Zarr format. The BED regions will be
-    converted to binary-encoded arrays whose length is equal to the
-    length of the reference genome. The BED file regions are used to
-    mask the reference genome, where the masked regions are set to 1
-    and the unmasked regions are set to 0.
+    Convert BED file to the Zarr format. Each BED column will be
+    converted to a Zarr array with appropriate encoding.
 
-    The BED file must be compressed and tabix-indexed.
+    The BED file must be compressed and tabix-indexed. BED9 and BED12
+    formats are currently not supported.
     """
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)
