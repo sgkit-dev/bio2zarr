@@ -128,6 +128,14 @@ samples_chunk_size = click.option(
     help="Chunk size in the samples dimension",
 )
 
+records_chunk_size = click.option(
+    "-r",
+    "--records-chunk-size",
+    type=int,
+    default=None,
+    help="Chunk size in the records dimension",
+)
+
 schema = click.option("-s", "--schema", default=None, type=click.Path(exists=True))
 
 max_variant_chunks = click.option(
@@ -581,9 +589,18 @@ plink2zarr.add_command(convert_plink)
     type=click.Path(exists=True, dir_okay=False),
 )
 @new_zarr_path
+@schema
+@records_chunk_size
 @verbose
 @force
-def bed2zarr_main(bed_path, zarr_path, verbose, force):
+def bed2zarr_main(
+    bed_path,
+    zarr_path,
+    schema,
+    records_chunk_size,    
+    verbose,
+    force,
+):
     """
     Convert BED file to the Zarr format. Each BED column will be
     converted to a Zarr array with appropriate encoding.
@@ -596,6 +613,8 @@ def bed2zarr_main(bed_path, zarr_path, verbose, force):
     bed2zarr.bed2zarr(
         bed_path,
         zarr_path,
+        records_chunk_size=records_chunk_size,
+        schema_path=schema,
     )
 
 
