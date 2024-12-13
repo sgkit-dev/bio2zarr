@@ -13,7 +13,7 @@ import numcodecs
 import numpy as np
 import zarr
 
-from bio2zarr.zarr_utils import ZARR_FORMAT_KWARGS
+from bio2zarr.zarr_utils import ZARR_FORMAT_KWARGS, zarr_v3
 
 from .. import constants, core, provenance
 from . import icf
@@ -159,8 +159,11 @@ class ZarrArraySpec:
         # Include sizes for extra dimensions.
         for size in self.shape[dim:]:
             items *= size
-        dt = np.dtype(self.dtype)
-        return items * dt.itemsize
+        if self.dtype == "str":
+            itemsize = 8  # same as object itemsize
+        else:
+            itemsize = np.dtype(self.dtype).itemsize
+        return items * itemsize
 
     @property
     def variant_chunk_nbytes(self):
@@ -170,13 +173,16 @@ class ZarrArraySpec:
         chunk_items = self.chunks[0]
         for size in self.shape[1:]:
             chunk_items *= size
-        dt = np.dtype(self.dtype)
-        if dt.kind == "O" and "samples" in self.dimensions:
-            logger.warning(
-                f"Field {self.name} is a string; max memory usage may "
-                "be a significant underestimate"
-            )
-        return chunk_items * dt.itemsize
+        if self.dtype == "str":
+            itemsize = 8  # same as object itemsize
+            if "samples" in self.dimensions:
+                logger.warning(
+                    f"Field {self.name} is a string; max memory usage may "
+                    "be a significant underestimate"
+                )
+        else:
+            itemsize = np.dtype(self.dtype).itemsize
+        return chunk_items * itemsize
 
 
 ZARR_SCHEMA_FORMAT_VERSION = "0.4"
@@ -289,14 +295,14 @@ class VcfZarrSchema(core.JsonDataclass):
             ),
             fixed_field_spec(
                 name="variant_allele",
-                dtype="O",
+                dtype="str",
                 shape=(m, max_alleles),
                 dimensions=["variants", "alleles"],
                 chunks=(variants_chunk_size, max_alleles),
             ),
             fixed_field_spec(
                 name="variant_id",
-                dtype="O",
+                dtype="str",
             ),
             fixed_field_spec(
                 name="variant_id_mask",
@@ -389,6 +395,8 @@ class VcfZarr:
         arrays = [(core.du(self.path / a.basename), a) for _, a in self.root.arrays()]
         arrays.sort(key=lambda x: x[0])
         for stored, array in reversed(arrays):
+            compressor = array.metadata.compressor if zarr_v3() else array.compressor
+            filters = array.metadata.filters if zarr_v3() else array.filters
             d = {
                 "name": array.name,
                 "dtype": str(array.dtype),
@@ -400,8 +408,8 @@ class VcfZarr:
                 "avg_chunk_stored": core.display_size(int(stored / array.nchunks)),
                 "shape": str(array.shape),
                 "chunk_shape": str(array.chunks),
-                "compressor": str(array.compressor),
-                "filters": str(array.filters),
+                "compressor": str(compressor),
+                "filters": str(filters),
             }
             data.append(d)
         return data
