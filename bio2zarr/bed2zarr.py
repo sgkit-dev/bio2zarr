@@ -1,9 +1,6 @@
 import dataclasses
-import json
 import logging
 import math
-import pathlib
-import shutil
 from enum import Enum
 from typing import Any
 
@@ -11,9 +8,8 @@ import numcodecs
 import numpy as np
 import pandas as pd
 import xarray as xr
-import zarr
 
-from . import core, provenance
+from . import core
 
 logger = logging.getLogger(__name__)
 
