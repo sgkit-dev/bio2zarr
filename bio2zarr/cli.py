@@ -589,14 +589,12 @@ plink2zarr.add_command(convert_plink)
     type=click.Path(exists=True, dir_okay=False),
 )
 @new_zarr_path
-@schema
 @records_chunk_size
 @verbose
 @force
 def bed2zarr_main(
     bed_path,
     zarr_path,
-    schema,
     records_chunk_size,    
     verbose,
     force,
@@ -614,7 +612,6 @@ def bed2zarr_main(
         bed_path,
         zarr_path,
         records_chunk_size=records_chunk_size,
-        schema_path=schema,
     )
 
 

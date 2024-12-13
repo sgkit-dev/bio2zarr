@@ -62,47 +62,6 @@ def bed_path(bed_data, tmp_path):
     return out
 
 
-@pytest.fixture()
-def schema_path(bed_path, tmp_path_factory):
-    out = tmp_path_factory.mktemp("data") / "example.schema.json"
-    with open(out, "w") as f:
-        bed2zarr.mkschema(bed_path, f)
-    return out
-
-
-@pytest.fixture()
-def schema(schema_path):
-    with open(schema_path) as f:
-        return bed2zarr.BedZarrSchema.fromjson(f.read())
-
-
-class TestDefaultSchema:
-    @pytest.mark.parametrize("bed_data", SUPPORTED_BED_FORMATS, indirect=True)
-    def test_format_version(self, schema):
-        assert schema.format_version == bed2zarr.ZARR_SCHEMA_FORMAT_VERSION
-
-
-class TestSchema:
-    @pytest.mark.parametrize("bed_data", SUPPORTED_BED_FORMATS, indirect=True)
-    def test_generate_schema(self, bed_path, request):
-        bedspec = request.node.callspec.params["bed_data"]
-        bed_type = bed2zarr.BedType(bedspec)
-        data, metadata = bed2zarr.parse_bed(bed_path)
-        schema = bed2zarr.BedZarrSchema.generate(
-            metadata, records_chunk_size=metadata.records_chunk_size
-        )
-        assert schema.bed_type == bed_type.name
-        assert schema.records_chunk_size == 1000
-        assert len(schema.contigs) == 1
-        assert schema.contigs[0].id == "chr22"
-        if bed_type.value >= bed2zarr.BedType.BED4.value:
-            assert len(schema.names) == 2
-            assert schema.names[0].id == "cloneA"
-            assert schema.names[1].id == "cloneB"
-        if bed_type == bed2zarr.BedType.BED12:
-            assert len(schema.fields) == 12
-
-
 class TestBed2Zarr:
     @pytest.mark.parametrize("bed_data", SUPPORTED_BED_FORMATS, indirect=True)
     def test_bed2zarr(self, bed_path, bed_df, tmp_path, request):
