@@ -7,13 +7,14 @@ from typing import Any
 import numcodecs
 import numpy as np
 import pandas as pd
-import xarray as xr
+import zarr
 
-from . import core
+from . import core, provenance
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_ZARR_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7)
+BED_ZARR_VERSION = 0.1
 
 
 class BedType(Enum):
@@ -200,18 +201,29 @@ def bed2zarr(
     fields = update_field_bounds(data, bed_type)
     dtypes = {f.name: f.smallest_dtype() for f in fields}
     data.index.name = "records"
-    ds = xr.Dataset.from_dataframe(data)
-    for k, v in dtypes.items():
-        ds[k] = ds[k].astype(v)
-    if records_chunk_size is None:
-        records_chunk_size = len(data)
-    chunks = {
-        "records": records_chunk_size,
-        "contigs": len(contig_id),
-    }
-    ds["contig_id"] = xr.DataArray(contig_id, dims=["contigs"])
+    data = data.astype(dtypes)
+    store = zarr.DirectoryStore(zarr_path)
+    root = zarr.group(store=store)
+    root.attrs.update(
+        {
+            "bed_zarr_version": f"{BED_ZARR_VERSION}",
+            "source": f"bio2zarr-{provenance.__version__}",
+        }
+    )
+    for field in fields[0 : bed_type.value]:
+        if field.name == "strand":
+            root.array(
+                field.name,
+                data[field.name].values,
+                chunks=(records_chunk_size,),
+                dtype="<U1",
+            )
+        else:
+            root.array(
+                field.name,
+                data[field.name].values,
+                chunks=(records_chunk_size,),
+            )
+    root.array("contig_id", contig_id, chunks=(len(contig_id),))
     if bed_type.value >= BedType.BED4.value:
-        ds["name_id"] = xr.DataArray(name_id, dims=["names"])
-        chunks["names"] = len(name_id)
-    ds = ds.chunk(chunks)
-    ds.to_zarr(zarr_path, mode="w")
+        root.array("name_id", name_id, chunks=(len(name_id),))

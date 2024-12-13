@@ -85,6 +85,7 @@ class TestBed2Zarr:
             np.testing.assert_array_equal(root["thickStart"][:], bed_df[6].values)
         if bed_type.value >= bed2zarr.BedType.BED8.value:
             np.testing.assert_array_equal(root["thickEnd"][:], bed_df[7].values)
+        print(zarr_path)
 
 
 class TestBedData:
