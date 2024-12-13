@@ -203,9 +203,10 @@ def bed2zarr(
     data, contig_id, name_id = encode_categoricals(data, bed_type)
     fields = update_field_bounds(data, bed_type)
     dtypes = {f.name: f.smallest_dtype() for f in fields}
-    data = data.astype(dtypes)
     data.index.name = "records"
     ds = xr.Dataset.from_dataframe(data)
+    for k, v in dtypes.items():
+        ds[k] = ds[k].astype(v)
     if records_chunk_size is None:
         records_chunk_size = len(data)
     chunks = {
