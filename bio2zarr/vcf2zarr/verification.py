@@ -4,6 +4,8 @@ import numpy.testing as nt
 import tqdm
 import zarr
 
+from bio2zarr.zarr_utils import first_dim_iter
+
 from .. import constants
 
 
@@ -152,7 +154,7 @@ def verify(vcf_path, zarr_path, show_progress=False):
     vid = root["variant_id"][:]
     call_genotype = None
     if "call_genotype" in root and root["call_genotype"].size > 0:
-        call_genotype = iter(root["call_genotype"])
+        call_genotype = first_dim_iter(root["call_genotype"])
 
     vcf = cyvcf2.VCF(vcf_path)
     format_headers = {}
@@ -170,12 +172,16 @@ def verify(vcf_path, zarr_path, show_progress=False):
             vcf_name = colname.split("_", 1)[1]
             vcf_type = format_headers[vcf_name]["Type"]
             vcf_number = format_headers[vcf_name]["Number"]
-            format_fields[vcf_name] = vcf_type, vcf_number, iter(root[colname])
+            format_fields[vcf_name] = (
+                vcf_type,
+                vcf_number,
+                first_dim_iter(root[colname]),
+            )
         if colname.startswith("variant"):
             name = colname.split("_", 1)[1]
             if name.isupper():
                 vcf_type = info_headers[name]["Type"]
-                info_fields[name] = vcf_type, iter(root[colname])
+                info_fields[name] = vcf_type, first_dim_iter(root[colname])
 
     first_pos = next(vcf).POS
     start_index = np.searchsorted(pos, first_pos)
