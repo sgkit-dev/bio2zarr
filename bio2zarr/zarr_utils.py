@@ -11,3 +11,9 @@ if zarr_v3():
     ZARR_FORMAT_KWARGS = dict(zarr_format=2)
 else:
     ZARR_FORMAT_KWARGS = dict()
+
+
+# See discussion in https://github.com/zarr-developers/zarr-python/issues/2529
+def first_dim_iter(z):
+    for chunk in range(z.cdata_shape[0]):
+        yield from z.blocks[chunk]
