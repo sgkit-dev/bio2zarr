@@ -572,7 +572,7 @@ class VcfZarrWriter:
     def encode_samples(self, root):
         if self.schema.samples != self.icf.metadata.samples:
             raise ValueError("Subsetting or reordering samples not supported currently")
-        array = root.create_dataset(
+        array = root.array(
             "sample_id",
             data=[sample.id for sample in self.schema.samples],
             shape=len(self.schema.samples),
@@ -584,7 +584,7 @@ class VcfZarrWriter:
         logger.debug("Samples done")
 
     def encode_contig_id(self, root):
-        array = root.create_dataset(
+        array = root.array(
             "contig_id",
             data=[contig.id for contig in self.schema.contigs],
             shape=len(self.schema.contigs),
@@ -593,7 +593,7 @@ class VcfZarrWriter:
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
         if all(contig.length is not None for contig in self.schema.contigs):
-            array = root.create_dataset(
+            array = root.array(
                 "contig_length",
                 data=[contig.length for contig in self.schema.contigs],
                 shape=len(self.schema.contigs),
@@ -605,7 +605,7 @@ class VcfZarrWriter:
     def encode_filter_id(self, root):
         # TODO need a way to store description also
         # https://github.com/sgkit-dev/vcf-zarr-spec/issues/19
-        array = root.create_dataset(
+        array = root.array(
             "filter_id",
             data=[filt.id for filt in self.schema.filters],
             shape=len(self.schema.filters),
@@ -955,7 +955,7 @@ class VcfZarrWriter:
         kwargs = {}
         if not zarr_v3():
             kwargs["dimension_separator"] = self.metadata.dimension_separator
-        array = root.create_dataset(
+        array = root.array(
             "region_index",
             data=index,
             shape=index.shape,
