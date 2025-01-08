@@ -86,7 +86,7 @@ def convert(
     # we're not using the best Blosc settings for genotypes here.
     default_compressor = numcodecs.Blosc(cname="zstd", clevel=7)
 
-    a = root.create_dataset(
+    a = root.array(
         "sample_id",
         data=bed.iid,
         shape=bed.iid.shape,
@@ -99,7 +99,7 @@ def convert(
 
     # TODO encode these in slices - but read them in one go to avoid
     # fetching repeatedly from bim file
-    a = root.create_dataset(
+    a = root.array(
         "variant_position",
         data=bed.bp_position,
         shape=bed.bp_position.shape,
@@ -111,7 +111,7 @@ def convert(
     logger.debug("encoded variant_position")
 
     alleles = np.stack([bed.allele_1, bed.allele_2], axis=1)
-    a = root.create_dataset(
+    a = root.array(
         "variant_allele",
         data=alleles,
         shape=alleles.shape,
