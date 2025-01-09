@@ -182,6 +182,47 @@ class ZarrArraySpec:
 ZARR_SCHEMA_FORMAT_VERSION = "0.4"
 
 
+def convert_local_allele_field_types(fields):
+    """
+    Update the specified list of fields to include the LAA field, and to convert
+    any supported localisable fields to the L* counterpart.
+
+    Note that we currently support only two ALT alleles per sample, and so the
+    dimensions of these fields are fixed by that requirement. Later versions may
+    use summry data storted in the ICF to make different choices, if information
+    about subsequent alleles (not in the actual genotype calls) should also be
+    stored.
+    """
+    fields_by_name = {field.name: field for field in fields}
+    gt = fields_by_name["call_genotype"]
+    if gt.shape[-1] != 2:
+        raise ValueError("Local alleles only supported on diploid data")
+    shape = gt.shape[:-1]
+    chunks = gt.chunks[:-1]
+
+    laa = ZarrArraySpec.new(
+        vcf_field=None,
+        name="call_LAA",
+        dtype="i1",
+        shape=gt.shape,
+        chunks=gt.chunks,
+        dimensions=gt.dimensions,  # FIXME
+        description=(
+            "1-based indices into ALT, indicating which alleles"
+            " are relevant (local) for the current sample"
+        ),
+    )
+    pl = fields_by_name.get("call_PL", None)
+    if pl is not None:
+        pl.name = "call_LPL"
+        pl.vcf_field = None
+        pl.shape = (*shape, 3)
+        pl.chunks = (*chunks, 3)
+        pl.description += " (local-alleles)"
+        # TODO fix dimensions
+    return [*fields, laa]
+
+
 @dataclasses.dataclass
 class VcfZarrSchema(core.JsonDataclass):
     format_version: str
@@ -232,13 +273,17 @@ class VcfZarrSchema(core.JsonDataclass):
         return VcfZarrSchema.fromdict(json.loads(s))
 
     @staticmethod
-    def generate(icf, variants_chunk_size=None, samples_chunk_size=None):
+    def generate(
+        icf, variants_chunk_size=None, samples_chunk_size=None, local_alleles=None
+    ):
         m = icf.num_records
         n = icf.num_samples
         if samples_chunk_size is None:
             samples_chunk_size = 10_000
         if variants_chunk_size is None:
             variants_chunk_size = 1000
+        if local_alleles is None:
+            local_alleles = False
         logger.info(
             f"Generating schema with chunks={variants_chunk_size, samples_chunk_size}"
         )
@@ -364,6 +409,9 @@ class VcfZarrSchema(core.JsonDataclass):
                     description="",
                 )
             )
+
+        if local_alleles:
+            array_specs = convert_local_allele_field_types(array_specs)
 
         return VcfZarrSchema(
             format_version=ZARR_SCHEMA_FORMAT_VERSION,
@@ -1035,12 +1083,20 @@ class VcfZarrWriter:
                 pwm.submit(self.encode_partition, partition_index)
 
 
-def mkschema(if_path, out, *, variants_chunk_size=None, samples_chunk_size=None):
+def mkschema(
+    if_path,
+    out,
+    *,
+    variants_chunk_size=None,
+    samples_chunk_size=None,
+    local_alleles=None,
+):
     store = icf.IntermediateColumnarFormat(if_path)
     spec = VcfZarrSchema.generate(
         store,
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
+        local_alleles=local_alleles,
     )
     out.write(spec.asjson())
 

@@ -340,7 +340,8 @@ def inspect(path, verbose):
 @icf_path
 @variants_chunk_size
 @samples_chunk_size
-def mkschema(icf_path, variants_chunk_size, samples_chunk_size):
+@local_alleles
+def mkschema(icf_path, variants_chunk_size, samples_chunk_size, local_alleles):
     """
     Generate a schema for zarr encoding
     """
@@ -350,6 +351,7 @@ def mkschema(icf_path, variants_chunk_size, samples_chunk_size):
         stream,
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
+        local_alleles=local_alleles,
     )
 
 
