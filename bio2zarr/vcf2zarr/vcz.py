@@ -513,7 +513,7 @@ class VcfZarrWriterMetadata(core.JsonDataclass):
         return ret
 
 
-def compute_laa_field(genotypes, alleles) -> np.ndarray:
+def compute_laa_field(genotypes) -> np.ndarray:
     """
     Computes the value of the LAA field for each sample given the genotypes
     for a variant.
@@ -521,36 +521,22 @@ def compute_laa_field(genotypes, alleles) -> np.ndarray:
     The LAA field is a list of one-based indices into the ALT alleles
     that indicates which alternate alleles are observed in the sample.
     """
-    alt_allele_count = len(alleles) - 1
-    allele_counts = np.zeros((genotypes.shape[0], len(alleles)), dtype=int)
-
-    genotypes = genotypes.clip(0, None)
-    genotype_allele_counts = np.apply_along_axis(
-        np.bincount, axis=1, arr=genotypes, minlength=len(alleles)
-    )
-    allele_counts += genotype_allele_counts
-
-    allele_counts[:, 0] = 0  # We don't count the reference allele
-    max_row_length = 1
-
-    def nonzero_pad(arr: np.ndarray, *, length: int):
-        nonlocal max_row_length
-        alleles = arr.nonzero()[0]
-        max_row_length = max(max_row_length, len(alleles))
-        pad_length = length - len(alleles)
-        return np.pad(
-            alleles,
-            (0, pad_length),
-            mode="constant",
-            constant_values=constants.INT_FILL,
-        )
-
-    alleles = np.apply_along_axis(
-        nonzero_pad, axis=1, arr=allele_counts, length=max(1, alt_allele_count)
-    )
-    alleles = alleles[:, :max_row_length]
-
-    return alleles
+    v = 2**31 - 1
+    if np.any(genotypes >= v):
+        raise ValueError("Extreme allele value not supported")
+    G = genotypes.astype(np.int32)
+    if len(G) > 0:
+        # Anything <=0 gets mapped to -2 (pad) in the output, which comes last.
+        # So, to get this sorting correctly, we remap to the largest value for
+        # sorting, then map back. We promote the genotypes up to 32 bit for convenience
+        # here, assuming that we'll never have a allele of 2**31 - 1.
+        assert np.all(G != v)
+        G[G <= 0] = v
+        G.sort(axis=1)
+        # Equal non-zero values result in padding also
+        G[G[:, 0] == G[:, 1], 1] = -2
+        G[G == v] = -2
+    return G.astype(genotypes.dtype)
 
 
 @dataclasses.dataclass
@@ -865,17 +851,10 @@ class VcfZarrWriter:
             store=self.wip_partition_array_path(partition_index, "call_genotype"),
             mode="r",
         )
-        alleles_array = zarr.open_array(
-            store=self.wip_partition_array_path(partition_index, "variant_allele"),
-            mode="r",
-        )
         for chunk_index in range(gt_array.cdata_shape[0]):
-            A = alleles_array.blocks[chunk_index]
-            G = gt_array.blocks[chunk_index]
-            for alleles, var in zip(A, G):
+            for genotypes in gt_array.blocks[chunk_index]:
                 j = call_LAA.next_buffer_row()
-                # TODO we should probably compute LAAs by chunk for efficiency
-                call_LAA.buff[j] = compute_laa_field(var, alleles)
+                call_LAA.buff[j] = compute_laa_field(genotypes)
 
         call_LAA.flush()
         self.finalise_partition_array(partition_index, "call_LAA")
