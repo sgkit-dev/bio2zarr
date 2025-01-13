@@ -74,7 +74,12 @@ class TestEncodeMaxMemory:
         other_zarr_path = tmp_path / "zarr"
         with caplog.at_level("WARNING"):
             vcf2zarr.encode(
-                icf_path, other_zarr_path, max_memory=max_memory, worker_processes=2
+                icf_path,
+                other_zarr_path,
+                max_memory=max_memory,
+                worker_processes=2,
+                samples_chunk_size=1000,
+                variants_chunk_size=10_000,
             )
         assert "Limiting number of workers to 1 to keep within" in caplog.text
         ds1 = sg.load_dataset(zarr_path)
@@ -163,6 +168,12 @@ class TestSchemaChunkSize:
                 assert field.chunks[dim] == samples_chunk_size
                 found += 1
         assert found > 0
+
+    def test_default_chunk_size(self, icf_path):
+        icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        schema = vcf2zarr.VcfZarrSchema.generate(icf)
+        assert schema.samples_chunk_size == 10_000
+        assert schema.variants_chunk_size == 1000
 
 
 class TestSchemaJsonRoundTrip:
@@ -297,8 +308,8 @@ class TestDefaultSchema:
         assert schema.format_version == vcz_mod.ZARR_SCHEMA_FORMAT_VERSION
 
     def test_chunk_size(self, schema):
-        assert schema.samples_chunk_size == 1000
-        assert schema.variants_chunk_size == 10000
+        assert schema.samples_chunk_size == 10000
+        assert schema.variants_chunk_size == 1000
 
     def test_samples(self, schema):
         assert schema.asdict()["samples"] == [
@@ -322,7 +333,7 @@ class TestDefaultSchema:
             "name": "variant_contig",
             "dtype": "i1",
             "shape": (9,),
-            "chunks": (10000,),
+            "chunks": (1000,),
             "dimensions": ("variants",),
             "description": "An identifier from the reference genome or an "
             "angle-bracketed ID string pointing to a contig in the assembly file",
@@ -342,7 +353,7 @@ class TestDefaultSchema:
             "name": "call_genotype",
             "dtype": "i1",
             "shape": (9, 3, 2),
-            "chunks": (10000, 1000, 2),
+            "chunks": (1000, 10000, 2),
             "dimensions": ("variants", "samples", "ploidy"),
             "description": "",
             "vcf_field": None,
@@ -361,7 +372,7 @@ class TestDefaultSchema:
             "name": "call_genotype_mask",
             "dtype": "bool",
             "shape": (9, 3, 2),
-            "chunks": (10000, 1000, 2),
+            "chunks": (1000, 10000, 2),
             "dimensions": ("variants", "samples", "ploidy"),
             "description": "",
             "vcf_field": None,
@@ -380,7 +391,7 @@ class TestDefaultSchema:
             "name": "call_genotype_mask",
             "dtype": "bool",
             "shape": (9, 3, 2),
-            "chunks": (10000, 1000, 2),
+            "chunks": (1000, 10000, 2),
             "dimensions": ("variants", "samples", "ploidy"),
             "description": "",
             "vcf_field": None,
@@ -399,7 +410,7 @@ class TestDefaultSchema:
             "name": "call_GQ",
             "dtype": "i1",
             "shape": (9, 3),
-            "chunks": (10000, 1000),
+            "chunks": (1000, 10000),
             "dimensions": ("variants", "samples"),
             "description": "Genotype Quality",
             "vcf_field": "FORMAT/GQ",

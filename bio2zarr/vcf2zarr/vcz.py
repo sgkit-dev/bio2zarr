@@ -235,11 +235,10 @@ class VcfZarrSchema(core.JsonDataclass):
     def generate(icf, variants_chunk_size=None, samples_chunk_size=None):
         m = icf.num_records
         n = icf.num_samples
-        # FIXME
         if samples_chunk_size is None:
-            samples_chunk_size = 1000
+            samples_chunk_size = 10_000
         if variants_chunk_size is None:
-            variants_chunk_size = 10_000
+            variants_chunk_size = 1000
         logger.info(
             f"Generating schema with chunks={variants_chunk_size, samples_chunk_size}"
         )
