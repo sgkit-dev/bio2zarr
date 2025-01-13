@@ -1,11 +1,14 @@
 # 0.1.2 2024-XX-XX
 
+- Transpose default chunk sizes to 1000 variants and 10,000 samples (issue:300)
+
+- Add chunksize options to mkschema (issue:294)
+
 Breaking changes
 
 - ICF metadata format version bumped to ensure long-term compatility between numpy 1.26.x
   and numpy >= 2. Existing ICFs will need to be recreated.
 
-- Add chunksize options to mkschema (issue:294)
 
 # 0.1.1 2024-06-19
 
