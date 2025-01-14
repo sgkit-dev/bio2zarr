@@ -8,7 +8,7 @@ import coloredlogs
 import numcodecs
 import tabulate
 
-from . import plink, provenance, vcf2zarr, vcf_utils
+from . import bed2zarr, plink, provenance, vcf2zarr, vcf_utils
 from .vcf2zarr import icf as icf_mod
 
 logger = logging.getLogger(__name__)
@@ -126,6 +126,14 @@ samples_chunk_size = click.option(
     type=int,
     default=None,
     help="Chunk size in the samples dimension",
+)
+
+records_chunk_size = click.option(
+    "-r",
+    "--records-chunk-size",
+    type=int,
+    default=None,
+    help="Chunk size in the records dimension",
 )
 
 schema = click.option("-s", "--schema", default=None, type=click.Path(exists=True))
@@ -579,6 +587,39 @@ def plink2zarr():
 
 
 plink2zarr.add_command(convert_plink)
+
+
+@click.command
+@version
+@click.argument(
+    "bed_path",
+    type=click.Path(exists=True, dir_okay=False),
+)
+@new_zarr_path
+@records_chunk_size
+@verbose
+@force
+def bed2zarr_main(
+    bed_path,
+    zarr_path,
+    records_chunk_size,
+    verbose,
+    force,
+):
+    """
+    Convert BED file to the Zarr format. Each BED column will be
+    converted to a Zarr array with appropriate encoding.
+
+    The BED file must be compressed and tabix-indexed. BED9 and BED12
+    formats are currently not supported.
+    """
+    setup_logging(verbose)
+    check_overwrite_dir(zarr_path, force)
+    bed2zarr.bed2zarr(
+        bed_path,
+        zarr_path,
+        records_chunk_size=records_chunk_size,
+    )
 
 
 @click.command
