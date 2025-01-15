@@ -199,8 +199,8 @@ def convert_local_allele_field_types(fields):
         raise ValueError("Local alleles only supported on diploid data")
     # TODO check if LAA is already in here
 
-    shape = gt.shape[:-1]
-    chunks = gt.chunks[:-1]
+    # shape = gt.shape[:-1]
+    # chunks = gt.chunks[:-1]
 
     laa = ZarrArraySpec.new(
         vcf_field=None,
@@ -214,15 +214,15 @@ def convert_local_allele_field_types(fields):
             " are relevant (local) for the current sample"
         ),
     )
-    pl = fields_by_name.get("call_PL", None)
-    if pl is not None:
-        # TODO check if call_LPL is in the list already
-        pl.name = "call_LPL"
-        pl.vcf_field = None
-        pl.shape = (*shape, 3)
-        pl.chunks = (*chunks, 3)
-        pl.description += " (local-alleles)"
-        # TODO fix dimensions
+    # pl = fields_by_name.get("call_PL", None)
+    # if pl is not None:
+    #     # TODO check if call_LPL is in the list already
+    #     pl.name = "call_LPL"
+    #     pl.vcf_field = None
+    #     pl.shape = (*shape, 3)
+    #     pl.chunks = (*chunks, 3)
+    #     pl.description += " (local-alleles)"
+    #     # TODO fix dimensions
     return [*fields, laa]
 
 
@@ -1164,6 +1164,7 @@ def encode(
     max_variant_chunks=None,
     dimension_separator=None,
     max_memory=None,
+    local_alleles=None,
     worker_processes=1,
     show_progress=False,
 ):
@@ -1176,6 +1177,7 @@ def encode(
         schema_path=schema_path,
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
+        local_alleles=local_alleles,
         max_variant_chunks=max_variant_chunks,
         dimension_separator=dimension_separator,
     )
@@ -1197,6 +1199,7 @@ def encode_init(
     schema_path=None,
     variants_chunk_size=None,
     samples_chunk_size=None,
+    local_alleles=None,
     max_variant_chunks=None,
     dimension_separator=None,
     max_memory=None,
@@ -1209,6 +1212,7 @@ def encode_init(
             icf_store,
             variants_chunk_size=variants_chunk_size,
             samples_chunk_size=samples_chunk_size,
+            local_alleles=local_alleles,
         )
     else:
         logger.info(f"Reading schema from {schema_path}")
@@ -1261,7 +1265,6 @@ def convert(
             vcfs,
             worker_processes=worker_processes,
             show_progress=show_progress,
-            local_alleles=local_alleles,
         )
         encode(
             icf_path,
@@ -1270,6 +1273,7 @@ def convert(
             samples_chunk_size=samples_chunk_size,
             worker_processes=worker_processes,
             show_progress=show_progress,
+            local_alleles=local_alleles,
         )
 
 
