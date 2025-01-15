@@ -199,8 +199,8 @@ def convert_local_allele_field_types(fields):
         raise ValueError("Local alleles only supported on diploid data")
     # TODO check if LAA is already in here
 
-    # shape = gt.shape[:-1]
-    # chunks = gt.chunks[:-1]
+    shape = gt.shape[:-1]
+    chunks = gt.chunks[:-1]
 
     laa = ZarrArraySpec.new(
         vcf_field=None,
@@ -214,6 +214,16 @@ def convert_local_allele_field_types(fields):
             " are relevant (local) for the current sample"
         ),
     )
+    ad = fields_by_name.get("call_AD", None)
+    if ad is not None:
+        # TODO check if call_LAD is in the list already
+        ad.name = "call_LAD"
+        ad.vcf_field = None
+        ad.shape = (*shape, 2)
+        ad.chunks = (*chunks, 2)
+        ad.description += " (local-alleles)"
+        # TODO fix dimensions
+
     # pl = fields_by_name.get("call_PL", None)
     # if pl is not None:
     #     # TODO check if call_LPL is in the list already
@@ -513,7 +523,7 @@ class VcfZarrWriterMetadata(core.JsonDataclass):
         return ret
 
 
-def compute_laa_field(genotypes) -> np.ndarray:
+def compute_laa_field(genotypes):
     """
     Computes the value of the LAA field for each sample given the genotypes
     for a variant.
@@ -537,6 +547,19 @@ def compute_laa_field(genotypes) -> np.ndarray:
         G[G[:, 0] == G[:, 1], 1] = -2
         G[G == v] = -2
     return G.astype(genotypes.dtype)
+
+
+def compute_lad_field(ad, laa):
+    lad = np.full((ad.shape[0], 2), -2, dtype=ad.dtype)
+    ref_ref = np.where((laa[:, 0] == -2) & (laa[:, 1] == -2))[0]
+    lad[ref_ref, 0] = ad[ref_ref, 0]
+    ref_alt = np.where((laa[:, 0] != -2) & (laa[:, 1] == -2))[0]
+    lad[ref_alt, 0] = ad[ref_alt, 0]
+    lad[ref_alt, 1] = ad[ref_alt, laa[ref_alt, 0]]
+    alt_alt = np.where((laa[:, 0] != -2) & (laa[:, 1] != -2))[0]
+    lad[alt_alt, 0] = ad[alt_alt, laa[alt_alt, 0]]
+    lad[alt_alt, 1] = ad[alt_alt, laa[alt_alt, 1]]
+    return lad
 
 
 @dataclasses.dataclass
@@ -843,9 +866,15 @@ class VcfZarrWriter:
         self.finalise_partition_array(partition_index, "call_genotype_phased")
 
     def encode_local_alleles_partition(self, partition_index):
-        call_LAA_array = self.init_partition_array(partition_index, "call_LAA")
         partition = self.metadata.partitions[partition_index]
+        call_LAA_array = self.init_partition_array(partition_index, "call_LAA")
         call_LAA = core.BufferedArray(call_LAA_array, partition.start)
+
+        call_LAD_array = self.init_partition_array(partition_index, "call_LAD")
+        call_LAD = core.BufferedArray(call_LAD_array, partition.start)
+        call_AD_source = self.icf.fields["FORMAT/AD"].iter_values(
+            partition.start, partition.stop
+        )
 
         gt_array = zarr.open_array(
             store=self.wip_partition_array_path(partition_index, "call_genotype"),
@@ -853,11 +882,19 @@ class VcfZarrWriter:
         )
         for chunk_index in range(gt_array.cdata_shape[0]):
             for genotypes in gt_array.blocks[chunk_index]:
+                laa = compute_laa_field(genotypes)
                 j = call_LAA.next_buffer_row()
-                call_LAA.buff[j] = compute_laa_field(genotypes)
+                call_LAA.buff[j] = laa
+
+                ad = next(call_AD_source)
+                j = call_LAD.next_buffer_row()
+                lad = compute_lad_field(ad, laa)
+                call_LAD.buff[j] = lad
 
         call_LAA.flush()
         self.finalise_partition_array(partition_index, "call_LAA")
+        call_LAD.flush()
+        self.finalise_partition_array(partition_index, "call_LAD")
 
     def encode_alleles_partition(self, partition_index):
         array_name = "variant_allele"
