@@ -550,15 +550,20 @@ def compute_laa_field(genotypes):
 
 
 def compute_lad_field(ad, laa):
-    lad = np.full((ad.shape[0], 2), -2, dtype=ad.dtype)
-    ref_ref = np.where((laa[:, 0] == -2) & (laa[:, 1] == -2))[0]
-    lad[ref_ref, 0] = ad[ref_ref, 0]
-    ref_alt = np.where((laa[:, 0] != -2) & (laa[:, 1] == -2))[0]
-    lad[ref_alt, 0] = ad[ref_alt, 0]
-    lad[ref_alt, 1] = ad[ref_alt, laa[ref_alt, 0]]
-    alt_alt = np.where((laa[:, 0] != -2) & (laa[:, 1] != -2))[0]
-    lad[alt_alt, 0] = ad[alt_alt, laa[alt_alt, 0]]
-    lad[alt_alt, 1] = ad[alt_alt, laa[alt_alt, 1]]
+    try:
+        lad = np.full((ad.shape[0], 2), -2, dtype=ad.dtype)
+        ref_ref = np.where((laa[:, 0] == -2) & (laa[:, 1] == -2))[0]
+        lad[ref_ref, 0] = ad[ref_ref, 0]
+        ref_alt = np.where((laa[:, 0] != -2) & (laa[:, 1] == -2))[0]
+        lad[ref_alt, 0] = ad[ref_alt, 0]
+        lad[ref_alt, 1] = ad[ref_alt, laa[ref_alt, 0]]
+        alt_alt = np.where((laa[:, 0] != -2) & (laa[:, 1] != -2))[0]
+        lad[alt_alt, 0] = ad[alt_alt, laa[alt_alt, 0]]
+        lad[alt_alt, 1] = ad[alt_alt, laa[alt_alt, 1]]
+    except Exception as e:
+        print("ad = ", ad)
+        print("laa = ", laa)
+        raise e
     return lad
 
 
@@ -875,21 +880,22 @@ class VcfZarrWriter:
         call_AD_source = self.icf.fields["FORMAT/AD"].iter_values(
             partition.start, partition.stop
         )
-
         gt_array = zarr.open_array(
             store=self.wip_partition_array_path(partition_index, "call_genotype"),
             mode="r",
         )
-        for chunk_index in range(gt_array.cdata_shape[0]):
-            for genotypes in gt_array.blocks[chunk_index]:
-                laa = compute_laa_field(genotypes)
-                j = call_LAA.next_buffer_row()
-                call_LAA.buff[j] = laa
+        for genotypes in core.first_dim_slice_iter(
+            gt_array, partition.start, partition.stop
+        ):
+            laa = compute_laa_field(genotypes)
+            j = call_LAA.next_buffer_row()
+            call_LAA.buff[j] = laa
 
-                ad = next(call_AD_source)
-                j = call_LAD.next_buffer_row()
-                lad = compute_lad_field(ad, laa)
-                call_LAD.buff[j] = lad
+            ad = next(call_AD_source)
+            k = call_LAD.next_buffer_row()
+            assert j == k
+            lad = compute_lad_field(ad, laa)
+            call_LAD.buff[j] = lad
 
         call_LAA.flush()
         self.finalise_partition_array(partition_index, "call_LAA")
