@@ -725,14 +725,15 @@ class Test1000G2020ExampleLocalAlleles:
         ]
         nt.assert_array_equal(ds.call_LAD.values, call_LAD)
 
-    def test_call_LAA(self, ds):
+    def test_call_LA(self, ds):
         # All the genotypes are 0/0
-        call_LAA = np.full((23, 3, 2), -2)
-        nt.assert_array_equal(ds.call_LAA.values, call_LAA)
+        call_LA = np.full((23, 3, 2), -2)
+        call_LA[:, :, 0] = 0
+        nt.assert_array_equal(ds.call_LA.values, call_LA)
 
-    # def test_call_LPL(self, ds):
-    #     call_LPL = np.tile([0, -2, -2], (23, 3, 1))
-    #     nt.assert_array_equal(ds.call_LPL.values, call_LPL)
+    def test_call_LPL(self, ds):
+        call_LPL = np.tile([0, -2, -2], (23, 3, 1))
+        nt.assert_array_equal(ds.call_LPL.values, call_LPL)
 
 
 class Test1000G2020AnnotationsExample:
