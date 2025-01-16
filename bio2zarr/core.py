@@ -63,6 +63,27 @@ def chunk_aligned_slices(z, n, max_chunks=None):
     return slices
 
 
+def first_dim_slice_iter(z, start, stop):
+    """
+    Efficiently iterate over the specified slice of the first dimension of the zarr
+    array z.
+    """
+    chunk_size = z.chunks[0]
+    first_chunk = start // chunk_size
+    last_chunk = (stop // chunk_size) + (stop % chunk_size != 0)
+    for chunk in range(first_chunk, last_chunk):
+        Z = z.blocks[chunk]
+        chunk_start = chunk * chunk_size
+        chunk_stop = chunk_start + chunk_size
+        slice_start = None
+        if start > chunk_start:
+            slice_start = start - chunk_start
+        slice_stop = None
+        if stop < chunk_stop:
+            slice_stop = stop - chunk_start
+        yield from Z[slice_start:slice_stop]
+
+
 def du(path):
     """
     Return the total bytes stored at this path.

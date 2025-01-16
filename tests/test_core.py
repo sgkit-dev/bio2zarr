@@ -194,6 +194,41 @@ class TestChunkAlignedSlices:
         assert result == expected
 
 
+class TestFirstDimSliceIter:
+    @pytest.mark.parametrize("chunk_size", [1, 3, 4, 5])
+    @pytest.mark.parametrize(
+        ("size", "start", "stop"),
+        [
+            (10, 0, 4),
+            (10, 0, 8),
+            (10, 0, 10),
+            (10, 4, 4),
+            (10, 4, 8),
+            (10, 4, 10),
+            (10, 0, 5),
+            (10, 0, 3),
+            (10, 0, 9),
+            (10, 1, 5),
+            (10, 1, 1),
+            (10, 1, 2),
+            (10, 1, 3),
+            (10, 1, 4),
+            (10, 1, 10),
+            (10, 5, 5),
+            (10, 5, 6),
+            (10, 5, 7),
+            (5, 0, 5),
+            (5, 1, 1),
+            (5, 1, 3),
+        ],
+    )
+    def test_examples(self, chunk_size, size, start, stop):
+        a = np.arange(size, dtype=int)
+        z = zarr.empty(size, chunks=chunk_size, dtype=int)
+        z[:] = a
+        assert list(core.first_dim_slice_iter(z, start, stop)) == list(a[start:stop])
+
+
 @pytest.mark.skipif(sys.platform != "linux", reason="Only valid on Linux")
 @pytest.mark.parametrize(
     ("path", "expected"),
