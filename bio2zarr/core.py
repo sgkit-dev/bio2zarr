@@ -179,7 +179,12 @@ class BufferedArray:
                 f"{self.array_offset}:{self.array_offset + self.buffer_row}"
                 f"{self.buff.nbytes / 2**20: .2f}Mb"
             )
-            self.max_buff_size = max(self.max_buff_size, sys.getsizeof(self.buff))
+            # Note this is inaccurate for string data as we're just reporting the
+            # size of the container. When we switch the numpy 2 StringDtype this
+            # should improve and we can get more visibility on how memory
+            # is being used.
+            # https://github.com/sgkit-dev/bio2zarr/issues/30
+            self.max_buff_size = max(self.max_buff_size, self.buff.nbytes)
             self.array_offset += self.variants_chunk_size
             self.buffer_row = 0
 
