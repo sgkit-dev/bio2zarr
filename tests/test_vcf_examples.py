@@ -243,11 +243,6 @@ class TestSmallExample:
         ]
         nt.assert_array_equal(ds["call_HQ"], call_HQ)
 
-    def test_no_local_alleles(self, ds):
-        # The small example VCF does not have a PL field
-        assert "call_LAA" not in ds
-        assert "call_LPL" not in ds
-
     def test_no_genotypes(self, ds, tmp_path):
         path = "tests/data/vcf/sample_no_genotypes.vcf.gz"
         out = tmp_path / "example.vcf.zarr"
@@ -492,85 +487,6 @@ class TestSmallExampleLocalAlleles:
         assert field not in ds
 
 
-class TestLocalAllelesExample:
-    # Note this example has a mixture of local and non local fields, and uses
-    # the VCF standard LA field. It's not actually testing our implementation
-    # of localisation.
-
-    data_path = "tests/data/vcf/local_alleles.vcf.gz"
-
-    @pytest.fixture(scope="class")
-    def ds(self, tmp_path_factory):
-        out = tmp_path_factory.mktemp("data") / "local_alleles.vcf.zarr"
-        vcf2zarr.convert([self.data_path], out, worker_processes=0)
-        return sg.load_dataset(out)
-
-    def test_call_LAA(self, ds):
-        call_LAA = [
-            [[1, -2, -2], [-2, -2, -2]],
-            [[-2, -2, -2], [1, -2, -2]],
-            [[1, -2, -2], [2, -2, -2]],
-            [[1, 2, 3], [2, 3, -2]],
-            [[-2, -2, -2], [-2, -2, -2]],
-            [[-2, -2, -2], [1, -2, -2]],
-            [[1, -2, -2], [-1, -2, -2]],
-            [[2, -2, -2], [2, -2, -2]],
-            [[-2, -2, -2], [-2, -2, -2]],
-            [[-2, -2, -2], [-2, -2, -2]],
-            [[-2, -2, -2], [1, -2, -2]],
-        ]
-        nt.assert_array_equal(ds.call_LAA.values, call_LAA)
-
-    def test_call_LPL(self, ds):
-        call_LPL = [
-            [
-                [100, 0, 105, -2, -2, -2, -2, -2, -2, -2],
-                [0, -2, -2, -2, -2, -2, -2, -2, -2, -2],
-            ],
-            [
-                [0, -2, -2, -2, -2, -2, -2, -2, -2, -2],
-                [154, 22, 0, -2, -2, -2, -2, -2, -2, -2],
-            ],
-            [
-                [1002, 55, 1002, -2, -2, -2, -2, -2, -2, -2],
-                [154, 154, 102, -2, -2, -2, -2, -2, -2, -2],
-            ],
-            [
-                [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
-                [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
-            ],
-            [
-                [30, -2, -2, -2, -2, -2, -2, -2, -2, -2],
-                [30, -2, -2, -2, -2, -2, -2, -2, -2, -2],
-            ],
-            [
-                [0, 30, -2, -2, -2, -2, -2, -2, -2, -2],
-                [0, 0, -2, -2, -2, -2, -2, -2, -2, -2],
-            ],
-            [
-                [30, 30, 30, -2, -2, -2, -2, -2, -2, -2],
-                [30, 30, 30, -2, -2, -2, -2, -2, -2, -2],
-            ],
-            [
-                [10, 40, 60, -2, -2, -2, -2, -2, -2, -2],
-                [10, 40, 60, -2, -2, -2, -2, -2, -2, -2],
-            ],
-            [
-                [30, -2, -2, -2, -2, -2, -2, -2, -2, -2],
-                [30, -2, -2, -2, -2, -2, -2, -2, -2, -2],
-            ],
-            [
-                [-1, -2, -2, -2, -2, -2, -2, -2, -2, -2],
-                [-1, -2, -2, -2, -2, -2, -2, -2, -2, -2],
-            ],
-            [
-                [-1, -1, -2, -2, -2, -2, -2, -2, -2, -2],
-                [-1, -1, -2, -2, -2, -2, -2, -2, -2, -2],
-            ],
-        ]
-        nt.assert_array_equal(ds.call_LPL.values, call_LPL)
-
-
 class TestTriploidExample:
     @pytest.fixture(scope="class", params=["triploid", "triploid2", "triploid3"])
     def ds(self, tmp_path_factory, request):
@@ -582,11 +498,11 @@ class TestTriploidExample:
     @pytest.mark.parametrize("name", ["triploid", "triploid2", "triploid3"])
     def test_error_with_local_alleles(self, tmp_path_factory, name):
         data_path = f"tests/data/vcf/{name}.vcf.gz"
-        icf_path = tmp_path_factory.mktemp("data") / f"{name}.icf"
-        with pytest.raises(ValueError, match=re.escape("Cannot handle ploidy = 3")):
-            vcf2zarr.explode(
-                icf_path, [data_path], worker_processes=0, local_alleles=True
-            )
+        out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
+        with pytest.raises(
+            ValueError, match=re.escape("Local alleles only supported on diploid")
+        ):
+            vcf2zarr.convert([data_path], out, local_alleles=True)
 
     def test_ok_without_local_alleles(self, ds):
         nt.assert_array_equal(ds.call_genotype.values, [[[0, 0, 0]]])
