@@ -862,13 +862,9 @@ class VcfZarrWriter:
 
     def finalise_partition_array(self, partition_index, buffered_array):
         buffered_array.flush()
-        # field_map = self.schema.field_map()
-        # array_spec = field_map[buffered_array.name]
-        # ba = buffered_array
-        # print(array_spec.name, "ba.max_buff_size", ba.max_buff_size,
-        # array_spec.variant_chunk_nbytes)
         logger.info(
-            f"Completed partition {partition_index} array {buffered_array.name}"
+            f"Completed partition {partition_index} array {buffered_array.name} "
+            f"max_memory={core.display_size(buffered_array.max_buff_size)}"
         )
 
     def encode_array_partition(self, array_spec, partition_index):
