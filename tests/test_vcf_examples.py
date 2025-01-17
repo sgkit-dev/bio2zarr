@@ -444,7 +444,59 @@ class TestSmallExample:
         assert ds[field].attrs["description"] == description
 
 
+class TestSmallExampleLocalAlleles:
+    data_path = "tests/data/vcf/sample.vcf.gz"
+
+    @pytest.fixture(scope="class")
+    def ds(self, tmp_path_factory):
+        out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
+        vcf2zarr.convert([self.data_path], out, local_alleles=True)
+        return sg.load_dataset(out)
+
+    def test_call_LA(self, ds):
+        call_genotype = np.array(
+            [
+                [[0, 0], [0, 0], [0, 1]],
+                [[0, 0], [0, 0], [0, 1]],
+                [[0, 0], [1, 0], [1, 1]],
+                [[0, 0], [0, 1], [0, 0]],
+                [[1, 2], [2, 1], [2, 2]],
+                [[0, 0], [0, 0], [0, 0]],
+                [[0, 1], [0, 2], [-1, -1]],
+                [[0, 0], [0, 0], [-1, -1]],
+                # FIXME this depends on "mixed ploidy" interpretation.
+                [[0, -2], [0, 1], [0, 2]],
+            ],
+            dtype="i1",
+        )
+        nt.assert_array_equal(ds["call_genotype"], call_genotype)
+        nt.assert_array_equal(ds["call_genotype_mask"], call_genotype < 0)
+
+        call_LA = np.array(
+            [
+                [[0, -2], [0, -2], [0, 1]],
+                [[0, -2], [0, -2], [0, 1]],
+                [[0, -2], [0, 1], [1, -2]],
+                [[0, -2], [0, 1], [0, -2]],
+                [[1, 2], [1, 2], [2, -2]],
+                [[0, -2], [0, -2], [0, -2]],
+                [[0, 1], [0, 2], [-2, -2]],
+                [[0, -2], [0, -2], [-2, -2]],
+                [[0, -2], [0, 1], [0, 2]],
+            ],
+        )
+        nt.assert_array_equal(ds.call_LA.values, call_LA)
+
+    @pytest.mark.parametrize("field", ["call_LPL", "call_LAD"])
+    def test_no_localised_fields(self, ds, field):
+        assert field not in ds
+
+
 class TestLocalAllelesExample:
+    # Note this example has a mixture of local and non local fields, and uses
+    # the VCF standard LA field. It's not actually testing our implementation
+    # of localisation.
+
     data_path = "tests/data/vcf/local_alleles.vcf.gz"
 
     @pytest.fixture(scope="class")
