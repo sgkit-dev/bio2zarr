@@ -14,7 +14,6 @@ DEFAULT_EXPLODE_ARGS = dict(
     compressor=None,
     worker_processes=1,
     show_progress=True,
-    local_alleles=False,
 )
 
 DEFAULT_DEXPLODE_PARTITION_ARGS = dict()
@@ -24,7 +23,6 @@ DEFAULT_DEXPLODE_INIT_ARGS = dict(
     column_chunk_size=64,
     compressor=None,
     show_progress=True,
-    local_alleles=False,
 )
 
 DEFAULT_ENCODE_ARGS = dict(
@@ -48,6 +46,12 @@ DEFAULT_DENCODE_INIT_ARGS = dict(
 DEFAULT_DENCODE_PARTITION_ARGS = dict()
 
 DEFAULT_DENCODE_FINALISE_ARGS = dict(show_progress=True)
+
+DEFAULT_MKSHCHEMA_ARGS = dict(
+    variants_chunk_size=None,
+    samples_chunk_size=None,
+    local_alleles=False,
+)
 
 DEFAULT_CONVERT_ARGS = dict(
     variants_chunk_size=None,
@@ -297,29 +301,6 @@ class TestWithMocks:
         assert "'no_such_file' does not exist" in result.stderr
         mocked.assert_not_called()
 
-    @pytest.mark.parametrize("local_alleles", [False, True])
-    @mock.patch("bio2zarr.vcf2zarr.explode")
-    def test_vcf_explode_local_alleles(self, mocked, tmp_path, local_alleles):
-        icf_path = tmp_path / "icf"
-        runner = ct.CliRunner(mix_stderr=False)
-
-        if local_alleles:
-            local_alleles_flag = "--local-alleles"
-        else:
-            local_alleles_flag = "--no-local-alleles"
-
-        result = runner.invoke(
-            cli.vcf2zarr_main,
-            f"explode {self.vcf_path} {icf_path} {local_alleles_flag}",
-            catch_exceptions=False,
-        )
-        assert result.exit_code == 0
-        assert len(result.stdout) == 0
-        assert len(result.stderr) == 0
-        args = dict(DEFAULT_EXPLODE_ARGS)
-        args["local_alleles"] = local_alleles
-        mocked.assert_called_once_with(str(icf_path), (self.vcf_path,), **args)
-
     @pytest.mark.parametrize(("progress", "flag"), [(True, "-P"), (False, "-Q")])
     @mock.patch("bio2zarr.vcf2zarr.explode_init", return_value=FakeWorkSummary(5))
     def test_vcf_dexplode_init(self, mocked, tmp_path, progress, flag):
@@ -462,7 +443,7 @@ class TestWithMocks:
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"mkschema {tmp_path} --variants-chunk-size=3 " "--samples-chunk-size=4",
+            f"mkschema {tmp_path} --variants-chunk-size=3 --samples-chunk-size=4",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -725,6 +706,29 @@ class TestVcfEndToEnd:
         d = json.loads(result.stdout)
         assert d["samples_chunk_size"] == 2
         assert d["variants_chunk_size"] == 3
+
+    @pytest.mark.parametrize("local_alleles", [False, True])
+    def test_mkschema_local_alleles(self, tmp_path, local_alleles):
+        icf_path = tmp_path / "icf"
+        local_alleles_flag = {True: "--local-alleles", False: "--no-local-alleles"}[
+            local_alleles
+        ]
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcf2zarr_main,
+            f"explode {self.vcf_path} {icf_path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        result = runner.invoke(
+            cli.vcf2zarr_main,
+            f"mkschema {icf_path} {local_alleles_flag}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        d = json.loads(result.stdout)
+        call_LA_exists = "call_LA" in [f["name"] for f in d["fields"]]
+        assert call_LA_exists == local_alleles
 
     def test_encode(self, tmp_path):
         icf_path = tmp_path / "icf"
