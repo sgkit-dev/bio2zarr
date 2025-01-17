@@ -25,7 +25,7 @@ class TestSmallExample:
     @pytest.fixture(scope="class")
     def icf(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.exploded"
-        return vcf2zarr.explode(out, [self.data_path], local_alleles=False)
+        return vcf2zarr.explode(out, [self.data_path])
 
     def test_format_version(self, icf):
         assert icf.metadata.format_version == icf_mod.ICF_METADATA_FORMAT_VERSION
@@ -89,46 +89,6 @@ class TestSmallExample:
 
     def test_INFO_NS(self, icf):
         assert icf["INFO/NS"].values == [None, None, 3, 3, 2, 3, 3, None, None]
-
-
-class TestLocalAllelesExample:
-    data_path = "tests/data/vcf/local_alleles.vcf.gz"
-
-    fields = (
-        "ALT",
-        "CHROM",
-        "FILTERS",
-        "FORMAT/AD",
-        "FORMAT/DP",
-        "FORMAT/GQ",
-        "FORMAT/GT",
-        "FORMAT/LAA",
-        "FORMAT/LPL",
-        "FORMAT/PL",
-        "ID",
-        "INFO/AA",
-        "INFO/AC",
-        "INFO/AF",
-        "INFO/AN",
-        "INFO/DB",
-        "INFO/DP",
-        "INFO/H2",
-        "INFO/NS",
-        "POS",
-        "QUAL",
-        "REF",
-        "rlen",
-    )
-
-    @pytest.fixture(scope="class")
-    def icf(self, tmp_path_factory):
-        out = tmp_path_factory.mktemp("data") / "example.exploded"
-        return vcf2zarr.explode(out, [self.data_path])
-
-    def test_summary_table(self, icf):
-        data = icf.summary_table()
-        fields = [d["name"] for d in data]
-        assert tuple(sorted(fields)) == self.fields
 
 
 class TestIcfWriterExample:
