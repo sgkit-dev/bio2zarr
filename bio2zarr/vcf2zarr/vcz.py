@@ -382,7 +382,7 @@ class VcfZarrSchema(core.JsonDataclass):
                 continue
             array_specs.append(spec_from_field(field))
 
-        if gt_field is not None:
+        if gt_field is not None and n > 0:
             ploidy = max(gt_field.summary.max_number - 1, 1)
             shape = [m, n]
             chunks = [variants_chunk_size, samples_chunk_size]
@@ -832,6 +832,7 @@ class VcfZarrWriter:
                 self.encode_array_partition(array_spec, partition_index)
         if self.has_genotypes():
             self.encode_genotypes_partition(partition_index)
+            self.encode_genotype_mask_partition(partition_index)
         if self.has_local_alleles():
             self.encode_local_alleles_partition(partition_index)
             self.encode_local_allele_fields_partition(partition_index)
@@ -899,8 +900,10 @@ class VcfZarrWriter:
         self.finalise_partition_array(partition_index, gt)
         self.finalise_partition_array(partition_index, gt_phased)
 
-        # Read back in the genotypes so we can compute the mask
+    def encode_genotype_mask_partition(self, partition_index):
+        partition = self.metadata.partitions[partition_index]
         gt_mask = self.init_partition_array(partition_index, "call_genotype_mask")
+        # Read back in the genotypes so we can compute the mask
         gt_array = zarr.open_array(
             store=self.wip_partition_array_path(partition_index, "call_genotype"),
             mode="r",

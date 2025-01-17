@@ -1,5 +1,7 @@
 # 0.1.2 2024-XX-XX
 
+- Reduce memory requirement for encoding genotypes with large sample sizes
+
 - Transpose default chunk sizes to 1000 variants and 10,000 samples (issue:300)
 
 - Add chunksize options to mkschema (issue:294)
