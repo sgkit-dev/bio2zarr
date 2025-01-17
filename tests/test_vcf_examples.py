@@ -508,6 +508,19 @@ class TestTriploidExample:
         nt.assert_array_equal(ds.call_genotype.values, [[[0, 0, 0]]])
 
 
+class TestWithGtHeaderNoGenotypes:
+    data_path = "tests/data/vcf/sample_no_genotypes_with_gt_header.vcf.gz"
+
+    @pytest.fixture(scope="class")
+    def ds(self, tmp_path_factory):
+        out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
+        vcf2zarr.convert([self.data_path], out, worker_processes=0)
+        return sg.load_dataset(out)
+
+    def test_gts(self, ds):
+        assert "call_genotype" not in ds
+
+
 class Test1000G2020Example:
     data_path = "tests/data/vcf/1kg_2020_chrM.vcf.gz"
 

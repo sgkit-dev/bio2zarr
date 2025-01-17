@@ -91,6 +91,19 @@ class TestSmallExample:
         assert icf["INFO/NS"].values == [None, None, 3, 3, 2, 3, 3, None, None]
 
 
+class TestWithGtHeaderNoGenotypes:
+    data_path = "tests/data/vcf/sample_no_genotypes_with_gt_header.vcf.gz"
+
+    @pytest.fixture(scope="class")
+    def icf(self, tmp_path_factory):
+        out = tmp_path_factory.mktemp("data") / "example.exploded"
+        return vcf2zarr.explode(out, [self.data_path])
+
+    def test_gts(self, icf):
+        values = icf["FORMAT/GT"].values
+        assert values == [None] * icf.num_records
+
+
 class TestIcfWriterExample:
     data_path = "tests/data/vcf/sample.vcf.gz"
 
