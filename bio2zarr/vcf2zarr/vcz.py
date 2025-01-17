@@ -585,6 +585,24 @@ def compute_lpl_field(pl, la):
 
 
 @dataclasses.dataclass
+class LocalisableFieldDescriptor:
+    array_name: str
+    vcf_field: str
+    sanitise: callable
+    convert: callable
+
+
+localisable_fields = [
+    LocalisableFieldDescriptor(
+        "call_LAD", "FORMAT/AD", icf.sanitise_int_array, compute_lad_field
+    ),
+    LocalisableFieldDescriptor(
+        "call_LPL", "FORMAT/PL", icf.sanitise_int_array, compute_lpl_field
+    ),
+]
+
+
+@dataclasses.dataclass
 class VcfZarrWriteSummary(core.JsonDataclass):
     num_partitions: int
     num_samples: int
@@ -816,6 +834,7 @@ class VcfZarrWriter:
             self.encode_genotypes_partition(partition_index)
         if self.has_local_alleles():
             self.encode_local_alleles_partition(partition_index)
+            self.encode_local_allele_fields_partition(partition_index)
 
         final_path = self.partition_path(partition_index)
         logger.info(f"Finalising {partition_index} at {final_path}")
@@ -892,17 +911,6 @@ class VcfZarrWriter:
         call_LA_array = self.init_partition_array(partition_index, "call_LA")
         call_LA = core.BufferedArray(call_LA_array, partition.start)
 
-        call_LAD_array = self.init_partition_array(partition_index, "call_LAD")
-        call_LAD = core.BufferedArray(call_LAD_array, partition.start)
-        call_AD_source = self.icf.fields["FORMAT/AD"].iter_values(
-            partition.start, partition.stop
-        )
-        call_LPL_array = self.init_partition_array(partition_index, "call_LPL")
-        call_LPL = core.BufferedArray(call_LPL_array, partition.start)
-        call_PL_source = self.icf.fields["FORMAT/PL"].iter_values(
-            partition.start, partition.stop
-        )
-
         gt_array = zarr.open_array(
             store=self.wip_partition_array_path(partition_index, "call_genotype"),
             mode="r",
@@ -914,24 +922,37 @@ class VcfZarrWriter:
             j = call_LA.next_buffer_row()
             call_LA.buff[j] = la
 
-            ad = next(call_AD_source)
-            ad = icf.sanitise_int_array(ad, 2, ad.dtype)
-            k = call_LAD.next_buffer_row()
-            assert j == k
-            call_LAD.buff[j] = compute_lad_field(ad, la)
-
-            pl = next(call_PL_source)
-            pl = icf.sanitise_int_array(pl, 2, pl.dtype)
-            k = call_LPL.next_buffer_row()
-            assert j == k
-            call_LPL.buff[j] = compute_lpl_field(pl, la)
-
         call_LA.flush()
         self.finalise_partition_array(partition_index, "call_LA")
-        call_LAD.flush()
-        self.finalise_partition_array(partition_index, "call_LAD")
-        call_LPL.flush()
-        self.finalise_partition_array(partition_index, "call_LPL")
+
+    def encode_local_allele_fields_partition(self, partition_index):
+        partition = self.metadata.partitions[partition_index]
+        la_array = zarr.open_array(
+            store=self.wip_partition_array_path(partition_index, "call_LA"),
+            mode="r",
+        )
+        field_map = self.schema.field_map()
+        # We got through the localisable fields one-by-one so that we don't need to
+        # keep several large arrays in memory at once for each partition.
+        for descriptor in localisable_fields:
+            if descriptor.array_name not in field_map:
+                continue
+            assert field_map[descriptor.array_name].vcf_field is None
+
+            array = self.init_partition_array(partition_index, descriptor.array_name)
+            buff = core.BufferedArray(array, partition.start)
+            source = self.icf.fields[descriptor.vcf_field].iter_values(
+                partition.start, partition.stop
+            )
+            for la in core.first_dim_slice_iter(
+                la_array, partition.start, partition.stop
+            ):
+                raw_value = next(source)
+                value = descriptor.sanitise(raw_value, 2, raw_value.dtype)
+                j = buff.next_buffer_row()
+                buff.buff[j] = descriptor.convert(value, la)
+            buff.flush()
+            self.finalise_partition_array(partition_index, "array_name")
 
     def encode_alleles_partition(self, partition_index):
         array_name = "variant_allele"
