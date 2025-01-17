@@ -881,13 +881,9 @@ class VcfZarrWriter:
         self.finalise_partition_array(partition_index, ba)
 
     def encode_genotypes_partition(self, partition_index):
-        # FIXME we should be doing these one at a time, reading back in the genotypes
-        # like we do for local alleles
-        gt = self.init_partition_array(partition_index, "call_genotype")
-        gt_mask = self.init_partition_array(partition_index, "call_genotype_mask")
-        gt_phased = self.init_partition_array(partition_index, "call_genotype_phased")
-
         partition = self.metadata.partitions[partition_index]
+        gt = self.init_partition_array(partition_index, "call_genotype")
+        gt_phased = self.init_partition_array(partition_index, "call_genotype_phased")
 
         source_field = self.icf.fields["FORMAT/GT"]
         for value in source_field.iter_values(partition.start, partition.stop):
@@ -899,13 +895,23 @@ class VcfZarrWriter:
             icf.sanitise_value_int_1d(
                 gt_phased.buff, j, value[:, -1] if value is not None else None
             )
-            # TODO check is this the correct semantics when we are padding
-            # with mixed ploidies?
-            j = gt_mask.next_buffer_row()
-            gt_mask.buff[j] = gt.buff[j] < 0
 
         self.finalise_partition_array(partition_index, gt)
         self.finalise_partition_array(partition_index, gt_phased)
+
+        # Read back in the genotypes so we can compute the mask
+        gt_mask = self.init_partition_array(partition_index, "call_genotype_mask")
+        gt_array = zarr.open_array(
+            store=self.wip_partition_array_path(partition_index, "call_genotype"),
+            mode="r",
+        )
+        for genotypes in core.first_dim_slice_iter(
+            gt_array, partition.start, partition.stop
+        ):
+            # TODO check is this the correct semantics when we are padding
+            # with mixed ploidies?
+            j = gt_mask.next_buffer_row()
+            gt_mask.buff[j] = genotypes < 0
         self.finalise_partition_array(partition_index, gt_mask)
 
     def encode_local_alleles_partition(self, partition_index):
