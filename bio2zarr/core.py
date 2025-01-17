@@ -134,13 +134,16 @@ def cancel_futures(futures):
 class BufferedArray:
     array: zarr.Array
     array_offset: int
+    name: str
     buff: np.ndarray
     buffer_row: int
+    max_buff_size: int = 0
 
-    def __init__(self, array, offset):
+    def __init__(self, array, offset, name="Unknown"):
         self.array = array
         self.array_offset = offset
         assert offset % array.chunks[0] == 0
+        self.name = name
         dims = list(array.shape)
         dims[0] = min(array.chunks[0], array.shape[0])
         self.buff = np.empty(dims, dtype=array.dtype)
@@ -171,11 +174,12 @@ class BufferedArray:
                     self.buff[: self.buffer_row], self.array, self.array_offset
                 )
             logger.debug(
-                f"Flushed <{self.array.name} {self.array.shape} "
+                f"Flushed <{self.name} {self.array.shape} "
                 f"{self.array.dtype}> "
                 f"{self.array_offset}:{self.array_offset + self.buffer_row}"
                 f"{self.buff.nbytes / 2**20: .2f}Mb"
             )
+            self.max_buff_size = max(self.max_buff_size, sys.getsizeof(self.buff))
             self.array_offset += self.variants_chunk_size
             self.buffer_row = 0
 
