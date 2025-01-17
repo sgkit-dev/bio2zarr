@@ -844,23 +844,36 @@ class VcfZarrWriter:
         os.rename(partition_path, final_path)
 
     def init_partition_array(self, partition_index, name):
+        field_map = self.schema.field_map()
+        array_spec = field_map[name]
         # Create an empty array like the definition
-        src = self.arrays_path / name
+        src = self.arrays_path / array_spec.name
         # Overwrite any existing WIP files
-        wip_path = self.wip_partition_array_path(partition_index, name)
+        wip_path = self.wip_partition_array_path(partition_index, array_spec.name)
         shutil.copytree(src, wip_path, dirs_exist_ok=True)
         array = zarr.open_array(store=wip_path, mode="a")
-        logger.debug(f"Opened empty array {array.name} <{array.dtype}> @ {wip_path}")
-        return array
+        partition = self.metadata.partitions[partition_index]
+        ba = core.BufferedArray(array, partition.start, name)
+        logger.info(
+            f"Start partition {partition_index} array {name} <{array.dtype}> "
+            f"{array.shape} @ {wip_path}"
+        )
+        return ba
 
-    def finalise_partition_array(self, partition_index, name):
-        logger.debug(f"Encoded {name} partition {partition_index}")
+    def finalise_partition_array(self, partition_index, buffered_array):
+        buffered_array.flush()
+        # field_map = self.schema.field_map()
+        # array_spec = field_map[buffered_array.name]
+        # ba = buffered_array
+        # print(array_spec.name, "ba.max_buff_size", ba.max_buff_size,
+        # array_spec.variant_chunk_nbytes)
+        logger.info(
+            f"Completed partition {partition_index} array {buffered_array.name}"
+        )
 
     def encode_array_partition(self, array_spec, partition_index):
-        array = self.init_partition_array(partition_index, array_spec.name)
-
         partition = self.metadata.partitions[partition_index]
-        ba = core.BufferedArray(array, partition.start)
+        ba = self.init_partition_array(partition_index, array_spec.name)
         source_field = self.icf.fields[array_spec.vcf_field]
         sanitiser = source_field.sanitiser_factory(ba.buff.shape)
 
@@ -869,20 +882,16 @@ class VcfZarrWriter:
             # to make it easier to reason about dimension padding
             j = ba.next_buffer_row()
             sanitiser(ba.buff, j, value)
-        ba.flush()
-        self.finalise_partition_array(partition_index, array_spec.name)
+        self.finalise_partition_array(partition_index, ba)
 
     def encode_genotypes_partition(self, partition_index):
-        gt_array = self.init_partition_array(partition_index, "call_genotype")
-        gt_mask_array = self.init_partition_array(partition_index, "call_genotype_mask")
-        gt_phased_array = self.init_partition_array(
-            partition_index, "call_genotype_phased"
-        )
+        # FIXME we should be doing these one at a time, reading back in the genotypes
+        # like we do for local alleles
+        gt = self.init_partition_array(partition_index, "call_genotype")
+        gt_mask = self.init_partition_array(partition_index, "call_genotype_mask")
+        gt_phased = self.init_partition_array(partition_index, "call_genotype_phased")
 
         partition = self.metadata.partitions[partition_index]
-        gt = core.BufferedArray(gt_array, partition.start)
-        gt_mask = core.BufferedArray(gt_mask_array, partition.start)
-        gt_phased = core.BufferedArray(gt_phased_array, partition.start)
 
         source_field = self.icf.fields["FORMAT/GT"]
         for value in source_field.iter_values(partition.start, partition.stop):
@@ -898,18 +907,14 @@ class VcfZarrWriter:
             # with mixed ploidies?
             j = gt_mask.next_buffer_row()
             gt_mask.buff[j] = gt.buff[j] < 0
-        gt.flush()
-        gt_phased.flush()
-        gt_mask.flush()
 
-        self.finalise_partition_array(partition_index, "call_genotype")
-        self.finalise_partition_array(partition_index, "call_genotype_mask")
-        self.finalise_partition_array(partition_index, "call_genotype_phased")
+        self.finalise_partition_array(partition_index, gt)
+        self.finalise_partition_array(partition_index, gt_phased)
+        self.finalise_partition_array(partition_index, gt_mask)
 
     def encode_local_alleles_partition(self, partition_index):
         partition = self.metadata.partitions[partition_index]
-        call_LA_array = self.init_partition_array(partition_index, "call_LA")
-        call_LA = core.BufferedArray(call_LA_array, partition.start)
+        call_LA = self.init_partition_array(partition_index, "call_LA")
 
         gt_array = zarr.open_array(
             store=self.wip_partition_array_path(partition_index, "call_genotype"),
@@ -921,9 +926,7 @@ class VcfZarrWriter:
             la = compute_la_field(genotypes)
             j = call_LA.next_buffer_row()
             call_LA.buff[j] = la
-
-        call_LA.flush()
-        self.finalise_partition_array(partition_index, "call_LA")
+        self.finalise_partition_array(partition_index, call_LA)
 
     def encode_local_allele_fields_partition(self, partition_index):
         partition = self.metadata.partitions[partition_index]
@@ -931,16 +934,15 @@ class VcfZarrWriter:
             store=self.wip_partition_array_path(partition_index, "call_LA"),
             mode="r",
         )
-        field_map = self.schema.field_map()
         # We got through the localisable fields one-by-one so that we don't need to
         # keep several large arrays in memory at once for each partition.
+        field_map = self.schema.field_map()
         for descriptor in localisable_fields:
             if descriptor.array_name not in field_map:
                 continue
             assert field_map[descriptor.array_name].vcf_field is None
 
-            array = self.init_partition_array(partition_index, descriptor.array_name)
-            buff = core.BufferedArray(array, partition.start)
+            buff = self.init_partition_array(partition_index, descriptor.array_name)
             source = self.icf.fields[descriptor.vcf_field].iter_values(
                 partition.start, partition.stop
             )
@@ -951,14 +953,11 @@ class VcfZarrWriter:
                 value = descriptor.sanitise(raw_value, 2, raw_value.dtype)
                 j = buff.next_buffer_row()
                 buff.buff[j] = descriptor.convert(value, la)
-            buff.flush()
-            self.finalise_partition_array(partition_index, "array_name")
+            self.finalise_partition_array(partition_index, buff)
 
     def encode_alleles_partition(self, partition_index):
-        array_name = "variant_allele"
-        alleles_array = self.init_partition_array(partition_index, array_name)
+        alleles = self.init_partition_array(partition_index, "variant_allele")
         partition = self.metadata.partitions[partition_index]
-        alleles = core.BufferedArray(alleles_array, partition.start)
         ref_field = self.icf.fields["REF"]
         alt_field = self.icf.fields["ALT"]
 
@@ -970,16 +969,12 @@ class VcfZarrWriter:
             alleles.buff[j, :] = constants.STR_FILL
             alleles.buff[j, 0] = ref[0]
             alleles.buff[j, 1 : 1 + len(alt)] = alt
-        alleles.flush()
-
-        self.finalise_partition_array(partition_index, array_name)
+        self.finalise_partition_array(partition_index, alleles)
 
     def encode_id_partition(self, partition_index):
-        vid_array = self.init_partition_array(partition_index, "variant_id")
-        vid_mask_array = self.init_partition_array(partition_index, "variant_id_mask")
+        vid = self.init_partition_array(partition_index, "variant_id")
+        vid_mask = self.init_partition_array(partition_index, "variant_id_mask")
         partition = self.metadata.partitions[partition_index]
-        vid = core.BufferedArray(vid_array, partition.start)
-        vid_mask = core.BufferedArray(vid_mask_array, partition.start)
         field = self.icf.fields["ID"]
 
         for value in field.iter_values(partition.start, partition.stop):
@@ -992,18 +987,14 @@ class VcfZarrWriter:
             else:
                 vid.buff[j] = constants.STR_MISSING
                 vid_mask.buff[j] = True
-        vid.flush()
-        vid_mask.flush()
 
-        self.finalise_partition_array(partition_index, "variant_id")
-        self.finalise_partition_array(partition_index, "variant_id_mask")
+        self.finalise_partition_array(partition_index, vid)
+        self.finalise_partition_array(partition_index, vid_mask)
 
     def encode_filters_partition(self, partition_index):
         lookup = {filt.id: index for index, filt in enumerate(self.schema.filters)}
-        array_name = "variant_filter"
-        array = self.init_partition_array(partition_index, array_name)
+        var_filter = self.init_partition_array(partition_index, "variant_filter")
         partition = self.metadata.partitions[partition_index]
-        var_filter = core.BufferedArray(array, partition.start)
 
         field = self.icf.fields["FILTERS"]
         for value in field.iter_values(partition.start, partition.stop):
@@ -1016,16 +1007,13 @@ class VcfZarrWriter:
                     raise ValueError(
                         f"Filter '{f}' was not defined in the header."
                     ) from None
-        var_filter.flush()
 
-        self.finalise_partition_array(partition_index, array_name)
+        self.finalise_partition_array(partition_index, var_filter)
 
     def encode_contig_partition(self, partition_index):
         lookup = {contig.id: index for index, contig in enumerate(self.schema.contigs)}
-        array_name = "variant_contig"
-        array = self.init_partition_array(partition_index, array_name)
+        contig = self.init_partition_array(partition_index, "variant_contig")
         partition = self.metadata.partitions[partition_index]
-        contig = core.BufferedArray(array, partition.start)
         field = self.icf.fields["CHROM"]
 
         for value in field.iter_values(partition.start, partition.stop):
@@ -1035,9 +1023,8 @@ class VcfZarrWriter:
             # will always succeed. However, if anyone ever does hit a KeyError
             # here, please do open an issue with a reproducible example!
             contig.buff[j] = lookup[value[0]]
-        contig.flush()
 
-        self.finalise_partition_array(partition_index, array_name)
+        self.finalise_partition_array(partition_index, contig)
 
     #######################
     # finalise
