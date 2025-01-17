@@ -221,7 +221,6 @@ def show_work_summary(work_summary, json):
 @compressor
 @progress
 @worker_processes
-@local_alleles
 def explode(
     vcfs,
     icf_path,
@@ -231,7 +230,6 @@ def explode(
     compressor,
     progress,
     worker_processes,
-    local_alleles,
 ):
     """
     Convert VCF(s) to intermediate columnar format
@@ -245,7 +243,6 @@ def explode(
         column_chunk_size=column_chunk_size,
         compressor=get_compressor(compressor),
         show_progress=progress,
-        local_alleles=local_alleles,
     )
 
 
@@ -260,7 +257,6 @@ def explode(
 @verbose
 @progress
 @worker_processes
-@local_alleles
 def dexplode_init(
     vcfs,
     icf_path,
@@ -272,7 +268,6 @@ def dexplode_init(
     verbose,
     progress,
     worker_processes,
-    local_alleles,
 ):
     """
     Initial step for distributed conversion of VCF(s) to intermediate columnar format
@@ -289,7 +284,6 @@ def dexplode_init(
         worker_processes=worker_processes,
         compressor=get_compressor(compressor),
         show_progress=progress,
-        local_alleles=local_alleles,
     )
     show_work_summary(work_summary, json)
 
