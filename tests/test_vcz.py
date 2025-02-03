@@ -1,5 +1,7 @@
 import json
 
+import numpy.testing as nt
+import pandas as pd
 import pysam
 import pytest
 import sgkit as sg
@@ -662,3 +664,104 @@ class TestBadSchemaChanges:
             json.dump(d, f)
         with pytest.raises(ValueError, match="Subsetting or reordering samples"):
             vcf2zarr.encode(icf_path, tmp_path / "z", schema_path=schema_path)
+
+
+class TestInspect:
+    def test_icf(self, icf_path):
+        df = pd.DataFrame(vcz_mod.inspect(icf_path))
+        assert sorted(list(df)) == sorted(
+            [
+                "name",
+                "type",
+                "chunks",
+                "size",
+                "compressed",
+                "max_n",
+                "min_val",
+                "max_val",
+            ]
+        )
+        nt.assert_array_equal(
+            sorted(df["name"].values),
+            sorted(
+                [
+                    "CHROM",
+                    "POS",
+                    "QUAL",
+                    "ID",
+                    "FILTERS",
+                    "REF",
+                    "ALT",
+                    "rlen",
+                    "INFO/NS",
+                    "INFO/AN",
+                    "INFO/AC",
+                    "INFO/DP",
+                    "INFO/AF",
+                    "INFO/AA",
+                    "INFO/DB",
+                    "INFO/H2",
+                    "FORMAT/GT",
+                    "FORMAT/GQ",
+                    "FORMAT/DP",
+                    "FORMAT/HQ",
+                ]
+            ),
+        )
+
+    def test_vcz(self, zarr_path):
+        df = pd.DataFrame(vcz_mod.inspect(zarr_path))
+        cols = [
+            "name",
+            "dtype",
+            "stored",
+            "size",
+            "ratio",
+            "nchunks",
+            "chunk_size",
+            "avg_chunk_stored",
+            "shape",
+            "chunk_shape",
+            "compressor",
+            "filters",
+        ]
+        assert sorted(list(df)) == sorted(cols)
+        fields = [
+            "/call_genotype",
+            "/call_HQ",
+            "/call_genotype_mask",
+            "/call_GQ",
+            "/call_DP",
+            "/call_genotype_phased",
+            "/variant_allele",
+            "/variant_AC",
+            "/variant_AF",
+            "/region_index",
+            "/variant_filter",
+            "/variant_id",
+            "/variant_contig",
+            "/variant_AA",
+            "/variant_quality",
+            "/variant_position",
+            "/variant_AN",
+            "/variant_length",
+            "/variant_NS",
+            "/variant_DB",
+            "/variant_DP",
+            "/variant_H2",
+            "/sample_id",
+            "/variant_id_mask",
+            "/filter_id",
+            "/contig_id",
+        ]
+        nt.assert_array_equal(sorted(df["name"]), sorted(fields))
+
+    @pytest.mark.parametrize("bad_path", ["/NO_WAY", "TTTTTT"])
+    def test_no_such_path(self, bad_path):
+        with pytest.raises(ValueError, match=f"Path not found: {bad_path}"):
+            vcz_mod.inspect(bad_path)
+
+    @pytest.mark.parametrize("path", ["./", "tests/data/vcf/sample.vcf.gz"])
+    def test_unknown_format(self, path):
+        with pytest.raises(ValueError, match="not in ICF or VCF Zarr format"):
+            vcz_mod.inspect(path)

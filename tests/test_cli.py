@@ -807,6 +807,19 @@ class TestVcfEndToEnd:
         assert "variant_position" in result.stdout
 
 
+class TestBadPaths:
+    @pytest.mark.parametrize("bad_path", ["PPP", "/dev/no_such_thing"])
+    def test_inspect(self, bad_path):
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.vcf2zarr_main,
+            f"inspect {bad_path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 2
+        assert "Invalid value for" in result.stderr
+
+
 class TestVcfPartition:
     path = "tests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz"
     paths = (path, "tests/data/vcf/1kg_2020_chrM.vcf.gz")
