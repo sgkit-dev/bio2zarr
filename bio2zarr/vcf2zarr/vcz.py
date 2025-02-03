@@ -23,13 +23,15 @@ logger = logging.getLogger(__name__)
 
 def inspect(path):
     path = pathlib.Path(path)
-    # TODO add support for the Zarr format also
+    if not path.exists():
+        raise ValueError(f"Path not found: {path}")
     if (path / "metadata.json").exists():
         obj = icf.IntermediateColumnarFormat(path)
+    # NOTE: this is too strict, we should support more general Zarrs, see #276
     elif (path / ".zmetadata").exists():
         obj = VcfZarr(path)
     else:
-        raise ValueError("Format not recognised")  # NEEDS TEST
+        raise ValueError(f"{path} not in ICF or VCF Zarr format")
     return obj.summary_table()
 
 

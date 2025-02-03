@@ -319,7 +319,7 @@ def dexplode_finalise(icf_path, verbose):
 
 
 @click.command
-@click.argument("path", type=click.Path())
+@click.argument("path", type=click.Path(exists=True))
 @verbose
 def inspect(path, verbose):
     """
