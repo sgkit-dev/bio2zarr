@@ -1139,7 +1139,7 @@ class VcfZarrWriter:
                 )
                 c_start_idx = c_end_idx + 1
 
-        index = np.array(index, dtype=np.int32)
+        index = np.array(index, dtype=pos.dtype)
         kwargs = {}
         if not zarr_v3():
             kwargs["dimension_separator"] = self.metadata.dimension_separator
@@ -1147,8 +1147,10 @@ class VcfZarrWriter:
             "region_index",
             data=index,
             shape=index.shape,
+            chunks=index.shape,
             dtype=index.dtype,
             compressor=numcodecs.Blosc("zstd", clevel=9, shuffle=0),
+            fill_value=None,
             **kwargs,
         )
         array.attrs["_ARRAY_DIMENSIONS"] = [
