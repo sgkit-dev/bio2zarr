@@ -250,6 +250,20 @@ class TestSchemaEncode:
         root = zarr.open(zarr_path)
         assert root["call_genotype"].dtype == dtype
 
+    @pytest.mark.parametrize("dtype", ["i4", "i8"])
+    def test_region_index_dtype(self, tmp_path, icf_path, dtype):
+        zarr_path = tmp_path / "zarr"
+        icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        schema = vcf2zarr.VcfZarrSchema.generate(icf)
+        schema.field_map()["variant_position"].dtype = dtype
+        schema_path = tmp_path / "schema"
+        with open(schema_path, "w") as f:
+            f.write(schema.asjson())
+        vcf2zarr.encode(icf_path, zarr_path, schema_path=schema_path)
+        root = zarr.open(zarr_path)
+        assert root["variant_position"].dtype == dtype
+        assert root["region_index"].dtype == dtype
+
 
 def get_field_dict(a_schema, name):
     d = a_schema.asdict()

@@ -438,6 +438,17 @@ class TestSmallExample:
     def test_vcf_field_description(self, ds, field, description):
         assert ds[field].attrs["description"] == description
 
+    def test_region_index(self, ds):
+        assert ds["region_index"].chunks == ((3,), (6,))
+        region_index = np.array(
+            [
+                [0, 0, 111, 112, 112, 2],
+                [0, 1, 14370, 1235237, 1235237, 6],
+                [0, 2, 10, 10, 11, 1],
+            ]
+        )
+        nt.assert_array_equal(ds["region_index"], region_index)
+
 
 class TestSmallExampleLocalAlleles:
     data_path = "tests/data/vcf/sample.vcf.gz"
