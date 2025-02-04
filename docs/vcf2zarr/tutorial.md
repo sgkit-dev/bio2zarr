@@ -83,6 +83,8 @@ chunks are *larger* than the actual arrays. This is because it's
 a tiny example, with only 9 variants and 3 samples (see the ``shape``
 column), so, for example ``call_genotype`` is only 54 bytes.
 
+
+(sec-vcf2zarr-tutorial-medium-dataset)=
 ## Medium dataset
 
 Conversion in ``vcf2zarr`` is a two step process. First we convert the VCF(s) to 
