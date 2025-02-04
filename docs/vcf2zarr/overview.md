@@ -128,6 +128,20 @@ if you would like to see other fields supported, or to help out with
 implementing more.
 :::
 
+## Debugging
+
+When things go wrong with conversion, it's very useful to generate some 
+debugging information using the ``-v`` or ``-vv`` options. These can 
+help identify what's going wrong (usually running out of memory).
+
+:::{warning}
+To get the full logging output you **must use** -p0, such that no multiprocessing
+is used. This means that tracking down problems can be slow, unfortunately.
+This is due to a bug in the way logging from child processes is handled;
+see [issue 302](https://github.com/sgkit-dev/bio2zarr/issues/302) for details.
+:::
+
+
 
 ## Copying to object stores
 
