@@ -339,6 +339,11 @@ def mkschema(icf_path, variants_chunk_size, samples_chunk_size, local_alleles):
     """
     Generate a schema for zarr encoding
     """
+    if local_alleles:
+        click.echo(
+            "WARNING: Local alleles support is preliminary; please use with caution.",
+            err=True,
+        )
     stream = click.get_text_stream("stdout")
     vcf2zarr.mkschema(
         icf_path,

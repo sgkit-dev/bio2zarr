@@ -729,6 +729,9 @@ class TestVcfEndToEnd:
         d = json.loads(result.stdout)
         call_LA_exists = "call_LA" in [f["name"] for f in d["fields"]]
         assert call_LA_exists == local_alleles
+        assert (
+            "WARNING: Local alleles support is preliminary;" in result.stderr
+        ) == local_alleles
 
     def test_encode(self, tmp_path):
         icf_path = tmp_path / "icf"
