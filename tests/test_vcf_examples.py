@@ -716,16 +716,19 @@ class Test1000G2020ExampleLocalAlleles:
             [[446, -2], [393, -2], [486, -2]],
         ]
         nt.assert_array_equal(ds.call_LAD.values, call_LAD)
+        assert ds.call_LAD.dims == ("variants", "samples", "local_alleles")
 
     def test_call_LA(self, ds):
         # All the genotypes are 0/0
         call_LA = np.full((23, 3, 2), -2)
         call_LA[:, :, 0] = 0
         nt.assert_array_equal(ds.call_LA.values, call_LA)
+        assert ds.call_LA.dims == ("variants", "samples", "local_alleles")
 
     def test_call_LPL(self, ds):
         call_LPL = np.tile([0, -2, -2], (23, 3, 1))
         nt.assert_array_equal(ds.call_LPL.values, call_LPL)
+        assert ds.call_LPL.dims == ("variants", "samples", "local_genotypes")
 
 
 class Test1000G2020AnnotationsExample:

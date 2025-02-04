@@ -204,6 +204,7 @@ def convert_local_allele_field_types(fields):
 
     shape = gt.shape[:-1]
     chunks = gt.chunks[:-1]
+    dimensions = gt.dimensions[:-1]
 
     la = ZarrArraySpec.new(
         vcf_field=None,
@@ -211,7 +212,7 @@ def convert_local_allele_field_types(fields):
         dtype="i1",
         shape=gt.shape,
         chunks=gt.chunks,
-        dimensions=gt.dimensions,  # FIXME
+        dimensions=(*dimensions, "local_alleles"),
         description=(
             "0-based indices into REF+ALT, indicating which alleles"
             " are relevant (local) for the current sample"
@@ -224,8 +225,8 @@ def convert_local_allele_field_types(fields):
         ad.vcf_field = None
         ad.shape = (*shape, 2)
         ad.chunks = (*chunks, 2)
+        ad.dimensions = (*dimensions, "local_alleles")
         ad.description += " (local-alleles)"
-        # TODO fix dimensions
 
     pl = fields_by_name.get("call_PL", None)
     if pl is not None:
@@ -235,7 +236,7 @@ def convert_local_allele_field_types(fields):
         pl.shape = (*shape, 3)
         pl.chunks = (*chunks, 3)
         pl.description += " (local-alleles)"
-        # TODO fix dimensions
+        pl.dimensions = (*dimensions, "local_" + pl.dimensions[-1])
     return [*fields, la]
 
 

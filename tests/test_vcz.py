@@ -41,6 +41,17 @@ def schema(schema_path):
 
 
 @pytest.fixture(scope="module")
+def local_alleles_schema(icf_path, tmp_path_factory):
+    # FIXME: this is stupid way of getting a test fixture, should
+    # be much easier.
+    out = tmp_path_factory.mktemp("data") / "example.schema.json"
+    with open(out, "w") as f:
+        vcf2zarr.mkschema(icf_path, f, local_alleles=True)
+    with open(out) as f:
+        return vcf2zarr.VcfZarrSchema.fromjson(f.read())
+
+
+@pytest.fixture(scope="module")
 def zarr_path(icf_path, tmp_path_factory):
     out = tmp_path_factory.mktemp("data") / "example.zarr"
     vcf2zarr.encode(icf_path, out)
@@ -434,6 +445,36 @@ class TestDefaultSchema:
             "dimensions": ("variants", "samples"),
             "description": "Genotype Quality",
             "vcf_field": "FORMAT/GQ",
+            "compressor": {
+                "id": "blosc",
+                "cname": "zstd",
+                "clevel": 7,
+                "shuffle": 0,
+                "blocksize": 0,
+            },
+            "filters": tuple(),
+        }
+
+
+class TestLocalAllelesDefaultSchema:
+    def test_differences(self, schema, local_alleles_schema):
+        assert len(schema.fields) == len(local_alleles_schema.fields) - 1
+        non_local = [f for f in local_alleles_schema.fields if f.name != "call_LA"]
+        assert schema.fields == non_local
+
+    def test_call_LA(self, local_alleles_schema):
+        d = get_field_dict(local_alleles_schema, "call_LA")
+        assert d == {
+            "name": "call_LA",
+            "dtype": "i1",
+            "shape": (9, 3, 2),
+            "chunks": (1000, 10000, 2),
+            "dimensions": ("variants", "samples", "local_alleles"),
+            "description": (
+                "0-based indices into REF+ALT, indicating which alleles"
+                " are relevant (local) for the current sample"
+            ),
+            "vcf_field": None,
             "compressor": {
                 "id": "blosc",
                 "cname": "zstd",
