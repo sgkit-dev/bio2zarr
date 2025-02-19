@@ -138,7 +138,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        zarr: ["==2.18.3", ">=3"]
+        zarr: ["==2.18.3", ">=3.0.3"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -153,4 +153,4 @@ jobs:
           python -m pip install 'zarr${{ matrix.zarr }}'
       - name: Run tests
         run: |
-          python -m pytest -k "not test_double_encode_partition"
+          python -m pytest
