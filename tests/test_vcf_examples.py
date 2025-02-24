@@ -1100,3 +1100,58 @@ def test_missing_filter(tmp_path):
     zarr_path = tmp_path / "zarr"
     with pytest.raises(ValueError, match="Filter 'q10' was not defined in the header"):
         vcf2zarr.convert([path], zarr_path)
+
+
+class TestOutOfOrderFields:
+    # Mixing on purpose
+    data_path1 = "tests/data/vcf/out_of_order_fields/input2.bcf"
+    data_path2 = "tests/data/vcf/out_of_order_fields/input1.bcf"
+
+    @pytest.fixture(scope="class")
+    def ds(self, tmp_path_factory):
+        out = tmp_path_factory.mktemp("data") / "ooo_example.vcf.zarr"
+        vcf2zarr.convert([self.data_path1, self.data_path2], out)
+        return sg.load_dataset(out)
+
+    def test_filters(self, ds):
+        nt.assert_array_equal(ds["filter_id"], ["PASS", "FAIL"])
+        nt.assert_array_equal(
+            ds["variant_filter"],
+            [
+                [True, False],
+                [False, True],
+                [True, False],
+            ],
+        )
+
+    def test_source(self, ds):
+        assert ds.attrs["source"] == f"bio2zarr-{provenance.__version__}"
+
+    def test_contigs(self, ds):
+        nt.assert_array_equal(ds["contig_id"], ["chr20", "chr21"])
+        nt.assert_array_equal(ds["contig_length"], [64444167.0, 46709983.0])
+        nt.assert_array_equal(ds["variant_contig"], [0, 1, 1])
+
+    def test_position(self, ds):
+        nt.assert_array_equal(ds["variant_position"], [63971, 64506, 64507])
+
+    def test_length(self, ds):
+        nt.assert_array_equal(ds["variant_length"], [11, 1, 1])
+
+    def test_info_fields(self, ds):
+        nt.assert_array_equal(
+            ds["variant_QNAME"],
+            ["cluster19_000000F", ".", "cluster19_000000F"],
+        )
+        nt.assert_array_equal(ds["variant_QSTART"], [25698928, 25698928, -1])
+
+    def test_allele(self, ds):
+        nt.assert_array_equal(
+            ds["variant_allele"].values.tolist(),
+            [["TTCCATTCCAC", "T"], ["C", "CTCCAT"], ["G", "A"]],
+        )
+        assert ds["variant_allele"].dtype == "O"
+
+    def test_call_DPs(self, ds):
+        nt.assert_array_equal(ds["call_DP"], [[5], [-1], [5]])
+        nt.assert_array_equal(ds["call_DP2"], [[1], [1], [-1]])
