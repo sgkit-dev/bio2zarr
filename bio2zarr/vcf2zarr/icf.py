@@ -41,7 +41,7 @@ class VcfFieldSummary(core.JsonDataclass):
         return VcfFieldSummary(**d)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(order=True)
 class VcfField:
     category: str
     name: str
@@ -191,6 +191,16 @@ class IcfMetadata(core.JsonDataclass):
         d["filters"] = [Filter(**fd) for fd in d["filters"]]
         d["contigs"] = [Contig(**cd) for cd in d["contigs"]]
         return IcfMetadata(**d)
+
+    def __eq__(self, other):
+        if not isinstance(other, IcfMetadata):
+            return NotImplemented
+        return (
+            self.samples == other.samples
+            and self.contigs == other.contigs
+            and self.filters == other.filters
+            and sorted(self.fields) == sorted(other.fields)
+        )
 
 
 def fixed_vcf_field_definitions():
