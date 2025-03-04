@@ -23,7 +23,6 @@ dependencies = [
   # colouredlogs pulls in humanfriendly",
   "cyvcf2",
   "bed_reader",
-  "packaging",
 ]
 requires-python = ">=3.9"
 classifiers = [
