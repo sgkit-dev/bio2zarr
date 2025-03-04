@@ -1,3 +1,9 @@
+# 0.1.3 2025-03-04
+
+- Fix missing dependency issue for packaging
+
+- Support out-of-order field definitions in the VCF header (#322, @ACEnglish)
+
 # 0.1.2 2025-02-04
 
 - Reduce memory requirement for encoding genotypes with large sample sizes
@@ -20,7 +26,7 @@ Breaking changes
 
 Maintenance release:
 
-- Pin numpy to < 2 
+- Pin numpy to < 2
 - Pin Zarr to < 3
 
 # 0.1.0 2024-06-10
