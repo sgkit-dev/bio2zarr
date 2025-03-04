@@ -1,9 +1,8 @@
 import zarr
-from packaging.version import Version
 
 
 def zarr_v3() -> bool:
-    return Version(zarr.__version__).major >= 3
+    return zarr.__version__ >= "3"
 
 
 if zarr_v3():
