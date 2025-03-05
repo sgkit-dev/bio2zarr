@@ -2,9 +2,8 @@
 # Learn more at https://jupyterbook.org/customize/config.html
 
 title: bio2zarr Documentation
-author: sgkit developers
+author: the sgkit developers
 logo: logo.png
-copyright: "2024"
 
 # Force re-execution of notebooks on each build.
 # See https://jupyterbook.org/content/execute.html
@@ -22,12 +21,19 @@ repository:
 html:
   use_issues_button: true
   use_repository_button: true
+  extra_footer: |
+      <p>
+      Documentation available under the terms of the
+      <a href="https://creativecommons.org/publicdomain/zero/1.0/">CC0 1.0</a> 
+      license.
+      </p>
 
 sphinx:
   extra_extensions:
     - sphinx_click.ext
     - sphinx.ext.todo
   config:
+    html_show_copyright: false
     # This is needed to make sure that text is output in single block from
     # bash cells.
     nb_merge_streams: true
