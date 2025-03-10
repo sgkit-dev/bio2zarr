@@ -1,4 +1,4 @@
-# 0.1.4 2025-03-XX
+# 0.1.4 2025-03-10
 
 - Fix bug in handling all-missing genotypes (#328)
 
