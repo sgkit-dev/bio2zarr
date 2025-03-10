@@ -1,3 +1,7 @@
+# 0.1.4 2025-03-XX
+
+- Fix bug in handling all-missing genotypes (#328)
+
 # 0.1.3 2025-03-04
 
 - Fix missing dependency issue for packaging

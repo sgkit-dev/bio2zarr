@@ -449,6 +449,29 @@ class TestSmallExample:
         )
         nt.assert_array_equal(ds["region_index"], region_index)
 
+    def test_small_example_all_missing_gts(self, ds, tmp_path_factory):
+        data_path = "tests/data/vcf/sample_all_missing_gts.vcf.gz"
+        out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
+        vcf2zarr.convert([data_path], out, worker_processes=0)
+        ds2 = sg.load_dataset(out)
+
+        assert_dataset_equal(
+            ds,
+            ds2,
+            drop_vars=["call_genotype", "call_genotype_mask", "call_genotype_phased"],
+        )
+        gt1 = ds["call_genotype"].values
+        gt1[1] = -1
+        nt.assert_array_equal(gt1, ds2["call_genotype"].values)
+        m1 = ds["call_genotype_mask"].values
+        m1[1] = True
+        nt.assert_array_equal(m1, ds2["call_genotype_mask"].values)
+        p1 = ds["call_genotype_phased"].values
+        # NOTE: Not sure this is the correct behaviour, but testing here anyway
+        # to keep a record that this is what we're doing
+        p1[1] = True
+        nt.assert_array_equal(p1, ds2["call_genotype_phased"].values)
+
 
 class TestSmallExampleLocalAlleles:
     data_path = "tests/data/vcf/sample.vcf.gz"
