@@ -1,5 +1,7 @@
+import pathlib
 import subprocess
 import sys
+import tempfile
 
 import numpy as np
 import pytest
@@ -240,6 +242,11 @@ class TestFirstDimSliceIter:
     ],
 )
 def test_du(path):
-    s = subprocess.check_output(["du", "-sb", "--apparent-size", str(path)]).decode()
-    value = int(s.split()[0])
-    assert core.du(path) == value
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        subprocess.check_call(["cp", "-pR", "tests", tmp_dir])
+        copy_path = pathlib.Path(tmp_dir) / path
+        s = subprocess.check_output(
+            ["du", "-sb", "--apparent-size", str(copy_path)]
+        ).decode()
+        value = int(s.split()[0])
+        assert core.du(path) == value
