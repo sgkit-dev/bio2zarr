@@ -1,4 +1,7 @@
+import pathlib
+import subprocess
 import sys
+import tempfile
 
 import numpy as np
 import pytest
@@ -231,16 +234,19 @@ class TestFirstDimSliceIter:
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Only valid on Linux")
 @pytest.mark.parametrize(
-    ("path", "expected"),
+    "path",
     [
-        # NOTE: this data is generated using du -sb on a Linux system.
-        # It works in CI on Linux, but it'll probably break at some point.
-        # It's also necessary to update these numbers each time a new data
-        # file gets added
-        ("tests/data", 4983044),
-        ("tests/data/vcf", 4970907),
-        ("tests/data/vcf/sample.vcf.gz", 1089),
+        "tests/data",
+        "tests/data/vcf",
+        "tests/data/vcf/sample.vcf.gz",
     ],
 )
-def test_du(path, expected):
-    assert core.du(path) == expected
+def test_du(path):
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        subprocess.check_call(["cp", "-pR", "tests", tmp_dir])
+        copy_path = pathlib.Path(tmp_dir) / path
+        s = subprocess.check_output(
+            ["du", "-sb", "--apparent-size", str(copy_path)]
+        ).decode()
+        value = int(s.split()[0])
+        assert core.du(path) == value
