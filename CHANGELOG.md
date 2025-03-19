@@ -1,3 +1,7 @@
+# 0.1.5 2025-03-xx
+
+- Add support for merging contig IDs across multiple VCFs (#342)
+
 # 0.1.4 2025-03-10
 
 - Fix bug in handling all-missing genotypes (#328)

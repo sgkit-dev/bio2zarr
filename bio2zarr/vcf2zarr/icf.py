@@ -324,13 +324,27 @@ def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
     # are compatible.
     all_partitions = []
     total_records = 0
+    contigs = {}
     for metadata, _ in results:
         for partition in metadata.partitions:
             logger.debug(f"Scanned partition {partition}")
             all_partitions.append(partition)
+        for contig in metadata.contigs:
+            if contig.id in contigs:
+                if contig != contigs[contig.id]:
+                    raise ValueError(
+                        "Incompatible contig definitions: "
+                        f"{contig} != {contigs[contig.id]}"
+                    )
+            else:
+                contigs[contig.id] = contig
         total_records += metadata.num_records
         metadata.num_records = 0
         metadata.partitions = []
+
+    contig_union = list(contigs.values())
+    for metadata, _ in results:
+        metadata.contigs = contig_union
 
     icf_metadata, header = results[0]
     for metadata, _ in results[1:]:
