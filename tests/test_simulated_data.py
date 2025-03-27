@@ -42,12 +42,14 @@ def assert_ts_ds_equal(ts, ds, ploidy=1):
     nt.assert_equal(ds.variant_position, ts.sites_position)
 
 
-def write_vcf(ts, vcf_path, contig_id="1"):
+def write_vcf(ts, vcf_path, contig_id="1", indexed=False):
     with open(vcf_path, "w") as f:
         ts.write_vcf(f, contig_id=contig_id)
-    # This also compresses the input file
-    pysam.tabix_index(str(vcf_path), preset="vcf")
-    return vcf_path.with_suffix(vcf_path.suffix + ".gz")
+    if indexed:
+        # This also compresses the input file
+        pysam.tabix_index(str(vcf_path), preset="vcf")
+        vcf_path = vcf_path.with_suffix(vcf_path.suffix + ".gz")
+    return vcf_path
 
 
 # https://github.com/sgkit-dev/bio2zarr/issues/336
@@ -75,6 +77,9 @@ class TestTskitRoundTripVcf:
             vcfs.append(vcf_path)
             tss[contig_id] = ts
 
+        self.validate_tss_vcf_list(contig_ids, tss, vcfs, tmp_path)
+
+    def validate_tss_vcf_list(self, contig_ids, tss, vcfs, tmp_path):
         out = tmp_path / "example.vcf.zarr"
         vcf2zarr.convert(vcfs, out)
         ds = sg.load_dataset(out).set_index(
@@ -92,6 +97,34 @@ class TestTskitRoundTripVcf:
             contig = list(ds.contig_id).index(contig_id)
             dss = ds.sel(variants=(contig, slice(0, None)))
             assert_ts_ds_equal(tss[contig_id], dss)
+
+    @pytest.mark.parametrize("indexed", [True, False])
+    def test_indexed(self, indexed, tmp_path):
+        ts = run_simulation(num_samples=12, seed=34)
+        vcf_path = write_vcf(ts, tmp_path / "sim.vcf", indexed=indexed)
+        out = tmp_path / "example.vcf.zarr"
+        vcf2zarr.convert([vcf_path], out)
+        ds = sg.load_dataset(out)
+        assert_ts_ds_equal(ts, ds)
+
+    @pytest.mark.parametrize("num_contigs", [2, 3, 6])
+    def test_mixed_indexed(self, num_contigs, tmp_path):
+        contig_ids = [f"x{j}" for j in range(num_contigs)]
+
+        vcfs = []
+        tss = {}
+        for seed, contig_id in enumerate(contig_ids, 1):
+            ts = run_simulation(num_samples=3, seed=seed)
+            vcf_path = write_vcf(
+                ts,
+                tmp_path / f"{contig_id}.vcf",
+                contig_id=contig_id,
+                indexed=seed % 2 == 0,
+            )
+            vcfs.append(vcf_path)
+            tss[contig_id] = ts
+
+        self.validate_tss_vcf_list(contig_ids, tss, vcfs, tmp_path)
 
 
 # https://github.com/sgkit-dev/bio2zarr/issues/336

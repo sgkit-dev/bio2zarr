@@ -89,7 +89,10 @@ class Region:
     end: Optional[int] = None
 
     def __post_init__(self):
-        if self.start is not None:
+        assert self.contig is not None
+        if self.start is None:
+            self.start = 1
+        else:
             self.start = int(self.start)
             assert self.start > 0
         if self.end is not None:
@@ -396,6 +399,9 @@ class VcfIndexType(Enum):
 class IndexedVcf(contextlib.AbstractContextManager):
     def __init__(self, vcf_path, index_path=None):
         self.vcf = None
+        self.file_type = None
+        self.index_type = None
+
         vcf_path = pathlib.Path(vcf_path)
         if not vcf_path.exists():
             raise FileNotFoundError(vcf_path)
@@ -408,30 +414,34 @@ class IndexedVcf(contextlib.AbstractContextManager):
                     vcf_path.suffix + VcfIndexType.CSI.value
                 )
                 if not index_path.exists():
-                    raise FileNotFoundError(
-                        f"Cannot find .tbi or .csi file for {vcf_path}"
-                    )
+                    # No supported index found
+                    index_path = None
         else:
             index_path = pathlib.Path(index_path)
+            if not index_path.exists():
+                raise FileNotFoundError(
+                    f"Specified index path {index_path} does not exist"
+                )
 
         self.vcf_path = vcf_path
         self.index_path = index_path
-        self.file_type = None
-        self.index_type = None
-
-        if index_path.suffix == VcfIndexType.CSI.value:
-            self.index_type = VcfIndexType.CSI
-        elif index_path.suffix == VcfIndexType.TABIX.value:
-            self.index_type = VcfIndexType.TABIX
-            self.file_type = VcfFileType.VCF
-        else:
-            raise ValueError("Only .tbi or .csi indexes are supported.")
+        if index_path is not None:
+            if index_path.suffix == VcfIndexType.CSI.value:
+                self.index_type = VcfIndexType.CSI
+            elif index_path.suffix == VcfIndexType.TABIX.value:
+                self.index_type = VcfIndexType.TABIX
+                self.file_type = VcfFileType.VCF
+            else:
+                raise ValueError("Only .tbi or .csi indexes are supported.")
 
         self.vcf = cyvcf2.VCF(vcf_path)
-        self.vcf.set_index(str(self.index_path))
+        if self.index_path is not None:
+            self.vcf.set_index(str(self.index_path))
+
         logger.debug(f"Loaded {vcf_path} with index {self.index_path}")
         self.sequence_names = None
 
+        self.index = None
         if self.index_type == VcfIndexType.CSI:
             # Determine the file-type based on the "aux" field.
             self.index = read_csi(self.index_path)
@@ -441,9 +451,17 @@ class IndexedVcf(contextlib.AbstractContextManager):
                 self.sequence_names = self.index.parse_vcf_aux()
             else:
                 self.sequence_names = self.vcf.seqnames
-        else:
+        elif self.index_type == VcfIndexType.TABIX:
             self.index = read_tabix(self.index_path)
+            self.file_type = VcfFileType.VCF
             self.sequence_names = self.index.sequence_names
+        else:
+            assert self.index is None
+            var = next(self.vcf)
+            self.sequence_names = [var.CHROM]
+            self.vcf.close()
+            # There doesn't seem to be a way to reset the iterator
+            self.vcf = cyvcf2.VCF(vcf_path)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.vcf is not None:
@@ -452,6 +470,8 @@ class IndexedVcf(contextlib.AbstractContextManager):
         return False
 
     def contig_record_counts(self):
+        if self.index is None:
+            return {self.sequence_names[0]: np.inf}
         d = dict(zip(self.sequence_names, self.index.record_counts))
         if self.file_type == VcfFileType.BCF:
             d = {k: v for k, v in d.items() if v > 0}
@@ -460,12 +480,21 @@ class IndexedVcf(contextlib.AbstractContextManager):
     def count_variants(self, region):
         return sum(1 for _ in self.variants(region))
 
-    def variants(self, region):
-        start = 1 if region.start is None else region.start
-        for var in self.vcf(str(region)):
-            # Need to filter because of indels overlapping the region
-            if var.POS >= start:
+    def variants(self, region=None):
+        if self.index is None:
+            contig = self.sequence_names[0]
+            if region is not None:
+                assert region.contig == contig
+            for var in self.vcf:
+                if var.CHROM != contig:
+                    raise ValueError("Multi-contig VCFs must be indexed")
                 yield var
+        else:
+            start = 1 if region.start is None else region.start
+            for var in self.vcf(str(region)):
+                # Need to filter because of indels overlapping the region
+                if var.POS >= start:
+                    yield var
 
     def _filter_empty_and_refine(self, regions):
         """
@@ -504,6 +533,9 @@ class IndexedVcf(contextlib.AbstractContextManager):
                 target_part_size_bytes = humanfriendly.parse_size(target_part_size)
             if target_part_size_bytes < 1:
                 raise ValueError("target_part_size must be positive")
+
+        if self.index is None:
+            return [Region(self.sequence_names[0])]
 
         # Calculate the desired part file boundaries
         file_length = os.stat(self.vcf_path).st_size

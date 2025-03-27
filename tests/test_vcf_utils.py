@@ -1,4 +1,5 @@
 import pathlib
+import shutil
 
 import numpy as np
 import pytest
@@ -159,6 +160,27 @@ class TestIndexedVcf:
         assert np.sum(part_variant_counts) == total_records
         assert_part_counts_non_zero(part_variant_counts, index_file)
 
+    @pytest.mark.parametrize(
+        ("vcf_file", "total_records"),
+        [
+            ("1kg_2020_chrM.vcf.gz", 23),
+            ("1kg_2020_chr20_annotations.bcf", 21),
+        ],
+    )
+    @pytest.mark.parametrize("num_parts", [1, 2, 3])
+    def test_partition_into_n_parts_unindexed(
+        self, tmp_path, vcf_file, total_records, num_parts
+    ):
+        copy_path = tmp_path / vcf_file
+        shutil.copyfile(data_path / vcf_file, copy_path)
+        indexed_vcf = vcf_utils.IndexedVcf(copy_path)
+        regions = list(indexed_vcf.partition_into_regions(num_parts=num_parts))
+        assert len(regions) == 1
+        part_variant_counts = np.array(
+            [indexed_vcf.count_variants(region) for region in regions]
+        )
+        assert np.sum(part_variant_counts) == total_records
+
     def test_tabix_multi_chrom_bug(self):
         indexed_vcf = self.get_instance("multi_contig.vcf.gz.tbi")
         regions = list(indexed_vcf.partition_into_regions(num_parts=10))
@@ -213,11 +235,54 @@ class TestIndexedVcf:
         with pytest.raises(ValueError, match=r"target_part_size must be positive"):
             indexed_vcf.partition_into_regions(target_part_size=0)
 
-    def test_bad_index(self):
-        with pytest.raises(
-            ValueError, match=r"Only .tbi or .csi indexes are supported."
-        ):
-            vcf_utils.IndexedVcf(data_path / "sample.vcf.gz", "y")
+    @pytest.mark.parametrize("path", ["y", data_path / "xxx", "/x/y.csi"])
+    def test_missing_index_file(self, path):
+        with pytest.raises(FileNotFoundError, match="Specified index path"):
+            vcf_utils.IndexedVcf(data_path / "sample.vcf.gz", path)
+
+    def test_bad_index_format(self):
+        vcf_file = data_path / "sample.vcf.gz"
+        with pytest.raises(ValueError, match="Only .tbi or .csi indexes"):
+            vcf_utils.IndexedVcf(vcf_file, vcf_file)
+
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "1kg_2020_chrM.vcf.gz",
+            "1kg_2020_chrM.bcf",
+            "1kg_2020_chr20_annotations.bcf",
+            "chr_m_indels.vcf.gz",
+            "NA12878.prod.chr20snippet.g.vcf.gz",
+        ],
+    )
+    def test_unindexed_single_contig(self, tmp_path, filename):
+        f1 = vcf_utils.IndexedVcf(data_path / filename)
+        assert f1.index is not None
+        copy_path = tmp_path / filename
+        shutil.copyfile(data_path / filename, copy_path)
+        f2 = vcf_utils.IndexedVcf(copy_path)
+        assert f2.index is None
+        crc1 = f1.contig_record_counts()
+        assert len(crc1) == 1
+        contig = next(iter(crc1.keys()))
+        assert f2.contig_record_counts() == {contig: np.inf}
+        region = vcf_utils.Region(contig)
+        # The full variants returned by cyvcf2 don't compare for equality,
+        # so just check the chrom/pos values
+        v1 = [(v.CHROM, v.POS) for v in f1.variants(region)]
+        v2 = [(v.CHROM, v.POS) for v in f2.variants(region)]
+        assert v1 == v2
+
+    @pytest.mark.parametrize(
+        "filename",
+        ["sample.vcf.gz", "sample.bcf", "multi_contig.vcf.gz"],
+    )
+    def test_unindexed_multi_contig(self, tmp_path, filename):
+        copy_path = tmp_path / filename
+        shutil.copyfile(data_path / filename, copy_path)
+        f = vcf_utils.IndexedVcf(copy_path)
+        with pytest.raises(ValueError, match="Multi-contig VCFs must be indexed"):
+            list(f.variants())
 
 
 class TestCsiIndex:
