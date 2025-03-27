@@ -1,6 +1,8 @@
 # 0.1.5 2025-03-xx
 
-- Add support for merging contig IDs across multiple VCFs (#342)
+- Add support for merging contig IDs across multiple VCFs (#335)
+
+- Add support for unindexed (and uncompressed) VCFs (#337)
 
 # 0.1.4 2025-03-10
 
