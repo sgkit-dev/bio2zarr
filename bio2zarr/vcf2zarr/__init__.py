@@ -6,12 +6,12 @@ from .icf import (
     explode_partition,
 )
 from .vcz import (
-    VcfZarrSchema,
     convert,
     encode,
     encode_finalise,
     encode_init,
     encode_partition,
+    generate_schema,
     inspect,
     mkschema,
 )
@@ -26,7 +26,6 @@ __all__ = [
     "explode_finalise",
     "explode_init",
     "explode_partition",
-    "VcfZarrSchema",
     "convert",
     "encode",
     "encode_finalise",
@@ -34,5 +33,6 @@ __all__ = [
     "encode_partition",
     "inspect",
     "mkschema",
+    "generate_schema",
     "verify",
 ]

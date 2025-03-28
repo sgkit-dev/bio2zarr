@@ -6,7 +6,7 @@ import numpy as np
 import numpy.testing as nt
 import pytest
 
-from bio2zarr import provenance, vcf2zarr, vcf_utils
+from bio2zarr import provenance, schema, vcf2zarr, vcf_utils
 from bio2zarr.vcf2zarr import icf as icf_mod
 
 
@@ -40,8 +40,8 @@ class TestSmallExample:
         with open(schema_file, "w") as f:
             vcf2zarr.mkschema(icf.path, f)
         with open(schema_file) as f:
-            schema1 = vcf2zarr.VcfZarrSchema.fromjson(f.read())
-        schema2 = vcf2zarr.VcfZarrSchema.generate(icf)
+            schema1 = schema.VcfZarrSchema.fromjson(f.read())
+        schema2 = vcf2zarr.generate_schema(icf)
         assert schema1 == schema2
 
     def test_summary_table(self, icf):
@@ -215,7 +215,7 @@ class TestGeneratedFieldsExample:
 
     @pytest.fixture(scope="class")
     def schema(self, icf):
-        return vcf2zarr.VcfZarrSchema.generate(icf)
+        return vcf2zarr.generate_schema(icf)
 
     @pytest.mark.parametrize(
         ("name", "dtype", "shape", "dimensions"),
