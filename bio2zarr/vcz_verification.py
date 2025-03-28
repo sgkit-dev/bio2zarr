@@ -6,7 +6,7 @@ import zarr
 
 from bio2zarr.zarr_utils import first_dim_iter
 
-from .. import constants
+from . import constants
 
 
 def assert_all_missing_float(a):
