@@ -1,10 +1,7 @@
 import contextlib
-import dataclasses
 import logging
 import pathlib
 import tempfile
-
-import numpy as np
 
 from bio2zarr import core, schema, writer
 
@@ -235,84 +232,6 @@ def generate_schema(
     )
 
 
-def compute_la_field(genotypes):
-    """
-    Computes the value of the LA field for each sample given the genotypes
-    for a variant. The LA field lists the unique alleles observed for
-    each sample, including the REF.
-    """
-    v = 2**31 - 1
-    if np.any(genotypes >= v):
-        raise ValueError("Extreme allele value not supported")
-    G = genotypes.astype(np.int32)
-    if len(G) > 0:
-        # Anything < 0 gets mapped to -2 (pad) in the output, which comes last.
-        # So, to get this sorting correctly, we remap to the largest value for
-        # sorting, then map back. We promote the genotypes up to 32 bit for convenience
-        # here, assuming that we'll never have a allele of 2**31 - 1.
-        assert np.all(G != v)
-        G[G < 0] = v
-        G.sort(axis=1)
-        G[G[:, 0] == G[:, 1], 1] = -2
-        # Equal values result in padding also
-        G[G == v] = -2
-    return G.astype(genotypes.dtype)
-
-
-def compute_lad_field(ad, la):
-    assert ad.shape[0] == la.shape[0]
-    assert la.shape[1] == 2
-    lad = np.full((ad.shape[0], 2), -2, dtype=ad.dtype)
-    homs = np.where((la[:, 0] != -2) & (la[:, 1] == -2))
-    lad[homs, 0] = ad[homs, la[homs, 0]]
-    hets = np.where(la[:, 1] != -2)
-    lad[hets, 0] = ad[hets, la[hets, 0]]
-    lad[hets, 1] = ad[hets, la[hets, 1]]
-    return lad
-
-
-def pl_index(a, b):
-    """
-    Returns the PL index for alleles a and b.
-    """
-    return b * (b + 1) // 2 + a
-
-
-def compute_lpl_field(pl, la):
-    lpl = np.full((pl.shape[0], 3), -2, dtype=pl.dtype)
-
-    homs = np.where((la[:, 0] != -2) & (la[:, 1] == -2))
-    a = la[homs, 0]
-    lpl[homs, 0] = pl[homs, pl_index(a, a)]
-
-    hets = np.where(la[:, 1] != -2)[0]
-    a = la[hets, 0]
-    b = la[hets, 1]
-    lpl[hets, 0] = pl[hets, pl_index(a, a)]
-    lpl[hets, 1] = pl[hets, pl_index(a, b)]
-    lpl[hets, 2] = pl[hets, pl_index(b, b)]
-
-    return lpl
-
-
-@dataclasses.dataclass
-class LocalisableFieldDescriptor:
-    array_name: str
-    vcf_field: str
-    sanitise: callable
-    convert: callable
-
-
-localisable_fields = [
-    LocalisableFieldDescriptor(
-        "call_LAD", "FORMAT/AD", icf.sanitise_int_array, compute_lad_field
-    ),
-    LocalisableFieldDescriptor(
-        "call_LPL", "FORMAT/PL", icf.sanitise_int_array, compute_lpl_field
-    ),
-]
-
-
 def mkschema(
     if_path,
     out,
@@ -357,7 +276,7 @@ def encode(
         max_variant_chunks=max_variant_chunks,
         dimension_separator=dimension_separator,
     )
-    vzw = writer.VcfZarrWriter(zarr_path)
+    vzw = writer.VcfZarrWriter("icf", zarr_path)
     vzw.encode_all_partitions(
         worker_processes=worker_processes,
         show_progress=show_progress,
@@ -399,7 +318,7 @@ def encode_init(
         with open(schema_path) as f:
             schema_instance = schema.VcfZarrSchema.fromjson(f.read())
     zarr_path = pathlib.Path(zarr_path)
-    vzw = writer.VcfZarrWriter(zarr_path)
+    vzw = writer.VcfZarrWriter("icf", zarr_path)
     return vzw.init(
         icf_store,
         target_num_partitions=target_num_partitions,
@@ -410,12 +329,12 @@ def encode_init(
 
 
 def encode_partition(zarr_path, partition):
-    writer_instance = writer.VcfZarrWriter(zarr_path)
+    writer_instance = writer.VcfZarrWriter("icf", zarr_path)
     writer_instance.encode_partition(partition)
 
 
 def encode_finalise(zarr_path, show_progress=False):
-    writer_instance = writer.VcfZarrWriter(zarr_path)
+    writer_instance = writer.VcfZarrWriter("icf", zarr_path)
     writer_instance.finalise(show_progress=show_progress)
 
 
@@ -430,9 +349,6 @@ def convert(
     show_progress=False,
     icf_path=None,
 ):
-    """
-    Convert VCF files to zarr format using the shared writer infrastructure.
-    """
     if icf_path is None:
         cm = temp_icf_path(prefix="vcf2zarr")
     else:
@@ -445,215 +361,15 @@ def convert(
             worker_processes=worker_processes,
             show_progress=show_progress,
         )
-
-        # Create ICF store
-        icf_store = icf.IntermediateColumnarFormat(icf_path)
-
-        # Generate schema
-        schema_instance = generate_schema(
-            icf_store,
+        encode(
+            icf_path,
+            out_path,
             variants_chunk_size=variants_chunk_size,
             samples_chunk_size=samples_chunk_size,
-            local_alleles=local_alleles,
-        )
-
-        # Create a VCF data adapter
-        vcf_adapter = VcfDataAdapter(icf_store)
-
-        # Use the generic writer
-        from bio2zarr.writer import GenericZarrWriter
-
-        writer_instance = GenericZarrWriter(out_path)
-        writer_instance.init_from_schema(schema_instance)
-
-        # Encode data using the writer
-        logger.info(f"Converting VCF data to zarr at {out_path}")
-        writer_instance.encode_data(
-            vcf_adapter,
             worker_processes=worker_processes,
             show_progress=show_progress,
+            local_alleles=local_alleles,
         )
-
-        # Finalize and index the zarr store
-        writer_instance.finalise(show_progress)
-
-        # Create an index if needed
-        index_creator = VcfZarrIndexer(out_path)
-        index_creator.create_index()
-
-
-class VcfDataAdapter:
-    """
-    Adapter class to provide VCF data from an ICF store to the generic writer.
-    """
-
-    def __init__(self, icf_store):
-        self.icf = icf_store
-        self.n_samples = self.icf.num_samples
-        self.n_variants = self.icf.num_records
-        self.field_lookup = {
-            field.full_name: field for field in self.icf.metadata.fields
-        }
-
-    def get_sample_ids(self):
-        return [sample.id for sample in self.icf.metadata.samples]
-
-    def get_variant_positions(self):
-        position_field = self.icf.fields["POS"]
-        positions = np.empty(self.n_variants, dtype=np.int32)
-
-        # Read all positions
-        for i, value in enumerate(position_field.iter_values(0, self.n_variants)):
-            positions[i] = value[0]
-
-        return positions
-
-    def get_variant_alleles(self):
-        ref_field = self.icf.fields["REF"]
-        alt_field = self.icf.fields["ALT"]
-
-        max_alleles = alt_field.vcf_field.summary.max_number + 1
-        alleles = np.empty((self.n_variants, max_alleles), dtype=object)
-
-        # Read all alleles
-        for i, (ref, alt) in enumerate(
-            zip(
-                ref_field.iter_values(0, self.n_variants),
-                alt_field.iter_values(0, self.n_variants),
-            )
-        ):
-            alleles[i, 0] = ref[0]
-            for j, a in enumerate(alt):
-                if j < max_alleles - 1:
-                    alleles[i, j + 1] = a
-
-        return alleles
-
-    def get_genotypes_slice(self, start, stop):
-        """
-        Read a slice of genotypes from the VCF data.
-        Returns a dictionary with the genotype arrays for this slice.
-        """
-        result = {}
-
-        # Get genotype data
-        if "FORMAT/GT" in self.icf.fields:
-            gt_field = self.icf.fields["FORMAT/GT"]
-            n_variants = stop - start
-
-            # Create return arrays
-            gt = np.zeros((n_variants, self.n_samples, 2), dtype=np.int8)
-            gt_phased = np.zeros((n_variants, self.n_samples), dtype=bool)
-            gt_mask = np.zeros((n_variants, self.n_samples, 2), dtype=bool)
-
-            # Fill arrays
-            for i, value in enumerate(gt_field.iter_values(start, stop)):
-                if value is not None:
-                    gt[i] = value[:, :-1]
-                    gt_phased[i] = value[:, -1]
-                    gt_mask[i] = gt[i] < 0
-
-            result["call_genotype"] = gt
-            result["call_genotype_phased"] = gt_phased
-            result["call_genotype_mask"] = gt_mask
-
-            # Handle local alleles if needed
-            if hasattr(self, "handle_local_alleles") and self.handle_local_alleles:
-                la = compute_la_field(gt)
-                result["call_LA"] = la
-
-                # Handle other localisable fields
-                for descriptor in localisable_fields:
-                    if descriptor.vcf_field in self.icf.fields:
-                        source_field = self.icf.fields[descriptor.vcf_field]
-                        values = []
-                        for value in source_field.iter_values(start, stop):
-                            values.append(descriptor.sanitise(value, 2, value.dtype))
-                        values = np.array(values)
-
-                        # Convert to local allele representation
-                        local_values = descriptor.convert(values, la)
-                        result[descriptor.array_name] = local_values
-
-        return result
-
-    def close(self):
-        # Clean up resources if needed
-        pass
-
-
-class VcfZarrIndexer:
-    """
-    Creates an index for efficient region queries in a VCF Zarr dataset.
-    """
-
-    def __init__(self, path):
-        self.path = pathlib.Path(path)
-
-    def create_index(self):
-        """Create an index to support efficient region queries."""
-        root = zarr.open_group(store=self.path, mode="r+")
-
-        if (
-            "variant_contig" not in root
-            or "variant_position" not in root
-            or "variant_length" not in root
-        ):
-            logger.warning("Cannot create index: required arrays not found")
-            return
-
-        contig = root["variant_contig"]
-        pos = root["variant_position"]
-        length = root["variant_length"]
-
-        assert contig.cdata_shape == pos.cdata_shape
-
-        index = []
-
-        logger.info("Creating region index")
-        for v_chunk in range(pos.cdata_shape[0]):
-            c = contig.blocks[v_chunk]
-            p = pos.blocks[v_chunk]
-            e = p + length.blocks[v_chunk] - 1
-
-            # create a row for each contig in the chunk
-            d = np.diff(c, append=-1)
-            c_start_idx = 0
-            for c_end_idx in np.nonzero(d)[0]:
-                assert c[c_start_idx] == c[c_end_idx]
-                index.append(
-                    (
-                        v_chunk,  # chunk index
-                        c[c_start_idx],  # contig ID
-                        p[c_start_idx],  # start
-                        p[c_end_idx],  # end
-                        np.max(e[c_start_idx : c_end_idx + 1]),  # max end
-                        c_end_idx - c_start_idx + 1,  # num records
-                    )
-                )
-                c_start_idx = c_end_idx + 1
-
-        index = np.array(index, dtype=pos.dtype)
-        kwargs = {}
-        if not zarr_utils.zarr_v3():
-            kwargs["dimension_separator"] = "/"
-        array = root.array(
-            "region_index",
-            data=index,
-            shape=index.shape,
-            chunks=index.shape,
-            dtype=index.dtype,
-            compressor=numcodecs.Blosc("zstd", clevel=9, shuffle=0),
-            fill_value=None,
-            **kwargs,
-        )
-        array.attrs["_ARRAY_DIMENSIONS"] = [
-            "region_index_values",
-            "region_index_fields",
-        ]
-
-        logger.info("Consolidating Zarr metadata")
-        zarr.consolidate_metadata(self.path)
 
 
 @contextlib.contextmanager

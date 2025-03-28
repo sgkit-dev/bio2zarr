@@ -13,6 +13,8 @@ from typing import Any
 import numcodecs
 import numpy as np
 
+from bio2zarr import zarr_utils
+
 from .. import constants, core, provenance, vcf_utils
 
 logger = logging.getLogger(__name__)
@@ -366,127 +368,6 @@ def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
     return icf_metadata, header
 
 
-def sanitise_value_bool(buff, j, value):
-    x = True
-    if value is None:
-        x = False
-    buff[j] = x
-
-
-def sanitise_value_float_scalar(buff, j, value):
-    x = value
-    if value is None:
-        x = [constants.FLOAT32_MISSING]
-    buff[j] = x[0]
-
-
-def sanitise_value_int_scalar(buff, j, value):
-    x = value
-    if value is None:
-        # print("MISSING", INT_MISSING, INT_FILL)
-        x = [constants.INT_MISSING]
-    else:
-        x = sanitise_int_array(value, ndmin=1, dtype=np.int32)
-    buff[j] = x[0]
-
-
-def sanitise_value_string_scalar(buff, j, value):
-    if value is None:
-        buff[j] = "."
-    else:
-        buff[j] = value[0]
-
-
-def sanitise_value_string_1d(buff, j, value):
-    if value is None:
-        buff[j] = "."
-    else:
-        # value = np.array(value, ndmin=1, dtype=buff.dtype, copy=False)
-        # FIXME failure isn't coming from here, it seems to be from an
-        # incorrectly detected dimension in the zarr array
-        # The dimesions look all wrong, and the dtype should be Object
-        # not str
-        value = drop_empty_second_dim(value)
-        buff[j] = ""
-        buff[j, : value.shape[0]] = value
-
-
-def sanitise_value_string_2d(buff, j, value):
-    if value is None:
-        buff[j] = "."
-    else:
-        # print(buff.shape, value.dtype, value)
-        # assert value.ndim == 2
-        buff[j] = ""
-        if value.ndim == 2:
-            buff[j, :, : value.shape[1]] = value
-        else:
-            # TODO check if this is still necessary
-            for k, val in enumerate(value):
-                buff[j, k, : len(val)] = val
-
-
-def drop_empty_second_dim(value):
-    assert len(value.shape) == 1 or value.shape[1] == 1
-    if len(value.shape) == 2 and value.shape[1] == 1:
-        value = value[..., 0]
-    return value
-
-
-def sanitise_value_float_1d(buff, j, value):
-    if value is None:
-        buff[j] = constants.FLOAT32_MISSING
-    else:
-        value = np.array(value, ndmin=1, dtype=buff.dtype, copy=True)
-        # numpy will map None values to Nan, but we need a
-        # specific NaN
-        value[np.isnan(value)] = constants.FLOAT32_MISSING
-        value = drop_empty_second_dim(value)
-        buff[j] = constants.FLOAT32_FILL
-        buff[j, : value.shape[0]] = value
-
-
-def sanitise_value_float_2d(buff, j, value):
-    if value is None:
-        buff[j] = constants.FLOAT32_MISSING
-    else:
-        # print("value = ", value)
-        value = np.array(value, ndmin=2, dtype=buff.dtype, copy=True)
-        buff[j] = constants.FLOAT32_FILL
-        buff[j, :, : value.shape[1]] = value
-
-
-def sanitise_int_array(value, ndmin, dtype):
-    if isinstance(value, tuple):
-        value = [
-            constants.VCF_INT_MISSING if x is None else x for x in value
-        ]  # NEEDS TEST
-    value = np.array(value, ndmin=ndmin, copy=True)
-    value[value == constants.VCF_INT_MISSING] = -1
-    value[value == constants.VCF_INT_FILL] = -2
-    # TODO watch out for clipping here!
-    return value.astype(dtype)
-
-
-def sanitise_value_int_1d(buff, j, value):
-    if value is None:
-        buff[j] = -1
-    else:
-        value = sanitise_int_array(value, 1, buff.dtype)
-        value = drop_empty_second_dim(value)
-        buff[j] = -2
-        buff[j, : value.shape[0]] = value
-
-
-def sanitise_value_int_2d(buff, j, value):
-    if value is None:
-        buff[j] = -1
-    else:
-        value = sanitise_int_array(value, 2, buff.dtype)
-        buff[j] = -2
-        buff[j, :, : value.shape[1]] = value
-
-
 missing_value_map = {
     "Integer": constants.INT_MISSING,
     "Float": constants.FLOAT32_MISSING,
@@ -714,29 +595,29 @@ class IntermediateColumnarFormatField:
         assert len(shape) <= 3
         if self.vcf_field.vcf_type == "Flag":
             assert len(shape) == 1
-            return sanitise_value_bool
+            return zarr_utils.sanitise_value_bool
         elif self.vcf_field.vcf_type == "Float":
             if len(shape) == 1:
-                return sanitise_value_float_scalar
+                return zarr_utils.sanitise_value_float_scalar
             elif len(shape) == 2:
-                return sanitise_value_float_1d
+                return zarr_utils.sanitise_value_float_1d
             else:
-                return sanitise_value_float_2d
+                return zarr_utils.sanitise_value_float_2d
         elif self.vcf_field.vcf_type == "Integer":
             if len(shape) == 1:
-                return sanitise_value_int_scalar
+                return zarr_utils.sanitise_value_int_scalar
             elif len(shape) == 2:
-                return sanitise_value_int_1d
+                return zarr_utils.sanitise_value_int_1d
             else:
-                return sanitise_value_int_2d
+                return zarr_utils.sanitise_value_int_2d
         else:
             assert self.vcf_field.vcf_type in ("String", "Character")
             if len(shape) == 1:
-                return sanitise_value_string_scalar
+                return zarr_utils.sanitise_value_string_scalar
             elif len(shape) == 2:
-                return sanitise_value_string_1d
+                return zarr_utils.sanitise_value_string_1d
             else:
-                return sanitise_value_string_2d
+                return zarr_utils.sanitise_value_string_2d
 
 
 @dataclasses.dataclass
@@ -915,6 +796,12 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
     @property
     def num_fields(self):
         return len(self.fields)
+
+    @property
+    def root_attrs(self):
+        return {
+            "vcf_header": self.vcf_header,
+        }
 
 
 @dataclasses.dataclass
