@@ -8,7 +8,8 @@ import sgkit as sg
 import xarray.testing as xt
 import zarr
 
-from bio2zarr import core, vcf2zarr
+from bio2zarr import core, vcf2zarr, writer
+from bio2zarr import schema as schema_mod
 from bio2zarr.vcf2zarr import icf as icf_mod
 from bio2zarr.vcf2zarr import vcz as vcz_mod
 from bio2zarr.zarr_utils import zarr_v3
@@ -37,7 +38,9 @@ def schema_path(icf_path, tmp_path_factory):
 @pytest.fixture(scope="module")
 def schema(schema_path):
     with open(schema_path) as f:
-        return vcf2zarr.VcfZarrSchema.fromjson(f.read())
+        a = schema_mod.VcfZarrSchema.fromjson(f.read())
+        print(a.asjson())
+        return a
 
 
 @pytest.fixture(scope="module")
@@ -48,7 +51,7 @@ def local_alleles_schema(icf_path, tmp_path_factory):
     with open(out, "w") as f:
         vcf2zarr.mkschema(icf_path, f, local_alleles=True)
     with open(out) as f:
-        return vcf2zarr.VcfZarrSchema.fromjson(f.read())
+        return schema_mod.VcfZarrSchema.fromjson(f.read())
 
 
 @pytest.fixture(scope="module")
@@ -73,7 +76,7 @@ class TestEncodeMaxMemory:
         ],
     )
     def test_parser(self, arg, expected):
-        assert vcz_mod.parse_max_memory(arg) == expected
+        assert core.parse_max_memory(arg) == expected
 
     @pytest.mark.parametrize("max_memory", [-1, 0, 1, "100 bytes"])
     def test_not_enough_memory(self, tmp_path, icf_path, max_memory):
@@ -107,7 +110,7 @@ class TestJsonVersions:
         d = schema.asdict()
         d["format_version"] = version
         with pytest.raises(ValueError, match="Zarr schema format version mismatch"):
-            vcf2zarr.VcfZarrSchema.fromdict(d)
+            schema_mod.VcfZarrSchema.fromdict(d)
 
     @pytest.mark.parametrize("version", ["0.0", "1.0", "xxxxx", 0.1])
     def test_exploded_metadata_mismatch(self, tmpdir, icf_path, version):
@@ -128,7 +131,7 @@ class TestJsonVersions:
             d = json.load(f)
         d["format_version"] = version
         with pytest.raises(ValueError, match="VcfZarrWriter format version mismatch"):
-            vcz_mod.VcfZarrWriterMetadata.fromdict(d)
+            writer.VcfZarrWriterMetadata.fromdict(d)
 
 
 @pytest.mark.skipif(
@@ -169,7 +172,7 @@ class TestSchemaChunkSize:
     )
     def test_chunk_sizes(self, icf_path, samples_chunk_size, variants_chunk_size):
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        schema = vcf2zarr.VcfZarrSchema.generate(
+        schema = vcz_mod.generate_schema(
             icf,
             variants_chunk_size=variants_chunk_size,
             samples_chunk_size=samples_chunk_size,
@@ -188,41 +191,41 @@ class TestSchemaChunkSize:
 
     def test_default_chunk_size(self, icf_path):
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        schema = vcf2zarr.VcfZarrSchema.generate(icf)
+        schema = vcz_mod.generate_schema(icf)
         assert schema.samples_chunk_size == 10_000
         assert schema.variants_chunk_size == 1000
 
 
 class TestSchemaJsonRoundTrip:
     def assert_json_round_trip(self, schema):
-        schema2 = vcf2zarr.VcfZarrSchema.fromjson(schema.asjson())
+        schema2 = schema_mod.VcfZarrSchema.fromjson(schema.asjson())
         assert schema == schema2
 
     def test_generated_no_changes(self, icf_path):
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        self.assert_json_round_trip(vcf2zarr.VcfZarrSchema.generate(icf))
+        self.assert_json_round_trip(vcz_mod.generate_schema(icf))
 
     def test_generated_no_fields(self, icf_path):
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        schema = vcf2zarr.VcfZarrSchema.generate(icf)
+        schema = vcz_mod.generate_schema(icf)
         schema.fields.clear()
         self.assert_json_round_trip(schema)
 
     def test_generated_no_samples(self, icf_path):
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        schema = vcf2zarr.VcfZarrSchema.generate(icf)
+        schema = vcz_mod.generate_schema(icf)
         schema.samples.clear()
         self.assert_json_round_trip(schema)
 
     def test_generated_change_dtype(self, icf_path):
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        schema = vcf2zarr.VcfZarrSchema.generate(icf)
+        schema = vcz_mod.generate_schema(icf)
         schema.field_map()["variant_position"].dtype = "i8"
         self.assert_json_round_trip(schema)
 
     def test_generated_change_compressor(self, icf_path):
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        schema = vcf2zarr.VcfZarrSchema.generate(icf)
+        schema = vcz_mod.generate_schema(icf)
         schema.field_map()["variant_position"].compressor = {"cname": "FAKE"}
         self.assert_json_round_trip(schema)
 
@@ -234,7 +237,7 @@ class TestSchemaEncode:
     def test_codec(self, tmp_path, icf_path, cname, clevel, shuffle):
         zarr_path = tmp_path / "zarr"
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        schema = vcf2zarr.VcfZarrSchema.generate(icf)
+        schema = vcz_mod.generate_schema(icf)
         for array_spec in schema.fields:
             array_spec.compressor["cname"] = cname
             array_spec.compressor["clevel"] = clevel
@@ -254,7 +257,7 @@ class TestSchemaEncode:
     def test_genotype_dtype(self, tmp_path, icf_path, dtype):
         zarr_path = tmp_path / "zarr"
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        schema = vcf2zarr.VcfZarrSchema.generate(icf)
+        schema = vcz_mod.generate_schema(icf)
         schema.field_map()["call_genotype"].dtype = dtype
         schema_path = tmp_path / "schema"
         with open(schema_path, "w") as f:
@@ -267,7 +270,7 @@ class TestSchemaEncode:
     def test_region_index_dtype(self, tmp_path, icf_path, dtype):
         zarr_path = tmp_path / "zarr"
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        schema = vcf2zarr.VcfZarrSchema.generate(icf)
+        schema = vcz_mod.generate_schema(icf)
         schema.field_map()["variant_position"].dtype = dtype
         schema_path = tmp_path / "schema"
         with open(schema_path, "w") as f:
@@ -306,7 +309,7 @@ class TestChunkNbytes:
 
     def test_chunk_size(self, icf_path, tmp_path):
         store = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        schema = vcf2zarr.VcfZarrSchema.generate(
+        schema = vcz_mod.generate_schema(
             store, samples_chunk_size=2, variants_chunk_size=3
         )
         fields = schema.field_map()
@@ -318,7 +321,7 @@ class TestChunkNbytes:
 class TestValidateSchema:
     @pytest.mark.parametrize("size", [2**31, 2**31 + 1, 2**32])
     def test_chunk_too_large(self, schema, size):
-        schema = vcf2zarr.VcfZarrSchema.fromdict(schema.asdict())
+        schema = schema_mod.VcfZarrSchema.fromdict(schema.asdict())
         field = schema.field_map()["variant_H2"]
         field.shape = (size,)
         field.chunks = (size,)
@@ -327,7 +330,7 @@ class TestValidateSchema:
 
     @pytest.mark.parametrize("size", [2**31 - 1, 2**30])
     def test_chunk_not_too_large(self, schema, size):
-        schema = vcf2zarr.VcfZarrSchema.fromdict(schema.asdict())
+        schema = schema_mod.VcfZarrSchema.fromdict(schema.asdict())
         field = schema.field_map()["variant_H2"]
         field.shape = (size,)
         field.chunks = (size,)
@@ -336,7 +339,7 @@ class TestValidateSchema:
 
 class TestDefaultSchema:
     def test_format_version(self, schema):
-        assert schema.format_version == vcz_mod.ZARR_SCHEMA_FORMAT_VERSION
+        assert schema.format_version == schema_mod.ZARR_SCHEMA_FORMAT_VERSION
 
     def test_chunk_size(self, schema):
         assert schema.samples_chunk_size == 10000
