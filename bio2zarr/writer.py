@@ -10,17 +10,37 @@ import numpy as np
 import zarr
 
 from bio2zarr import constants, core, provenance, schema, zarr_utils
-from bio2zarr.vcf2zarr import icf, vcz
+from bio2zarr.vcf2zarr import icf
 
 logger = logging.getLogger(__name__)
 
+SOURCES = {
+    "icf": icf.IntermediateColumnarFormat,
+}
 
-@dataclasses.dataclass
-class LocalisableFieldDescriptor:
-    array_name: str
-    vcf_field: str
-    sanitise: callable
-    convert: callable
+
+def compute_la_field(genotypes):
+    """
+    Computes the value of the LA field for each sample given the genotypes
+    for a variant. The LA field lists the unique alleles observed for
+    each sample, including the REF.
+    """
+    v = 2**31 - 1
+    if np.any(genotypes >= v):
+        raise ValueError("Extreme allele value not supported")
+    G = genotypes.astype(np.int32)
+    if len(G) > 0:
+        # Anything < 0 gets mapped to -2 (pad) in the output, which comes last.
+        # So, to get this sorting correctly, we remap to the largest value for
+        # sorting, then map back. We promote the genotypes up to 32 bit for convenience
+        # here, assuming that we'll never have a allele of 2**31 - 1.
+        assert np.all(G != v)
+        G[G < 0] = v
+        G.sort(axis=1)
+        G[G[:, 0] == G[:, 1], 1] = -2
+        # Equal values result in padding also
+        G[G == v] = -2
+    return G.astype(genotypes.dtype)
 
 
 def compute_lad_field(ad, la):
@@ -59,12 +79,20 @@ def compute_lpl_field(pl, la):
     return lpl
 
 
+@dataclasses.dataclass
+class LocalisableFieldDescriptor:
+    array_name: str
+    vcf_field: str
+    sanitise: callable
+    convert: callable
+
+
 localisable_fields = [
     LocalisableFieldDescriptor(
-        "call_LAD", "FORMAT/AD", icf.sanitise_int_array, compute_lad_field
+        "call_LAD", "FORMAT/AD", zarr_utils.sanitise_int_array, compute_lad_field
     ),
     LocalisableFieldDescriptor(
-        "call_LPL", "FORMAT/PL", icf.sanitise_int_array, compute_lpl_field
+        "call_LPL", "FORMAT/PL", zarr_utils.sanitise_int_array, compute_lpl_field
     ),
 ]
 
@@ -96,7 +124,7 @@ VZW_METADATA_FORMAT_VERSION = "0.1"
 @dataclasses.dataclass
 class VcfZarrWriterMetadata(core.JsonDataclass):
     format_version: str
-    icf_path: str
+    source_path: str
     schema: schema.VcfZarrSchema
     dimension_separator: str
     partitions: list
@@ -125,13 +153,14 @@ class VcfZarrWriteSummary(core.JsonDataclass):
 
 
 class VcfZarrWriter:
-    def __init__(self, path):
+    def __init__(self, source_type, path):
+        self.source_type = source_type
         self.path = pathlib.Path(path)
         self.wip_path = self.path / "wip"
         self.arrays_path = self.wip_path / "arrays"
         self.partitions_path = self.wip_path / "partitions"
         self.metadata = None
-        self.icf = None
+        self.source = None
 
     @property
     def schema(self):
@@ -159,19 +188,19 @@ class VcfZarrWriter:
 
     def init(
         self,
-        icf,
+        source,
         *,
         target_num_partitions,
         schema,
         dimension_separator=None,
         max_variant_chunks=None,
     ):
-        self.icf = icf
+        self.source = source
         if self.path.exists():
             raise ValueError("Zarr path already exists")  # NEEDS TEST
         schema.validate()
         partitions = VcfZarrPartition.generate_partitions(
-            self.icf.num_records,
+            self.source.num_records,
             schema.variants_chunk_size,
             target_num_partitions,
             max_chunks=max_variant_chunks,
@@ -183,7 +212,7 @@ class VcfZarrWriter:
         )
         self.metadata = VcfZarrWriterMetadata(
             format_version=VZW_METADATA_FORMAT_VERSION,
-            icf_path=str(self.icf.path),
+            source_path=str(self.source.path),
             schema=schema,
             dimension_separator=dimension_separator,
             partitions=partitions,
@@ -196,11 +225,12 @@ class VcfZarrWriter:
         root.attrs.update(
             {
                 "vcf_zarr_version": "0.2",
-                "vcf_header": self.icf.vcf_header,
                 "source": f"bio2zarr-{provenance.__version__}",
             }
         )
-        # Doing this syncronously - this is fine surely
+        root.attrs.update(self.source.root_attrs)
+
+        # Doing this synchronously - this is fine surely
         self.encode_samples(root)
         self.encode_filter_id(root)
         self.encode_contig_id(root)
@@ -222,15 +252,15 @@ class VcfZarrWriter:
             json.dump(self.metadata.asdict(), f, indent=4)
 
         return VcfZarrWriteSummary(
-            num_variants=self.icf.num_records,
-            num_samples=self.icf.num_samples,
+            num_variants=self.source.num_records,
+            num_samples=self.source.num_samples,
             num_partitions=self.num_partitions,
             num_chunks=total_chunks,
             max_encoding_memory=core.display_size(self.get_max_encoding_memory()),
         )
 
     def encode_samples(self, root):
-        if self.schema.samples != self.icf.metadata.samples:
+        if self.schema.samples != self.source.metadata.samples:
             raise ValueError("Subsetting or reordering samples not supported currently")
         array = root.array(
             "sample_id",
@@ -316,7 +346,8 @@ class VcfZarrWriter:
         if self.metadata is None:
             with open(self.wip_path / "metadata.json") as f:
                 self.metadata = VcfZarrWriterMetadata.fromdict(json.load(f))
-            self.icf = icf.IntermediateColumnarFormat(self.metadata.icf_path)
+            source_loader = SOURCES[self.source_type]
+            self.source = source_loader(self.metadata.source_path)
 
     def partition_path(self, partition_index):
         return self.partitions_path / f"p{partition_index}"
@@ -386,7 +417,7 @@ class VcfZarrWriter:
     def encode_array_partition(self, array_spec, partition_index):
         partition = self.metadata.partitions[partition_index]
         ba = self.init_partition_array(partition_index, array_spec.name)
-        source_field = self.icf.fields[array_spec.vcf_field]
+        source_field = self.source.fields[array_spec.vcf_field]
         sanitiser = source_field.sanitiser_factory(ba.buff.shape)
 
         for value in source_field.iter_values(partition.start, partition.stop):
@@ -401,14 +432,14 @@ class VcfZarrWriter:
         gt = self.init_partition_array(partition_index, "call_genotype")
         gt_phased = self.init_partition_array(partition_index, "call_genotype_phased")
 
-        source_field = self.icf.fields["FORMAT/GT"]
+        source_field = self.source.fields["FORMAT/GT"]
         for value in source_field.iter_values(partition.start, partition.stop):
             j = gt.next_buffer_row()
-            icf.sanitise_value_int_2d(
+            zarr_utils.sanitise_value_int_2d(
                 gt.buff, j, value[:, :-1] if value is not None else None
             )
             j = gt_phased.next_buffer_row()
-            icf.sanitise_value_int_1d(
+            zarr_utils.sanitise_value_int_1d(
                 gt_phased.buff, j, value[:, -1] if value is not None else None
             )
 
@@ -443,7 +474,7 @@ class VcfZarrWriter:
         for genotypes in core.first_dim_slice_iter(
             gt_array, partition.start, partition.stop
         ):
-            la = vcz.compute_la_field(genotypes)
+            la = compute_la_field(genotypes)
             j = call_LA.next_buffer_row()
             call_LA.buff[j] = la
         self.finalise_partition_array(partition_index, call_LA)
@@ -463,7 +494,7 @@ class VcfZarrWriter:
             assert field_map[descriptor.array_name].vcf_field is None
 
             buff = self.init_partition_array(partition_index, descriptor.array_name)
-            source = self.icf.fields[descriptor.vcf_field].iter_values(
+            source = self.source.fields[descriptor.vcf_field].iter_values(
                 partition.start, partition.stop
             )
             for la in core.first_dim_slice_iter(
@@ -478,8 +509,8 @@ class VcfZarrWriter:
     def encode_alleles_partition(self, partition_index):
         alleles = self.init_partition_array(partition_index, "variant_allele")
         partition = self.metadata.partitions[partition_index]
-        ref_field = self.icf.fields["REF"]
-        alt_field = self.icf.fields["ALT"]
+        ref_field = self.source.fields["REF"]
+        alt_field = self.source.fields["ALT"]
 
         for ref, alt in zip(
             ref_field.iter_values(partition.start, partition.stop),
@@ -495,7 +526,7 @@ class VcfZarrWriter:
         vid = self.init_partition_array(partition_index, "variant_id")
         vid_mask = self.init_partition_array(partition_index, "variant_id_mask")
         partition = self.metadata.partitions[partition_index]
-        field = self.icf.fields["ID"]
+        field = self.source.fields["ID"]
 
         for value in field.iter_values(partition.start, partition.stop):
             j = vid.next_buffer_row()
@@ -516,7 +547,7 @@ class VcfZarrWriter:
         var_filter = self.init_partition_array(partition_index, "variant_filter")
         partition = self.metadata.partitions[partition_index]
 
-        field = self.icf.fields["FILTERS"]
+        field = self.source.fields["FILTERS"]
         for value in field.iter_values(partition.start, partition.stop):
             j = var_filter.next_buffer_row()
             var_filter.buff[j] = False
@@ -534,7 +565,7 @@ class VcfZarrWriter:
         lookup = {contig.id: index for index, contig in enumerate(self.schema.contigs)}
         contig = self.init_partition_array(partition_index, "variant_contig")
         partition = self.metadata.partitions[partition_index]
-        field = self.icf.fields["CHROM"]
+        field = self.source.fields["CHROM"]
 
         for value in field.iter_values(partition.start, partition.stop):
             j = contig.next_buffer_row()
@@ -741,52 +772,6 @@ class VcfZarrWriter:
                 pwm.submit(self.encode_partition, partition_index)
 
 
-VZW_METADATA_FORMAT_VERSION = "0.1"
-
-
-@dataclasses.dataclass
-class VcfZarrWriterMetadata(core.JsonDataclass):
-    format_version: str
-    icf_path: str
-    schema: schema.VcfZarrSchema
-    dimension_separator: str
-    partitions: list
-    provenance: dict
-
-    @staticmethod
-    def fromdict(d):
-        if d["format_version"] != VZW_METADATA_FORMAT_VERSION:
-            raise ValueError(
-                "VcfZarrWriter format version mismatch: "
-                f"{d['format_version']} != {VZW_METADATA_FORMAT_VERSION}"
-            )
-        ret = VcfZarrWriterMetadata(**d)
-        ret.schema = schema.VcfZarrSchema.fromdict(ret.schema)
-        ret.partitions = [VcfZarrPartition(**p) for p in ret.partitions]
-        return ret
-
-
-@dataclasses.dataclass
-class VcfZarrPartition:
-    start: int
-    stop: int
-
-    @staticmethod
-    def generate_partitions(num_records, chunk_size, num_partitions, max_chunks=None):
-        num_chunks = int(np.ceil(num_records / chunk_size))
-        if max_chunks is not None:
-            num_chunks = min(num_chunks, max_chunks)
-        partitions = []
-        splits = np.array_split(np.arange(num_chunks), min(num_partitions, num_chunks))
-        for chunk_slice in splits:
-            start_chunk = int(chunk_slice[0])
-            stop_chunk = int(chunk_slice[-1]) + 1
-            start_index = start_chunk * chunk_size
-            stop_index = min(stop_chunk * chunk_size, num_records)
-            partitions.append(VcfZarrPartition(start_index, stop_index))
-        return partitions
-
-
 class VcfZarr:
     def __init__(self, path):
         if not (path / ".zmetadata").exists():
@@ -817,151 +802,75 @@ class VcfZarr:
         return data
 
 
-import dataclasses
-import logging
-import multiprocessing
-
-from tqdm.auto import tqdm
-
-from bio2zarr import schema
-from bio2zarr.zarr_utils import ZARR_FORMAT_KWARGS
-
-logger = logging.getLogger(__name__)
-
-# Keep existing VcfZarrWriter class...
-
-
-class GenericZarrWriter:
+class VcfZarrIndexer:
     """
-    A general zarr writer that can handle data from multiple sources (VCF, PLINK, etc.)
-    using appropriate data adapters.
+    Creates an index for efficient region queries in a VCF Zarr dataset.
     """
 
     def __init__(self, path):
         self.path = pathlib.Path(path)
-        self.zarr_root = None
-        self.schema = None
-        self.field_map = None
-        self.partitioner = None
 
-    def init_from_schema(self, schema_instance, dimension_separator="/"):
-        """
-        Initialize the zarr store using a schema that was generated for a specific data source.
-        """
-        self.schema = schema_instance
-        self.schema.validate()
-        self.field_map = self.schema.field_map()
+    def create_index(self):
+        """Create an index to support efficient region queries."""
+        root = zarr.open_group(store=self.path, mode="r+")
 
-        # Create the zarr store
-        self.zarr_root = zarr.open(store=self.path, mode="w", **ZARR_FORMAT_KWARGS)
-        if dimension_separator is not None:
-            self.zarr_root.attrs["_ARRAY_DIMENSIONS"] = dimension_separator
+        if (
+            "variant_contig" not in root
+            or "variant_position" not in root
+            or "variant_length" not in root
+        ):
+            logger.warning("Cannot create index: required arrays not found")
+            return
 
-        # Create arrays based on the schema
-        for field in self.schema.fields:
-            self._create_array(field, dimension_separator)
+        contig = root["variant_contig"]
+        pos = root["variant_position"]
+        length = root["variant_length"]
 
-        # Store schema as metadata
-        self.zarr_root.attrs["bio2zarr_schema"] = json.loads(self.schema.asjson())
-        return self
+        assert contig.cdata_shape == pos.cdata_shape
 
-    def _create_array(self, field_spec, dimension_separator):
-        """
-        Create a zarr array based on the provided field specification.
-        """
-        array = self.zarr_root.create_dataset(
-            name=field_spec.name,
-            shape=field_spec.shape,
-            chunks=field_spec.chunks,
-            dtype=field_spec.dtype,
-            compressor=numcodecs.get_codec(field_spec.compressor),
-            filters=field_spec.filters or None,
-        )
-        array.attrs["_ARRAY_DIMENSIONS"] = (
-            dimension_separator.join(field_spec.dimensions)
-            if dimension_separator is not None
-            else field_spec.dimensions
-        )
-        array.attrs["description"] = field_spec.description
-        if field_spec.vcf_field is not None:
-            array.attrs["vcf_field"] = field_spec.vcf_field
+        index = []
 
-    def encode_data(self, data_adapter, worker_processes=1, show_progress=False):
-        """
-        Encode data from a source adapter into the zarr store.
+        logger.info("Creating region index")
+        for v_chunk in range(pos.cdata_shape[0]):
+            c = contig.blocks[v_chunk]
+            p = pos.blocks[v_chunk]
+            e = p + length.blocks[v_chunk] - 1
 
-        The data_adapter should implement methods to provide data for each array
-        defined in the schema.
-        """
-        # Encode basic metadata
-        self._encode_metadata(data_adapter)
-
-        # Encode genotypes in chunks/partitions
-        variants_chunk_size = self.schema.variants_chunk_size
-        n_variants = self.field_map["call_genotype"].shape[0]
-
-        # Create a list of variant slice ranges to process
-        slices = []
-        for start in range(0, n_variants, variants_chunk_size):
-            stop = min(start + variants_chunk_size, n_variants)
-            slices.append((start, stop))
-
-        # Process slices
-        if show_progress:
-            slices_iter = tqdm(slices, desc="Encoding genotypes")
-        else:
-            slices_iter = slices
-
-        if worker_processes > 1:
-            with multiprocessing.Pool(worker_processes) as pool:
-                pool.starmap(
-                    self._encode_genotypes_slice,
-                    [(data_adapter, start, stop) for start, stop in slices_iter],
+            # create a row for each contig in the chunk
+            d = np.diff(c, append=-1)
+            c_start_idx = 0
+            for c_end_idx in np.nonzero(d)[0]:
+                assert c[c_start_idx] == c[c_end_idx]
+                index.append(
+                    (
+                        v_chunk,  # chunk index
+                        c[c_start_idx],  # contig ID
+                        p[c_start_idx],  # start
+                        p[c_end_idx],  # end
+                        np.max(e[c_start_idx : c_end_idx + 1]),  # max end
+                        c_end_idx - c_start_idx + 1,  # num records
+                    )
                 )
-        else:
-            for start, stop in slices_iter:
-                self._encode_genotypes_slice(data_adapter, start, stop)
+                c_start_idx = c_end_idx + 1
 
-    def _encode_metadata(self, data_adapter):
-        """
-        Encode metadata like sample IDs, variant positions, etc.
-        """
-        # Encode any metadata provided by the adapter
-        # This will be source-specific and depends on what methods the adapter implements
-        if hasattr(data_adapter, "get_sample_ids"):
-            sample_ids = data_adapter.get_sample_ids()
-            if "sample_id" in self.zarr_root:
-                self.zarr_root["sample_id"][:] = sample_ids
+        index = np.array(index, dtype=pos.dtype)
+        kwargs = {}
+        if not zarr_utils.zarr_v3():
+            kwargs["dimension_separator"] = "/"
+        array = root.array(
+            "region_index",
+            data=index,
+            shape=index.shape,
+            chunks=index.shape,
+            dtype=index.dtype,
+            compressor=numcodecs.Blosc("zstd", clevel=9, shuffle=0),
+            fill_value=None,
+            **kwargs,
+        )
+        array.attrs["_ARRAY_DIMENSIONS"] = [
+            "region_index_values",
+            "region_index_fields",
+        ]
 
-        if hasattr(data_adapter, "get_variant_positions"):
-            positions = data_adapter.get_variant_positions()
-            if "variant_position" in self.zarr_root:
-                self.zarr_root["variant_position"][:] = positions
-
-        if hasattr(data_adapter, "get_variant_alleles"):
-            alleles = data_adapter.get_variant_alleles()
-            if "variant_allele" in self.zarr_root:
-                self.zarr_root["variant_allele"][:] = alleles
-
-    def _encode_genotypes_slice(self, data_adapter, start, stop):
-        """
-        Encode a slice of genotypes from the data adapter.
-        """
-        # Get the genotypes from the adapter
-        if hasattr(data_adapter, "get_genotypes_slice"):
-            genotype_data = data_adapter.get_genotypes_slice(start, stop)
-
-            # Write each array
-            for array_name, data in genotype_data.items():
-                if array_name in self.zarr_root:
-                    if len(data.shape) == 3:  # Genotypes with ploidy
-                        self.zarr_root[array_name][start:stop, :, :] = data
-                    elif len(data.shape) == 2:  # Phased info
-                        self.zarr_root[array_name][start:stop, :] = data
-
-    def finalise(self, show_progress=False):
-        """
-        Finalize the zarr store by consolidating metadata.
-        """
-        zarr.consolidate_metadata(self.zarr_root.store)
-        logger.info(f"Zarr dataset created at: {self.path}")
+        logger.info("Consolidating Zarr metadata")
+        zarr.consolidate_metadata(self.path)
