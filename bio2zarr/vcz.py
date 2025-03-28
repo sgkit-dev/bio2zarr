@@ -1,40 +1,19 @@
-import contextlib
 import dataclasses
 import json
 import logging
 import os
-import os.path
 import pathlib
 import shutil
-import tempfile
 
-import humanfriendly
 import numcodecs
 import numpy as np
 import zarr
 
-from bio2zarr.zarr_utils import ZARR_FORMAT_KWARGS, zarr_v3
-
-from .. import constants, core, provenance
-from . import icf
+from bio2zarr import constants, core, provenance, zarr_utils
 
 logger = logging.getLogger(__name__)
 
-
-def inspect(path):
-    path = pathlib.Path(path)
-    if not path.exists():
-        raise ValueError(f"Path not found: {path}")
-    if (path / "metadata.json").exists():
-        obj = icf.IntermediateColumnarFormat(path)
-    # NOTE: this is too strict, we should support more general Zarrs, see #276
-    elif (path / ".zmetadata").exists():
-        obj = VcfZarr(path)
-    else:
-        raise ValueError(f"{path} not in ICF or VCF Zarr format")
-    return obj.summary_table()
-
-
+ZARR_SCHEMA_FORMAT_VERSION = "0.4"
 DEFAULT_ZARR_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7)
 
 _fixed_field_descriptions = {
@@ -181,63 +160,21 @@ class ZarrArraySpec:
         return chunk_items * dt.itemsize
 
 
-ZARR_SCHEMA_FORMAT_VERSION = "0.4"
+@dataclasses.dataclass
+class Contig:
+    id: str
+    length: int = None
 
 
-def convert_local_allele_field_types(fields):
-    """
-    Update the specified list of fields to include the LAA field, and to convert
-    any supported localisable fields to the L* counterpart.
+@dataclasses.dataclass
+class Sample:
+    id: str
 
-    Note that we currently support only two ALT alleles per sample, and so the
-    dimensions of these fields are fixed by that requirement. Later versions may
-    use summry data storted in the ICF to make different choices, if information
-    about subsequent alleles (not in the actual genotype calls) should also be
-    stored.
-    """
-    fields_by_name = {field.name: field for field in fields}
-    gt = fields_by_name["call_genotype"]
-    if gt.shape[-1] != 2:
-        raise ValueError("Local alleles only supported on diploid data")
 
-    # TODO check if LA is already in here
-
-    shape = gt.shape[:-1]
-    chunks = gt.chunks[:-1]
-    dimensions = gt.dimensions[:-1]
-
-    la = ZarrArraySpec.new(
-        vcf_field=None,
-        name="call_LA",
-        dtype="i1",
-        shape=gt.shape,
-        chunks=gt.chunks,
-        dimensions=(*dimensions, "local_alleles"),
-        description=(
-            "0-based indices into REF+ALT, indicating which alleles"
-            " are relevant (local) for the current sample"
-        ),
-    )
-    ad = fields_by_name.get("call_AD", None)
-    if ad is not None:
-        # TODO check if call_LAD is in the list already
-        ad.name = "call_LAD"
-        ad.vcf_field = None
-        ad.shape = (*shape, 2)
-        ad.chunks = (*chunks, 2)
-        ad.dimensions = (*dimensions, "local_alleles")
-        ad.description += " (local-alleles)"
-
-    pl = fields_by_name.get("call_PL", None)
-    if pl is not None:
-        # TODO check if call_LPL is in the list already
-        pl.name = "call_LPL"
-        pl.vcf_field = None
-        pl.shape = (*shape, 3)
-        pl.chunks = (*chunks, 3)
-        pl.description += " (local-alleles)"
-        pl.dimensions = (*dimensions, "local_" + pl.dimensions[-1])
-    return [*fields, la]
+@dataclasses.dataclass
+class Filter:
+    id: str
+    description: str = ""
 
 
 @dataclasses.dataclass
@@ -249,6 +186,28 @@ class VcfZarrSchema(core.JsonDataclass):
     contigs: list
     filters: list
     fields: list
+
+    def __init__(
+        self,
+        format_version: str,
+        samples: list,
+        contigs: list,
+        filters: list,
+        fields: list,
+        variants_chunk_size: int = None,
+        samples_chunk_size: int = None,
+    ):
+        self.format_version = format_version
+        self.samples = samples
+        self.contigs = contigs
+        self.filters = filters
+        self.fields = fields
+        if variants_chunk_size is None:
+            variants_chunk_size = 1000
+        self.variants_chunk_size = variants_chunk_size
+        if samples_chunk_size is None:
+            samples_chunk_size = 10_000
+        self.samples_chunk_size = samples_chunk_size
 
     def validate(self):
         """
@@ -279,9 +238,9 @@ class VcfZarrSchema(core.JsonDataclass):
                 f"{d['format_version']} != {ZARR_SCHEMA_FORMAT_VERSION}"
             )
         ret = VcfZarrSchema(**d)
-        ret.samples = [icf.Sample(**sd) for sd in d["samples"]]
-        ret.contigs = [icf.Contig(**sd) for sd in d["contigs"]]
-        ret.filters = [icf.Filter(**sd) for sd in d["filters"]]
+        ret.samples = [Sample(**sd) for sd in d["samples"]]
+        ret.contigs = [Contig(**sd) for sd in d["contigs"]]
+        ret.filters = [Filter(**sd) for sd in d["filters"]]
         ret.fields = [ZarrArraySpec(**sd) for sd in d["fields"]]
         return ret
 
@@ -289,242 +248,17 @@ class VcfZarrSchema(core.JsonDataclass):
     def fromjson(s):
         return VcfZarrSchema.fromdict(json.loads(s))
 
-    @staticmethod
-    def generate(
-        icf, variants_chunk_size=None, samples_chunk_size=None, local_alleles=None
-    ):
-        m = icf.num_records
-        n = icf.num_samples
-        if samples_chunk_size is None:
-            samples_chunk_size = 10_000
-        if variants_chunk_size is None:
-            variants_chunk_size = 1000
-        if local_alleles is None:
-            local_alleles = False
-        logger.info(
-            f"Generating schema with chunks={variants_chunk_size, samples_chunk_size}"
-        )
 
-        def spec_from_field(field, array_name=None):
-            return ZarrArraySpec.from_field(
-                field,
-                num_samples=n,
-                num_variants=m,
-                samples_chunk_size=samples_chunk_size,
-                variants_chunk_size=variants_chunk_size,
-                array_name=array_name,
-            )
-
-        def fixed_field_spec(
-            name,
-            dtype,
-            vcf_field=None,
-            shape=(m,),
-            dimensions=("variants",),
-            chunks=None,
-        ):
-            return ZarrArraySpec.new(
-                vcf_field=vcf_field,
-                name=name,
-                dtype=dtype,
-                shape=shape,
-                description="",
-                dimensions=dimensions,
-                chunks=chunks or [variants_chunk_size],
-            )
-
-        alt_field = icf.fields["ALT"]
-        max_alleles = alt_field.vcf_field.summary.max_number + 1
-
-        array_specs = [
-            fixed_field_spec(
-                name="variant_contig",
-                dtype=core.min_int_dtype(0, icf.metadata.num_contigs),
-            ),
-            fixed_field_spec(
-                name="variant_filter",
-                dtype="bool",
-                shape=(m, icf.metadata.num_filters),
-                dimensions=["variants", "filters"],
-                chunks=(variants_chunk_size, icf.metadata.num_filters),
-            ),
-            fixed_field_spec(
-                name="variant_allele",
-                dtype="O",
-                shape=(m, max_alleles),
-                dimensions=["variants", "alleles"],
-                chunks=(variants_chunk_size, max_alleles),
-            ),
-            fixed_field_spec(
-                name="variant_id",
-                dtype="O",
-            ),
-            fixed_field_spec(
-                name="variant_id_mask",
-                dtype="bool",
-            ),
-        ]
-        name_map = {field.full_name: field for field in icf.metadata.fields}
-
-        # Only three of the fixed fields have a direct one-to-one mapping.
-        array_specs.extend(
-            [
-                spec_from_field(name_map["QUAL"], array_name="variant_quality"),
-                spec_from_field(name_map["POS"], array_name="variant_position"),
-                spec_from_field(name_map["rlen"], array_name="variant_length"),
-            ]
-        )
-        array_specs.extend(
-            [spec_from_field(field) for field in icf.metadata.info_fields]
-        )
-
-        gt_field = None
-        for field in icf.metadata.format_fields:
-            if field.name == "GT":
-                gt_field = field
-                continue
-            array_specs.append(spec_from_field(field))
-
-        if gt_field is not None and n > 0:
-            ploidy = max(gt_field.summary.max_number - 1, 1)
-            shape = [m, n]
-            chunks = [variants_chunk_size, samples_chunk_size]
-            dimensions = ["variants", "samples"]
-            array_specs.append(
-                ZarrArraySpec.new(
-                    vcf_field=None,
-                    name="call_genotype_phased",
-                    dtype="bool",
-                    shape=list(shape),
-                    chunks=list(chunks),
-                    dimensions=list(dimensions),
-                    description="",
-                )
-            )
-            shape += [ploidy]
-            chunks += [ploidy]
-            dimensions += ["ploidy"]
-            array_specs.append(
-                ZarrArraySpec.new(
-                    vcf_field=None,
-                    name="call_genotype",
-                    dtype=gt_field.smallest_dtype(),
-                    shape=list(shape),
-                    chunks=list(chunks),
-                    dimensions=list(dimensions),
-                    description="",
-                )
-            )
-            array_specs.append(
-                ZarrArraySpec.new(
-                    vcf_field=None,
-                    name="call_genotype_mask",
-                    dtype="bool",
-                    shape=list(shape),
-                    chunks=list(chunks),
-                    dimensions=list(dimensions),
-                    description="",
-                )
-            )
-
-        if local_alleles:
-            array_specs = convert_local_allele_field_types(array_specs)
-
-        return VcfZarrSchema(
-            format_version=ZARR_SCHEMA_FORMAT_VERSION,
-            samples_chunk_size=samples_chunk_size,
-            variants_chunk_size=variants_chunk_size,
-            fields=array_specs,
-            samples=icf.metadata.samples,
-            contigs=icf.metadata.contigs,
-            filters=icf.metadata.filters,
-        )
-
-
-class VcfZarr:
-    def __init__(self, path):
-        if not (path / ".zmetadata").exists():
-            raise ValueError("Not in VcfZarr format")  # NEEDS TEST
-        self.path = path
-        self.root = zarr.open(path, mode="r")
-
-    def summary_table(self):
-        data = []
-        arrays = [(core.du(self.path / a.basename), a) for _, a in self.root.arrays()]
-        arrays.sort(key=lambda x: x[0])
-        for stored, array in reversed(arrays):
-            d = {
-                "name": array.name,
-                "dtype": str(array.dtype),
-                "stored": core.display_size(stored),
-                "size": core.display_size(array.nbytes),
-                "ratio": core.display_number(array.nbytes / stored),
-                "nchunks": str(array.nchunks),
-                "chunk_size": core.display_size(array.nbytes / array.nchunks),
-                "avg_chunk_stored": core.display_size(int(stored / array.nchunks)),
-                "shape": str(array.shape),
-                "chunk_shape": str(array.chunks),
-                "compressor": str(array.compressor),
-                "filters": str(array.filters),
-            }
-            data.append(d)
-        return data
-
-
-def parse_max_memory(max_memory):
-    if max_memory is None:
-        # Effectively unbounded
-        return 2**63
-    if isinstance(max_memory, str):
-        max_memory = humanfriendly.parse_size(max_memory)
-    logger.info(f"Set memory budget to {core.display_size(max_memory)}")
-    return max_memory
-
-
-@dataclasses.dataclass
-class VcfZarrPartition:
-    start: int
-    stop: int
-
-    @staticmethod
-    def generate_partitions(num_records, chunk_size, num_partitions, max_chunks=None):
-        num_chunks = int(np.ceil(num_records / chunk_size))
-        if max_chunks is not None:
-            num_chunks = min(num_chunks, max_chunks)
-        partitions = []
-        splits = np.array_split(np.arange(num_chunks), min(num_partitions, num_chunks))
-        for chunk_slice in splits:
-            start_chunk = int(chunk_slice[0])
-            stop_chunk = int(chunk_slice[-1]) + 1
-            start_index = start_chunk * chunk_size
-            stop_index = min(stop_chunk * chunk_size, num_records)
-            partitions.append(VcfZarrPartition(start_index, stop_index))
-        return partitions
-
-
-VZW_METADATA_FORMAT_VERSION = "0.1"
-
-
-@dataclasses.dataclass
-class VcfZarrWriterMetadata(core.JsonDataclass):
-    format_version: str
-    icf_path: str
-    schema: VcfZarrSchema
-    dimension_separator: str
-    partitions: list
-    provenance: dict
-
-    @staticmethod
-    def fromdict(d):
-        if d["format_version"] != VZW_METADATA_FORMAT_VERSION:
-            raise ValueError(
-                "VcfZarrWriter format version mismatch: "
-                f"{d['format_version']} != {VZW_METADATA_FORMAT_VERSION}"
-            )
-        ret = VcfZarrWriterMetadata(**d)
-        ret.schema = VcfZarrSchema.fromdict(ret.schema)
-        ret.partitions = [VcfZarrPartition(**p) for p in ret.partitions]
-        return ret
+def sanitise_int_array(value, ndmin, dtype):
+    if isinstance(value, tuple):
+        value = [
+            constants.VCF_INT_MISSING if x is None else x for x in value
+        ]  # NEEDS TEST
+    value = np.array(value, ndmin=ndmin, copy=True)
+    value[value == constants.VCF_INT_MISSING] = -1
+    value[value == constants.VCF_INT_FILL] = -2
+    # TODO watch out for clipping here!
+    return value.astype(dtype)
 
 
 def compute_la_field(genotypes):
@@ -597,12 +331,58 @@ class LocalisableFieldDescriptor:
 
 localisable_fields = [
     LocalisableFieldDescriptor(
-        "call_LAD", "FORMAT/AD", icf.sanitise_int_array, compute_lad_field
+        "call_LAD", "FORMAT/AD", sanitise_int_array, compute_lad_field
     ),
     LocalisableFieldDescriptor(
-        "call_LPL", "FORMAT/PL", icf.sanitise_int_array, compute_lpl_field
+        "call_LPL", "FORMAT/PL", sanitise_int_array, compute_lpl_field
     ),
 ]
+
+
+@dataclasses.dataclass
+class VcfZarrPartition:
+    start: int
+    stop: int
+
+    @staticmethod
+    def generate_partitions(num_records, chunk_size, num_partitions, max_chunks=None):
+        num_chunks = int(np.ceil(num_records / chunk_size))
+        if max_chunks is not None:
+            num_chunks = min(num_chunks, max_chunks)
+        partitions = []
+        splits = np.array_split(np.arange(num_chunks), min(num_partitions, num_chunks))
+        for chunk_slice in splits:
+            start_chunk = int(chunk_slice[0])
+            stop_chunk = int(chunk_slice[-1]) + 1
+            start_index = start_chunk * chunk_size
+            stop_index = min(stop_chunk * chunk_size, num_records)
+            partitions.append(VcfZarrPartition(start_index, stop_index))
+        return partitions
+
+
+VZW_METADATA_FORMAT_VERSION = "0.1"
+
+
+@dataclasses.dataclass
+class VcfZarrWriterMetadata(core.JsonDataclass):
+    format_version: str
+    source_path: str
+    schema: VcfZarrSchema
+    dimension_separator: str
+    partitions: list
+    provenance: dict
+
+    @staticmethod
+    def fromdict(d):
+        if d["format_version"] != VZW_METADATA_FORMAT_VERSION:
+            raise ValueError(
+                "VcfZarrWriter format version mismatch: "
+                f"{d['format_version']} != {VZW_METADATA_FORMAT_VERSION}"
+            )
+        ret = VcfZarrWriterMetadata(**d)
+        ret.schema = VcfZarrSchema.fromdict(ret.schema)
+        ret.partitions = [VcfZarrPartition(**p) for p in ret.partitions]
+        return ret
 
 
 @dataclasses.dataclass
@@ -615,13 +395,14 @@ class VcfZarrWriteSummary(core.JsonDataclass):
 
 
 class VcfZarrWriter:
-    def __init__(self, path):
+    def __init__(self, source_type, path):
+        self.source_type = source_type
         self.path = pathlib.Path(path)
         self.wip_path = self.path / "wip"
         self.arrays_path = self.wip_path / "arrays"
         self.partitions_path = self.wip_path / "partitions"
         self.metadata = None
-        self.icf = None
+        self.source = None
 
     @property
     def schema(self):
@@ -649,19 +430,19 @@ class VcfZarrWriter:
 
     def init(
         self,
-        icf,
+        source,
         *,
         target_num_partitions,
         schema,
         dimension_separator=None,
         max_variant_chunks=None,
     ):
-        self.icf = icf
+        self.source = source
         if self.path.exists():
             raise ValueError("Zarr path already exists")  # NEEDS TEST
         schema.validate()
         partitions = VcfZarrPartition.generate_partitions(
-            self.icf.num_records,
+            self.source.num_records,
             schema.variants_chunk_size,
             target_num_partitions,
             max_chunks=max_variant_chunks,
@@ -673,7 +454,7 @@ class VcfZarrWriter:
         )
         self.metadata = VcfZarrWriterMetadata(
             format_version=VZW_METADATA_FORMAT_VERSION,
-            icf_path=str(self.icf.path),
+            source_path=str(self.source.path),
             schema=schema,
             dimension_separator=dimension_separator,
             partitions=partitions,
@@ -682,15 +463,16 @@ class VcfZarrWriter:
         )
 
         self.path.mkdir()
-        root = zarr.open(store=self.path, mode="a", **ZARR_FORMAT_KWARGS)
+        root = zarr.open(store=self.path, mode="a", **zarr_utils.ZARR_FORMAT_KWARGS)
         root.attrs.update(
             {
                 "vcf_zarr_version": "0.2",
-                "vcf_header": self.icf.vcf_header,
                 "source": f"bio2zarr-{provenance.__version__}",
             }
         )
-        # Doing this syncronously - this is fine surely
+        root.attrs.update(self.source.root_attrs)
+
+        # Doing this synchronously - this is fine surely
         self.encode_samples(root)
         self.encode_filter_id(root)
         self.encode_contig_id(root)
@@ -698,7 +480,9 @@ class VcfZarrWriter:
         self.wip_path.mkdir()
         self.arrays_path.mkdir()
         self.partitions_path.mkdir()
-        root = zarr.open(store=self.arrays_path, mode="a", **ZARR_FORMAT_KWARGS)
+        root = zarr.open(
+            store=self.arrays_path, mode="a", **zarr_utils.ZARR_FORMAT_KWARGS
+        )
 
         total_chunks = 0
         for field in self.schema.fields:
@@ -710,15 +494,15 @@ class VcfZarrWriter:
             json.dump(self.metadata.asdict(), f, indent=4)
 
         return VcfZarrWriteSummary(
-            num_variants=self.icf.num_records,
-            num_samples=self.icf.num_samples,
+            num_variants=self.source.num_records,
+            num_samples=self.source.num_samples,
             num_partitions=self.num_partitions,
             num_chunks=total_chunks,
             max_encoding_memory=core.display_size(self.get_max_encoding_memory()),
         )
 
     def encode_samples(self, root):
-        if self.schema.samples != self.icf.metadata.samples:
+        if [s.id for s in self.schema.samples] != self.source.samples:
             raise ValueError("Subsetting or reordering samples not supported currently")
         array = root.array(
             "sample_id",
@@ -763,15 +547,15 @@ class VcfZarrWriter:
         array.attrs["_ARRAY_DIMENSIONS"] = ["filters"]
 
     def init_array(self, root, array_spec, variants_dim_size):
-        kwargs = dict(ZARR_FORMAT_KWARGS)
+        kwargs = dict(zarr_utils.ZARR_FORMAT_KWARGS)
         filters = [numcodecs.get_codec(filt) for filt in array_spec.filters]
         if array_spec.dtype == "O":
-            if zarr_v3():
+            if zarr_utils.zarr_v3():
                 filters = [*list(filters), numcodecs.VLenUTF8()]
             else:
                 kwargs["object_codec"] = numcodecs.VLenUTF8()
 
-        if not zarr_v3():
+        if not zarr_utils.zarr_v3():
             kwargs["dimension_separator"] = self.metadata.dimension_separator
 
         shape = list(array_spec.shape)
@@ -804,7 +588,7 @@ class VcfZarrWriter:
         if self.metadata is None:
             with open(self.wip_path / "metadata.json") as f:
                 self.metadata = VcfZarrWriterMetadata.fromdict(json.load(f))
-            self.icf = icf.IntermediateColumnarFormat(self.metadata.icf_path)
+            self.source = self.source_type(self.metadata.source_path)
 
     def partition_path(self, partition_index):
         return self.partitions_path / f"p{partition_index}"
@@ -826,9 +610,13 @@ class VcfZarrWriter:
         partition_path.mkdir(exist_ok=True)
         logger.info(f"Encoding partition {partition_index} to {partition_path}")
 
-        self.encode_id_partition(partition_index)
-        self.encode_filters_partition(partition_index)
-        self.encode_contig_partition(partition_index)
+        all_field_names = [field.name for field in self.schema.fields]
+        if "variant_id" in all_field_names:
+            self.encode_id_partition(partition_index)
+        if "variant_filter" in all_field_names:
+            self.encode_filters_partition(partition_index)
+        if "variant_contig" in all_field_names:
+            self.encode_contig_partition(partition_index)
         self.encode_alleles_partition(partition_index)
         for array_spec in self.schema.fields:
             if array_spec.vcf_field is not None:
@@ -874,14 +662,15 @@ class VcfZarrWriter:
     def encode_array_partition(self, array_spec, partition_index):
         partition = self.metadata.partitions[partition_index]
         ba = self.init_partition_array(partition_index, array_spec.name)
-        source_field = self.icf.fields[array_spec.vcf_field]
-        sanitiser = source_field.sanitiser_factory(ba.buff.shape)
-
-        for value in source_field.iter_values(partition.start, partition.stop):
-            # We write directly into the buffer in the sanitiser function
-            # to make it easier to reason about dimension padding
+        for value in self.source.iter_field(
+            array_spec.vcf_field,
+            ba.buff.shape[1:],
+            partition.start,
+            partition.stop,
+        ):
             j = ba.next_buffer_row()
-            sanitiser(ba.buff, j, value)
+            ba.buff[j] = value
+
         self.finalise_partition_array(partition_index, ba)
 
     def encode_genotypes_partition(self, partition_index):
@@ -889,16 +678,14 @@ class VcfZarrWriter:
         gt = self.init_partition_array(partition_index, "call_genotype")
         gt_phased = self.init_partition_array(partition_index, "call_genotype_phased")
 
-        source_field = self.icf.fields["FORMAT/GT"]
-        for value in source_field.iter_values(partition.start, partition.stop):
+        for genotype, phased in self.source.iter_genotypes(
+            gt.buff.shape[1:], partition.start, partition.stop
+        ):
             j = gt.next_buffer_row()
-            icf.sanitise_value_int_2d(
-                gt.buff, j, value[:, :-1] if value is not None else None
-            )
-            j = gt_phased.next_buffer_row()
-            icf.sanitise_value_int_1d(
-                gt_phased.buff, j, value[:, -1] if value is not None else None
-            )
+            gt.buff[j] = genotype
+
+            j_phased = gt_phased.next_buffer_row()
+            gt_phased.buff[j_phased] = phased
 
         self.finalise_partition_array(partition_index, gt)
         self.finalise_partition_array(partition_index, gt_phased)
@@ -951,7 +738,7 @@ class VcfZarrWriter:
             assert field_map[descriptor.array_name].vcf_field is None
 
             buff = self.init_partition_array(partition_index, descriptor.array_name)
-            source = self.icf.fields[descriptor.vcf_field].iter_values(
+            source = self.source.fields[descriptor.vcf_field].iter_values(
                 partition.start, partition.stop
             )
             for la in core.first_dim_slice_iter(
@@ -966,31 +753,26 @@ class VcfZarrWriter:
     def encode_alleles_partition(self, partition_index):
         alleles = self.init_partition_array(partition_index, "variant_allele")
         partition = self.metadata.partitions[partition_index]
-        ref_field = self.icf.fields["REF"]
-        alt_field = self.icf.fields["ALT"]
 
-        for ref, alt in zip(
-            ref_field.iter_values(partition.start, partition.stop),
-            alt_field.iter_values(partition.start, partition.stop),
+        for value in self.source.iter_alleles(
+            partition.start, partition.stop, alleles.array.shape[1]
         ):
             j = alleles.next_buffer_row()
-            alleles.buff[j, :] = constants.STR_FILL
-            alleles.buff[j, 0] = ref[0]
-            alleles.buff[j, 1 : 1 + len(alt)] = alt
+            alleles.buff[j] = value
+
         self.finalise_partition_array(partition_index, alleles)
 
     def encode_id_partition(self, partition_index):
         vid = self.init_partition_array(partition_index, "variant_id")
         vid_mask = self.init_partition_array(partition_index, "variant_id_mask")
         partition = self.metadata.partitions[partition_index]
-        field = self.icf.fields["ID"]
 
-        for value in field.iter_values(partition.start, partition.stop):
+        for value in self.source.iter_id(partition.start, partition.stop):
             j = vid.next_buffer_row()
             k = vid_mask.next_buffer_row()
             assert j == k
             if value is not None:
-                vid.buff[j] = value[0]
+                vid.buff[j] = value
                 vid_mask.buff[j] = False
             else:
                 vid.buff[j] = constants.STR_MISSING
@@ -1000,37 +782,22 @@ class VcfZarrWriter:
         self.finalise_partition_array(partition_index, vid_mask)
 
     def encode_filters_partition(self, partition_index):
-        lookup = {filt.id: index for index, filt in enumerate(self.schema.filters)}
         var_filter = self.init_partition_array(partition_index, "variant_filter")
         partition = self.metadata.partitions[partition_index]
 
-        field = self.icf.fields["FILTERS"]
-        for value in field.iter_values(partition.start, partition.stop):
+        for filter_values in self.source.iter_filters(partition.start, partition.stop):
             j = var_filter.next_buffer_row()
-            var_filter.buff[j] = False
-            for f in value:
-                try:
-                    var_filter.buff[j, lookup[f]] = True
-                except KeyError:
-                    raise ValueError(
-                        f"Filter '{f}' was not defined in the header."
-                    ) from None
+            var_filter.buff[j] = filter_values
 
         self.finalise_partition_array(partition_index, var_filter)
 
     def encode_contig_partition(self, partition_index):
-        lookup = {contig.id: index for index, contig in enumerate(self.schema.contigs)}
         contig = self.init_partition_array(partition_index, "variant_contig")
         partition = self.metadata.partitions[partition_index]
-        field = self.icf.fields["CHROM"]
 
-        for value in field.iter_values(partition.start, partition.stop):
+        for contig_index in self.source.iter_contig(partition.start, partition.stop):
             j = contig.next_buffer_row()
-            # Note: because we are using the indexes to define the lookups
-            # and we always have an index, it seems that we the contig lookup
-            # will always succeed. However, if anyone ever does hit a KeyError
-            # here, please do open an issue with a reproducible example!
-            contig.buff[j] = lookup[value[0]]
+            contig.buff[j] = contig_index
 
         self.finalise_partition_array(partition_index, contig)
 
@@ -1109,60 +876,8 @@ class VcfZarrWriter:
     def create_index(self):
         """Create an index to support efficient region queries."""
 
-        root = zarr.open_group(store=self.path, mode="r+")
-
-        contig = root["variant_contig"]
-        pos = root["variant_position"]
-        length = root["variant_length"]
-
-        assert contig.cdata_shape == pos.cdata_shape
-
-        index = []
-
-        logger.info("Creating region index")
-        for v_chunk in range(pos.cdata_shape[0]):
-            c = contig.blocks[v_chunk]
-            p = pos.blocks[v_chunk]
-            e = p + length.blocks[v_chunk] - 1
-
-            # create a row for each contig in the chunk
-            d = np.diff(c, append=-1)
-            c_start_idx = 0
-            for c_end_idx in np.nonzero(d)[0]:
-                assert c[c_start_idx] == c[c_end_idx]
-                index.append(
-                    (
-                        v_chunk,  # chunk index
-                        c[c_start_idx],  # contig ID
-                        p[c_start_idx],  # start
-                        p[c_end_idx],  # end
-                        np.max(e[c_start_idx : c_end_idx + 1]),  # max end
-                        c_end_idx - c_start_idx + 1,  # num records
-                    )
-                )
-                c_start_idx = c_end_idx + 1
-
-        index = np.array(index, dtype=pos.dtype)
-        kwargs = {}
-        if not zarr_v3():
-            kwargs["dimension_separator"] = self.metadata.dimension_separator
-        array = root.array(
-            "region_index",
-            data=index,
-            shape=index.shape,
-            chunks=index.shape,
-            dtype=index.dtype,
-            compressor=numcodecs.Blosc("zstd", clevel=9, shuffle=0),
-            fill_value=None,
-            **kwargs,
-        )
-        array.attrs["_ARRAY_DIMENSIONS"] = [
-            "region_index_values",
-            "region_index_fields",
-        ]
-
-        logger.info("Consolidating Zarr metadata")
-        zarr.consolidate_metadata(self.path)
+        indexer = VcfZarrIndexer(self.path)
+        indexer.create_index()
 
     ######################
     # encode_all_partitions
@@ -1187,7 +902,7 @@ class VcfZarrWriter:
     def encode_all_partitions(
         self, *, worker_processes=1, show_progress=False, max_memory=None
     ):
-        max_memory = parse_max_memory(max_memory)
+        max_memory = core.parse_max_memory(max_memory)
         self.load_metadata()
         num_partitions = self.num_partitions
         per_worker_memory = self.get_max_encoding_memory()
@@ -1229,147 +944,105 @@ class VcfZarrWriter:
                 pwm.submit(self.encode_partition, partition_index)
 
 
-def mkschema(
-    if_path,
-    out,
-    *,
-    variants_chunk_size=None,
-    samples_chunk_size=None,
-    local_alleles=None,
-):
-    store = icf.IntermediateColumnarFormat(if_path)
-    spec = VcfZarrSchema.generate(
-        store,
-        variants_chunk_size=variants_chunk_size,
-        samples_chunk_size=samples_chunk_size,
-        local_alleles=local_alleles,
-    )
-    out.write(spec.asjson())
+class VcfZarr:
+    def __init__(self, path):
+        if not (path / ".zmetadata").exists():
+            raise ValueError("Not in VcfZarr format")  # NEEDS TEST
+        self.path = path
+        self.root = zarr.open(path, mode="r")
+
+    def summary_table(self):
+        data = []
+        arrays = [(core.du(self.path / a.basename), a) for _, a in self.root.arrays()]
+        arrays.sort(key=lambda x: x[0])
+        for stored, array in reversed(arrays):
+            d = {
+                "name": array.name,
+                "dtype": str(array.dtype),
+                "stored": core.display_size(stored),
+                "size": core.display_size(array.nbytes),
+                "ratio": core.display_number(array.nbytes / stored),
+                "nchunks": str(array.nchunks),
+                "chunk_size": core.display_size(array.nbytes / array.nchunks),
+                "avg_chunk_stored": core.display_size(int(stored / array.nchunks)),
+                "shape": str(array.shape),
+                "chunk_shape": str(array.chunks),
+                "compressor": str(array.compressor),
+                "filters": str(array.filters),
+            }
+            data.append(d)
+        return data
 
 
-def encode(
-    if_path,
-    zarr_path,
-    schema_path=None,
-    variants_chunk_size=None,
-    samples_chunk_size=None,
-    max_variant_chunks=None,
-    dimension_separator=None,
-    max_memory=None,
-    local_alleles=None,
-    worker_processes=1,
-    show_progress=False,
-):
-    # Rough heuristic to split work up enough to keep utilisation high
-    target_num_partitions = max(1, worker_processes * 4)
-    encode_init(
-        if_path,
-        zarr_path,
-        target_num_partitions,
-        schema_path=schema_path,
-        variants_chunk_size=variants_chunk_size,
-        samples_chunk_size=samples_chunk_size,
-        local_alleles=local_alleles,
-        max_variant_chunks=max_variant_chunks,
-        dimension_separator=dimension_separator,
-    )
-    vzw = VcfZarrWriter(zarr_path)
-    vzw.encode_all_partitions(
-        worker_processes=worker_processes,
-        show_progress=show_progress,
-        max_memory=max_memory,
-    )
-    vzw.finalise(show_progress)
-    vzw.create_index()
+class VcfZarrIndexer:
+    """
+    Creates an index for efficient region queries in a VCF Zarr dataset.
+    """
 
+    def __init__(self, path):
+        self.path = pathlib.Path(path)
 
-def encode_init(
-    icf_path,
-    zarr_path,
-    target_num_partitions,
-    *,
-    schema_path=None,
-    variants_chunk_size=None,
-    samples_chunk_size=None,
-    local_alleles=None,
-    max_variant_chunks=None,
-    dimension_separator=None,
-    max_memory=None,
-    worker_processes=1,
-    show_progress=False,
-):
-    icf_store = icf.IntermediateColumnarFormat(icf_path)
-    if schema_path is None:
-        schema = VcfZarrSchema.generate(
-            icf_store,
-            variants_chunk_size=variants_chunk_size,
-            samples_chunk_size=samples_chunk_size,
-            local_alleles=local_alleles,
+    def create_index(self):
+        """Create an index to support efficient region queries."""
+        root = zarr.open_group(store=self.path, mode="r+")
+
+        if (
+            "variant_contig" not in root
+            or "variant_position" not in root
+            or "variant_length" not in root
+        ):
+            logger.warning("Cannot create index: required arrays not found")
+            return
+
+        contig = root["variant_contig"]
+        pos = root["variant_position"]
+        length = root["variant_length"]
+
+        assert contig.cdata_shape == pos.cdata_shape
+
+        index = []
+
+        logger.info("Creating region index")
+        for v_chunk in range(pos.cdata_shape[0]):
+            c = contig.blocks[v_chunk]
+            p = pos.blocks[v_chunk]
+            e = p + length.blocks[v_chunk] - 1
+
+            # create a row for each contig in the chunk
+            d = np.diff(c, append=-1)
+            c_start_idx = 0
+            for c_end_idx in np.nonzero(d)[0]:
+                assert c[c_start_idx] == c[c_end_idx]
+                index.append(
+                    (
+                        v_chunk,  # chunk index
+                        c[c_start_idx],  # contig ID
+                        p[c_start_idx],  # start
+                        p[c_end_idx],  # end
+                        np.max(e[c_start_idx : c_end_idx + 1]),  # max end
+                        c_end_idx - c_start_idx + 1,  # num records
+                    )
+                )
+                c_start_idx = c_end_idx + 1
+
+        index = np.array(index, dtype=pos.dtype)
+        kwargs = {}
+        if not zarr_utils.zarr_v3():
+            kwargs["dimension_separator"] = "/"
+        array = root.array(
+            "region_index",
+            data=index,
+            shape=index.shape,
+            chunks=index.shape,
+            dtype=index.dtype,
+            compressor=numcodecs.Blosc("zstd", clevel=9, shuffle=0),
+            fill_value=None,
+            **kwargs,
         )
-    else:
-        logger.info(f"Reading schema from {schema_path}")
-        if variants_chunk_size is not None or samples_chunk_size is not None:
-            raise ValueError(
-                "Cannot specify schema along with chunk sizes"
-            )  # NEEDS TEST
-        with open(schema_path) as f:
-            schema = VcfZarrSchema.fromjson(f.read())
-    zarr_path = pathlib.Path(zarr_path)
-    vzw = VcfZarrWriter(zarr_path)
-    return vzw.init(
-        icf_store,
-        target_num_partitions=target_num_partitions,
-        schema=schema,
-        dimension_separator=dimension_separator,
-        max_variant_chunks=max_variant_chunks,
-    )
+        array.attrs["_ARRAY_DIMENSIONS"] = [
+            "region_index_values",
+            "region_index_fields",
+        ]
 
-
-def encode_partition(zarr_path, partition):
-    writer = VcfZarrWriter(zarr_path)
-    writer.encode_partition(partition)
-
-
-def encode_finalise(zarr_path, show_progress=False):
-    writer = VcfZarrWriter(zarr_path)
-    writer.finalise(show_progress=show_progress)
-
-
-def convert(
-    vcfs,
-    out_path,
-    *,
-    variants_chunk_size=None,
-    samples_chunk_size=None,
-    worker_processes=1,
-    local_alleles=None,
-    show_progress=False,
-    icf_path=None,
-):
-    if icf_path is None:
-        cm = temp_icf_path(prefix="vcf2zarr")
-    else:
-        cm = contextlib.nullcontext(icf_path)
-
-    with cm as icf_path:
-        icf.explode(
-            icf_path,
-            vcfs,
-            worker_processes=worker_processes,
-            show_progress=show_progress,
-        )
-        encode(
-            icf_path,
-            out_path,
-            variants_chunk_size=variants_chunk_size,
-            samples_chunk_size=samples_chunk_size,
-            worker_processes=worker_processes,
-            show_progress=show_progress,
-            local_alleles=local_alleles,
-        )
-
-
-@contextlib.contextmanager
-def temp_icf_path(prefix=None):
-    with tempfile.TemporaryDirectory(prefix=prefix) as tmp:
-        yield pathlib.Path(tmp) / "icf"
+        logger.info("Consolidating Zarr metadata")
+        zarr.consolidate_metadata(self.path)

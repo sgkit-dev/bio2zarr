@@ -84,7 +84,7 @@ class TestWithMocks:
     vcf_path = "tests/data/vcf/sample.vcf.gz"
 
     @pytest.mark.parametrize(("progress", "flag"), [(True, "-P"), (False, "-Q")])
-    @mock.patch("bio2zarr.vcf2zarr.explode")
+    @mock.patch("bio2zarr.icf.explode")
     def test_vcf_explode(self, mocked, tmp_path, progress, flag):
         icf_path = tmp_path / "icf"
         runner = ct.CliRunner(mix_stderr=False)
@@ -101,7 +101,7 @@ class TestWithMocks:
         mocked.assert_called_once_with(str(icf_path), (self.vcf_path,), **args)
 
     @pytest.mark.parametrize("compressor", ["lz4", "zstd"])
-    @mock.patch("bio2zarr.vcf2zarr.explode")
+    @mock.patch("bio2zarr.icf.explode")
     def test_vcf_explode_compressor(self, mocked, tmp_path, compressor):
         icf_path = tmp_path / "icf"
         runner = ct.CliRunner(mix_stderr=False)
@@ -124,7 +124,7 @@ class TestWithMocks:
         )
 
     @pytest.mark.parametrize("compressor", ["lz4", "zstd"])
-    @mock.patch("bio2zarr.vcf2zarr.explode_init")
+    @mock.patch("bio2zarr.icf.explode_init")
     def test_vcf_dexplode_init_compressor(self, mocked, tmp_path, compressor):
         icf_path = tmp_path / "icf"
         runner = ct.CliRunner(mix_stderr=False)
@@ -148,7 +148,7 @@ class TestWithMocks:
         )
 
     @pytest.mark.parametrize("compressor", ["LZ4", "asdf"])
-    @mock.patch("bio2zarr.vcf2zarr.explode")
+    @mock.patch("bio2zarr.icf.explode")
     def test_vcf_explode_bad_compressor(self, mocked, tmp_path, compressor):
         runner = ct.CliRunner(mix_stderr=False)
         icf_path = tmp_path / "icf"
@@ -161,7 +161,7 @@ class TestWithMocks:
         assert "Invalid value for '-C'" in result.stderr
         mocked.assert_not_called()
 
-    @mock.patch("bio2zarr.vcf2zarr.explode")
+    @mock.patch("bio2zarr.icf.explode")
     def test_vcf_explode_multiple_vcfs(self, mocked, tmp_path):
         icf_path = tmp_path / "icf"
         runner = ct.CliRunner(mix_stderr=False)
@@ -178,7 +178,7 @@ class TestWithMocks:
         )
 
     @pytest.mark.parametrize("response", ["y", "Y", "yes"])
-    @mock.patch("bio2zarr.vcf2zarr.explode")
+    @mock.patch("bio2zarr.icf.explode")
     def test_vcf_explode_overwrite_icf_confirm_yes(self, mocked, tmp_path, response):
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
@@ -197,7 +197,7 @@ class TestWithMocks:
         )
 
     @pytest.mark.parametrize("response", ["y", "Y", "yes"])
-    @mock.patch("bio2zarr.vcf2zarr.encode")
+    @mock.patch("bio2zarr.icf.encode")
     def test_vcf_encode_overwrite_zarr_confirm_yes(self, mocked, tmp_path, response):
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
@@ -218,7 +218,7 @@ class TestWithMocks:
         )
 
     @pytest.mark.parametrize("force_arg", ["-f", "--force"])
-    @mock.patch("bio2zarr.vcf2zarr.explode")
+    @mock.patch("bio2zarr.icf.explode")
     def test_vcf_explode_overwrite_icf_force(self, mocked, tmp_path, force_arg):
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
@@ -236,7 +236,7 @@ class TestWithMocks:
         )
 
     @pytest.mark.parametrize("force_arg", ["-f", "--force"])
-    @mock.patch("bio2zarr.vcf2zarr.encode")
+    @mock.patch("bio2zarr.icf.encode")
     def test_vcf_encode_overwrite_icf_force(self, mocked, tmp_path, force_arg):
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
@@ -257,7 +257,7 @@ class TestWithMocks:
             **DEFAULT_ENCODE_ARGS,
         )
 
-    @mock.patch("bio2zarr.vcf2zarr.explode")
+    @mock.patch("bio2zarr.icf.explode")
     def test_vcf_explode_missing_vcf(self, mocked, tmp_path):
         icf_path = tmp_path / "icf"
         runner = ct.CliRunner(mix_stderr=False)
@@ -272,7 +272,7 @@ class TestWithMocks:
         mocked.assert_not_called()
 
     @pytest.mark.parametrize("response", ["n", "N", "No"])
-    @mock.patch("bio2zarr.vcf2zarr.explode")
+    @mock.patch("bio2zarr.icf.explode")
     def test_vcf_explode_overwrite_icf_confirm_no(self, mocked, tmp_path, response):
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
@@ -287,7 +287,7 @@ class TestWithMocks:
         assert "Aborted" in result.stderr
         mocked.assert_not_called()
 
-    @mock.patch("bio2zarr.vcf2zarr.explode")
+    @mock.patch("bio2zarr.icf.explode")
     def test_vcf_explode_missing_and_existing_vcf(self, mocked, tmp_path):
         icf_path = tmp_path / "icf"
         runner = ct.CliRunner(mix_stderr=False)
@@ -302,7 +302,7 @@ class TestWithMocks:
         mocked.assert_not_called()
 
     @pytest.mark.parametrize(("progress", "flag"), [(True, "-P"), (False, "-Q")])
-    @mock.patch("bio2zarr.vcf2zarr.explode_init", return_value=FakeWorkSummary(5))
+    @mock.patch("bio2zarr.icf.explode_init", return_value=FakeWorkSummary(5))
     def test_vcf_dexplode_init(self, mocked, tmp_path, progress, flag):
         runner = ct.CliRunner(mix_stderr=False)
         icf_path = tmp_path / "icf"
@@ -324,7 +324,7 @@ class TestWithMocks:
         )
 
     @pytest.mark.parametrize("num_partitions", ["-1", "0", "asdf", "1.112"])
-    @mock.patch("bio2zarr.vcf2zarr.explode_init", return_value=5)
+    @mock.patch("bio2zarr.icf.explode_init", return_value=5)
     def test_vcf_dexplode_init_bad_num_partitions(
         self, mocked, tmp_path, num_partitions
     ):
@@ -339,7 +339,7 @@ class TestWithMocks:
         assert "Invalid value for '-n'" in result.stderr
         mocked.assert_not_called()
 
-    @mock.patch("bio2zarr.vcf2zarr.explode_init", return_value=5)
+    @mock.patch("bio2zarr.icf.explode_init", return_value=5)
     def test_vcf_dexplode_init_no_partitions(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         icf_path = tmp_path / "icf"
@@ -352,7 +352,7 @@ class TestWithMocks:
         assert "-n/--num-partitions must currently be specified" in result.stderr
         mocked.assert_not_called()
 
-    @mock.patch("bio2zarr.vcf2zarr.explode_partition")
+    @mock.patch("bio2zarr.icf.explode_partition")
     def test_vcf_dexplode_partition(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         icf_path = tmp_path / "icf"
@@ -369,7 +369,7 @@ class TestWithMocks:
             str(icf_path), 1, **DEFAULT_DEXPLODE_PARTITION_ARGS
         )
 
-    @mock.patch("bio2zarr.vcf2zarr.explode_partition")
+    @mock.patch("bio2zarr.icf.explode_partition")
     def test_vcf_dexplode_partition_one_based(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         icf_path = tmp_path / "icf"
@@ -386,7 +386,7 @@ class TestWithMocks:
             str(icf_path), 0, **DEFAULT_DEXPLODE_PARTITION_ARGS
         )
 
-    @mock.patch("bio2zarr.vcf2zarr.explode_partition")
+    @mock.patch("bio2zarr.icf.explode_partition")
     def test_vcf_dexplode_partition_missing_dir(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         icf_path = tmp_path / "icf"
@@ -401,7 +401,7 @@ class TestWithMocks:
         mocked.assert_not_called()
 
     @pytest.mark.parametrize("partition", ["-- -1", "asdf", "1.112"])
-    @mock.patch("bio2zarr.vcf2zarr.explode_partition")
+    @mock.patch("bio2zarr.icf.explode_partition")
     def test_vcf_dexplode_partition_bad_partition(self, mocked, tmp_path, partition):
         runner = ct.CliRunner(mix_stderr=False)
         icf_path = tmp_path / "icf"
@@ -416,7 +416,7 @@ class TestWithMocks:
         assert len(result.stdout) == 0
         mocked.assert_not_called()
 
-    @mock.patch("bio2zarr.vcf2zarr.explode_finalise")
+    @mock.patch("bio2zarr.icf.explode_finalise")
     def test_vcf_dexplode_finalise(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
@@ -427,7 +427,7 @@ class TestWithMocks:
         assert len(result.stderr) == 0
         mocked.assert_called_once_with(str(tmp_path))
 
-    @mock.patch("bio2zarr.vcf2zarr.inspect")
+    @mock.patch("bio2zarr.icf.inspect")
     def test_inspect(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
@@ -438,7 +438,7 @@ class TestWithMocks:
         assert len(result.stderr) == 0
         mocked.assert_called_once_with(str(tmp_path))
 
-    @mock.patch("bio2zarr.vcf2zarr.mkschema")
+    @mock.patch("bio2zarr.icf.mkschema")
     def test_mkschema(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
@@ -455,7 +455,7 @@ class TestWithMocks:
         mocked.assert_called_once()
 
     @pytest.mark.parametrize(("progress", "flag"), [(True, "-P"), (False, "-Q")])
-    @mock.patch("bio2zarr.vcf2zarr.encode")
+    @mock.patch("bio2zarr.icf.encode")
     def test_encode(self, mocked, tmp_path, progress, flag):
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
@@ -478,7 +478,7 @@ class TestWithMocks:
         )
 
     @pytest.mark.parametrize(("progress", "flag"), [(True, "-P"), (False, "-Q")])
-    @mock.patch("bio2zarr.vcf2zarr.encode_init", return_value=FakeWorkSummary(10))
+    @mock.patch("bio2zarr.icf.encode_init", return_value=FakeWorkSummary(10))
     def test_dencode_init(self, mocked, tmp_path, progress, flag):
         icf_path = tmp_path / "icf"
         icf_path.mkdir()
@@ -501,7 +501,7 @@ class TestWithMocks:
             **args,
         )
 
-    @mock.patch("bio2zarr.vcf2zarr.encode_init", return_value=5)
+    @mock.patch("bio2zarr.icf.encode_init", return_value=5)
     def test_vcf_dencode_init_no_partitions(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         icf_path = tmp_path / "icf"
@@ -516,7 +516,7 @@ class TestWithMocks:
         assert "-n/--num-partitions must currently be specified" in result.stderr
         mocked.assert_not_called()
 
-    @mock.patch("bio2zarr.vcf2zarr.encode_partition")
+    @mock.patch("bio2zarr.icf.encode_partition")
     def test_vcf_dencode_partition(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         zarr_path = tmp_path / "zarr"
@@ -533,7 +533,7 @@ class TestWithMocks:
             str(zarr_path), 1, **DEFAULT_DENCODE_PARTITION_ARGS
         )
 
-    @mock.patch("bio2zarr.vcf2zarr.encode_partition")
+    @mock.patch("bio2zarr.icf.encode_partition")
     def test_vcf_dencode_partition_one_based(self, mocked, tmp_path):
         runner = ct.CliRunner(mix_stderr=False)
         zarr_path = tmp_path / "zarr"
@@ -551,7 +551,7 @@ class TestWithMocks:
         )
 
     @pytest.mark.parametrize(("progress", "flag"), [(True, "-P"), (False, "-Q")])
-    @mock.patch("bio2zarr.vcf2zarr.encode_finalise")
+    @mock.patch("bio2zarr.icf.encode_finalise")
     def test_vcf_dencode_finalise(self, mocked, tmp_path, progress, flag):
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
@@ -567,7 +567,7 @@ class TestWithMocks:
         mocked.assert_called_once_with(str(tmp_path), **args)
 
     @pytest.mark.parametrize(("progress", "flag"), [(True, "-P"), (False, "-Q")])
-    @mock.patch("bio2zarr.vcf2zarr.convert")
+    @mock.patch("bio2zarr.icf.convert")
     def test_convert_vcf(self, mocked, progress, flag):
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
@@ -587,7 +587,7 @@ class TestWithMocks:
         )
 
     @pytest.mark.parametrize("response", ["n", "N", "No"])
-    @mock.patch("bio2zarr.vcf2zarr.convert")
+    @mock.patch("bio2zarr.icf.convert")
     def test_vcf_convert_overwrite_zarr_confirm_no(self, mocked, tmp_path, response):
         zarr_path = tmp_path / "zarr"
         zarr_path.mkdir()
@@ -617,7 +617,7 @@ class TestWithMocks:
         mocked.assert_called_once_with("in", "out", **args)
 
     @pytest.mark.parametrize("response", ["y", "Y", "yes"])
-    @mock.patch("bio2zarr.vcf2zarr.convert")
+    @mock.patch("bio2zarr.icf.convert")
     def test_vcf_convert_overwrite_zarr_confirm_yes(self, mocked, tmp_path, response):
         zarr_path = tmp_path / "zarr"
         zarr_path.mkdir()

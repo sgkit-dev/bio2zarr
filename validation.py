@@ -6,7 +6,7 @@ import shutil
 
 import click
 
-from bio2zarr import vcf2zarr
+from bio2zarr import icf, vcz_verification
 
 # TODO add support here for split vcfs. Perhaps simplest to take a
 # directory provided as input as indicating this, and then having
@@ -44,7 +44,7 @@ def cli(vcfs, worker_processes, force):
         if force and exploded.exists():
             shutil.rmtree(exploded)
         if not exploded.exists():
-            vcf2zarr.explode(
+            icf.explode(
                 exploded,
                 files,
                 worker_processes=worker_processes,
@@ -53,13 +53,13 @@ def cli(vcfs, worker_processes, force):
         spec = tmp_path / (f.name + ".schema")
         if force or not spec.exists():
             with open(spec, "w") as specfile:
-                vcf2zarr.mkschema(exploded, specfile)
+                icf.mkschema(exploded, specfile)
 
         zarr = tmp_path / (f.name + ".vcz")
         if force and zarr.exists():
             shutil.rmtree(zarr)
         if not zarr.exists():
-            vcf2zarr.encode(
+            icf.encode(
                 exploded,
                 zarr,
                 spec,
@@ -67,7 +67,7 @@ def cli(vcfs, worker_processes, force):
                 show_progress=True,
             )
 
-        vcf2zarr.verify(source_file, zarr, show_progress=True)
+        vcz_verification.verify(source_file, zarr, show_progress=True)
 
 
 if __name__ == "__main__":

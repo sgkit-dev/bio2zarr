@@ -1,177 +1,170 @@
 import logging
+import pathlib
 
 import bed_reader
-import humanfriendly
-import numcodecs
 import numpy as np
 import zarr
 
-from bio2zarr.zarr_utils import ZARR_FORMAT_KWARGS
-
-from . import core
+from bio2zarr import constants, vcz
 
 logger = logging.getLogger(__name__)
 
 
-def encode_genotypes_slice(bed_path, zarr_path, start, stop):
-    # We need to count the A2 alleles here if we want to keep the
-    # alleles reported as allele_1, allele_2. It's obvious here what
-    # the correct approach is, but it is important to note that the
-    # 0th allele is *not* necessarily the REF for these datasets.
-    bed = bed_reader.open_bed(bed_path, num_threads=1, count_A1=False)
-    root = zarr.open(store=zarr_path, mode="a", **ZARR_FORMAT_KWARGS)
-    gt = core.BufferedArray(root["call_genotype"], start)
-    gt_mask = core.BufferedArray(root["call_genotype_mask"], start)
-    gt_phased = core.BufferedArray(root["call_genotype_phased"], start)
-    variants_chunk_size = gt.array.chunks[0]
-    assert start % variants_chunk_size == 0
+class PlinkFormat:
+    def __init__(self, path):
+        self.path = path
+        self.bed = bed_reader.open_bed(path, num_threads=1, count_A1=False)
+        self.num_records = self.bed.sid_count
+        self.samples = list(self.bed.iid)
+        self.num_samples = len(self.samples)
+        self.root_attrs = {}
 
-    logger.debug(f"Reading slice {start}:{stop}")
-    chunk_start = start
-    while chunk_start < stop:
-        chunk_stop = min(chunk_start + variants_chunk_size, stop)
-        logger.debug(f"Reading bed slice {chunk_start}:{chunk_stop}")
-        bed_chunk = bed.read(slice(chunk_start, chunk_stop), dtype=np.int8).T
-        logger.debug(f"Got bed slice {humanfriendly.format_size(bed_chunk.nbytes)}")
-        # Probably should do this without iterating over rows, but it's a bit
-        # simpler and lines up better with the array buffering API. The bottleneck
-        # is in the encoding anyway.
+    def iter_alleles(self, start, stop, num_alleles):
+        ref_field = self.bed.allele_1
+        alt_field = self.bed.allele_2
+
+        for ref, alt in zip(
+            ref_field[start:stop],
+            alt_field[start:stop],
+        ):
+            alleles = np.full(num_alleles, constants.STR_FILL, dtype="O")
+            alleles[0] = ref
+            alleles[1 : 1 + len(alt)] = alt
+            yield alleles
+
+    def iter_field(self, field_name, shape, start, stop):
+        assert field_name == "position"  # Only position field is supported from plink
+        yield from self.bed.bp_position[start:stop]
+
+    def iter_genotypes(self, shape, start, stop):
+        bed_chunk = self.bed.read(slice(start, stop), dtype=np.int8).T
+        gt = np.zeros(shape, dtype=np.int8)
+        phased = np.zeros(shape[:-1], dtype=bool)
         for values in bed_chunk:
-            j = gt.next_buffer_row()
-            g = np.zeros_like(gt.buff[j])
-            g[values == -127] = -1
-            g[values == 2] = 1
-            g[values == 1, 0] = 1
-            gt.buff[j] = g
-            j = gt_phased.next_buffer_row()
-            gt_phased.buff[j] = False
-            j = gt_mask.next_buffer_row()
-            gt_mask.buff[j] = gt.buff[j] == -1
-        chunk_start = chunk_stop
-    gt.flush()
-    gt_phased.flush()
-    gt_mask.flush()
-    logger.debug(f"GT slice {start}:{stop} done")
+            gt[:] = 0
+            gt[values == -127] = -1
+            gt[values == 2] = 1
+            gt[values == 1, 0] = 1
+
+            yield gt, phased
+
+    def generate_schema(
+        self,
+        variants_chunk_size=None,
+        samples_chunk_size=None,
+    ):
+        n = self.bed.iid_count
+        m = self.bed.sid_count
+        logging.info(f"Scanned plink with {n} samples and {m} variants")
+
+        schema_instance = vcz.VcfZarrSchema(
+            format_version=vcz.ZARR_SCHEMA_FORMAT_VERSION,
+            samples_chunk_size=samples_chunk_size,
+            variants_chunk_size=variants_chunk_size,
+            fields=[],
+            samples=[vcz.Sample(id=sample) for sample in self.bed.iid],
+            contigs=[],
+            filters=[],
+        )
+
+        logger.info(
+            "Generating schema with chunks="
+            f"{schema_instance.variants_chunk_size, schema_instance.samples_chunk_size}"
+        )
+
+        array_specs = [
+            vcz.ZarrArraySpec.new(
+                vcf_field="position",
+                name="variant_position",
+                dtype="i4",
+                shape=[m],
+                dimensions=["variants"],
+                chunks=[schema_instance.variants_chunk_size],
+                description=None,
+            ),
+            vcz.ZarrArraySpec.new(
+                vcf_field=None,
+                name="variant_allele",
+                dtype="O",
+                shape=[m, 2],
+                dimensions=["variants", "alleles"],
+                chunks=[schema_instance.variants_chunk_size, 2],
+                description=None,
+            ),
+            vcz.ZarrArraySpec.new(
+                vcf_field=None,
+                name="call_genotype_phased",
+                dtype="bool",
+                shape=[m, n],
+                dimensions=["variants", "samples"],
+                chunks=[
+                    schema_instance.variants_chunk_size,
+                    schema_instance.samples_chunk_size,
+                ],
+                description=None,
+            ),
+            vcz.ZarrArraySpec.new(
+                vcf_field=None,
+                name="call_genotype",
+                dtype="i1",
+                shape=[m, n, 2],
+                dimensions=["variants", "samples", "ploidy"],
+                chunks=[
+                    schema_instance.variants_chunk_size,
+                    schema_instance.samples_chunk_size,
+                    2,
+                ],
+                description=None,
+            ),
+            vcz.ZarrArraySpec.new(
+                vcf_field=None,
+                name="call_genotype_mask",
+                dtype="bool",
+                shape=[m, n, 2],
+                dimensions=["variants", "samples", "ploidy"],
+                chunks=[
+                    schema_instance.variants_chunk_size,
+                    schema_instance.samples_chunk_size,
+                    2,
+                ],
+                description=None,
+            ),
+        ]
+        schema_instance.fields = array_specs
+        return schema_instance
 
 
 def convert(
     bed_path,
     zarr_path,
     *,
-    show_progress=False,
-    worker_processes=1,
     variants_chunk_size=None,
     samples_chunk_size=None,
+    worker_processes=1,
+    show_progress=False,
 ):
-    bed = bed_reader.open_bed(bed_path, num_threads=1)
-    n = bed.iid_count
-    m = bed.sid_count
-    logging.info(f"Scanned plink with {n} samples and {m} variants")
-
-    # FIXME
-    if samples_chunk_size is None:
-        samples_chunk_size = 1000
-    if variants_chunk_size is None:
-        variants_chunk_size = 10_000
-
-    root = zarr.open_group(store=zarr_path, mode="w", **ZARR_FORMAT_KWARGS)
-
-    ploidy = 2
-    shape = [m, n]
-    chunks = [variants_chunk_size, samples_chunk_size]
-    dimensions = ["variants", "samples"]
-
-    # TODO we should be reusing some logic from vcfzarr here on laying
-    # out the basic dataset, and using the schema generator. Currently
-    # we're not using the best Blosc settings for genotypes here.
-    default_compressor = numcodecs.Blosc(cname="zstd", clevel=7)
-
-    a = root.array(
-        "sample_id",
-        data=bed.iid,
-        shape=bed.iid.shape,
-        dtype="str",
-        compressor=default_compressor,
-        chunks=(samples_chunk_size,),
+    plink_format = PlinkFormat(bed_path)
+    schema_instance = plink_format.generate_schema(
+        variants_chunk_size=variants_chunk_size,
+        samples_chunk_size=samples_chunk_size,
     )
-    a.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
-    logger.debug("Encoded samples")
-
-    # TODO encode these in slices - but read them in one go to avoid
-    # fetching repeatedly from bim file
-    a = root.array(
-        "variant_position",
-        data=bed.bp_position,
-        shape=bed.bp_position.shape,
-        dtype=np.int32,
-        compressor=default_compressor,
-        chunks=(variants_chunk_size,),
+    zarr_path = pathlib.Path(zarr_path)
+    vzw = vcz.VcfZarrWriter(PlinkFormat, zarr_path)
+    # Rough heuristic to split work up enough to keep utilisation high
+    target_num_partitions = max(1, worker_processes * 4)
+    vzw.init(
+        plink_format,
+        target_num_partitions=target_num_partitions,
+        schema=schema_instance,
     )
-    a.attrs["_ARRAY_DIMENSIONS"] = ["variants"]
-    logger.debug("encoded variant_position")
-
-    alleles = np.stack([bed.allele_1, bed.allele_2], axis=1)
-    a = root.array(
-        "variant_allele",
-        data=alleles,
-        shape=alleles.shape,
-        dtype="str",
-        compressor=default_compressor,
-        chunks=(variants_chunk_size, alleles.shape[1]),
+    vzw.encode_all_partitions(
+        worker_processes=worker_processes,
+        show_progress=show_progress,
     )
-    a.attrs["_ARRAY_DIMENSIONS"] = ["variants", "alleles"]
-    logger.debug("encoded variant_allele")
+    vzw.finalise(show_progress)
 
-    # TODO remove this?
-    a = root.empty(
-        name="call_genotype_phased",
-        dtype="bool",
-        shape=list(shape),
-        chunks=list(chunks),
-        compressor=default_compressor,
-        **ZARR_FORMAT_KWARGS,
-    )
-    a.attrs["_ARRAY_DIMENSIONS"] = list(dimensions)
-
-    shape += [ploidy]
-    dimensions += ["ploidy"]
-    a = root.empty(
-        name="call_genotype",
-        dtype="i1",
-        shape=list(shape),
-        chunks=list(chunks),
-        compressor=default_compressor,
-        **ZARR_FORMAT_KWARGS,
-    )
-    a.attrs["_ARRAY_DIMENSIONS"] = list(dimensions)
-
-    a = root.empty(
-        name="call_genotype_mask",
-        dtype="bool",
-        shape=list(shape),
-        chunks=list(chunks),
-        compressor=default_compressor,
-        **ZARR_FORMAT_KWARGS,
-    )
-    a.attrs["_ARRAY_DIMENSIONS"] = list(dimensions)
-
-    del bed
-
-    num_slices = max(1, worker_processes * 4)
-    slices = core.chunk_aligned_slices(a, num_slices)
-
-    total_chunks = sum(a.nchunks for _, a in root.arrays())
-
-    progress_config = core.ProgressConfig(
-        total=total_chunks, title="Convert", units="chunks", show=show_progress
-    )
-    with core.ParallelWorkManager(worker_processes, progress_config) as pwm:
-        for start, stop in slices:
-            pwm.submit(encode_genotypes_slice, bed_path, zarr_path, start, stop)
-
-    # TODO also add atomic swap like VCF. Should be abstracted to
-    # share basic code for setting up the variation dataset zarr
-    zarr.consolidate_metadata(zarr_path)
+    # TODO - index code needs variant_contig
+    # vzw.create_index()
 
 
 # FIXME do this more efficiently - currently reading the whole thing

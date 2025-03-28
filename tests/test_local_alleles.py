@@ -2,7 +2,7 @@ import numpy as np
 import numpy.testing as nt
 import pytest
 
-from bio2zarr.vcf2zarr import vcz
+from bio2zarr import vcz
 
 
 class TestComputeLA:

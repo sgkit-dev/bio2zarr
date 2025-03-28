@@ -66,7 +66,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["bio2zarr", "bio2zarr.vcf2zarr"]
+packages = ["bio2zarr"]
 
 [tool.setuptools_scm]
 version_file = "bio2zarr/_version.py"
@@ -84,9 +84,9 @@ line-length = 88
 indent-width = 4
 
 [tool.ruff.lint]
-select = ["E", "F", "B", "W", "I", "N", "UP", "A", "RUF", "PT"]
+select = ["E", "F", "B", "W", "I", "N", "UP", "A", "PT"]
 #Allow uppercase names for e.g. call_AD
-ignore = ["N806", "N802", "A001", "A002"]
+ignore = ["N806", "N802", "A001", "A002", "RUF"]
 
 fixable = ["ALL"]
 unfixable = []
