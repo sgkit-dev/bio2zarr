@@ -396,7 +396,7 @@ class VcfIndexType(Enum):
     TABIX = ".tbi"
 
 
-class IndexedVcf(contextlib.AbstractContextManager):
+class VcfFile(contextlib.AbstractContextManager):
     def __init__(self, vcf_path, index_path=None):
         self.vcf = None
         self.file_type = None
@@ -471,7 +471,7 @@ class IndexedVcf(contextlib.AbstractContextManager):
 
     def contig_record_counts(self):
         if self.index is None:
-            return {self.sequence_names[0]: np.inf}
+            return {self.sequence_names[0]: RECORD_COUNT_UNKNOWN}
         d = dict(zip(self.sequence_names, self.index.record_counts))
         if self.file_type == VcfFileType.BCF:
             d = {k: v for k, v in d.items() if v > 0}

@@ -228,8 +228,8 @@ def fixed_vcf_field_definitions():
 
 
 def scan_vcf(path, target_num_partitions):
-    with vcf_utils.IndexedVcf(path) as indexed_vcf:
-        vcf = indexed_vcf.vcf
+    with vcf_utils.VcfFile(path) as vcf_file:
+        vcf = vcf_file.vcf
         filters = []
         pass_index = -1
         for h in vcf.header_iter():
@@ -270,10 +270,10 @@ def scan_vcf(path, target_num_partitions):
             filters=filters,
             fields=fields,
             partitions=[],
-            num_records=sum(indexed_vcf.contig_record_counts().values()),
+            num_records=sum(vcf_file.contig_record_counts().values()),
         )
 
-        regions = indexed_vcf.partition_into_regions(num_parts=target_num_partitions)
+        regions = vcf_file.partition_into_regions(num_parts=target_num_partitions)
         for region in regions:
             metadata.partitions.append(
                 VcfPartition(
@@ -1093,9 +1093,9 @@ class IntermediateColumnarFormatWriter:
             self.path,
             partition_index,
         ) as tcw:
-            with vcf_utils.IndexedVcf(partition.vcf_path) as ivcf:
+            with vcf_utils.VcfFile(partition.vcf_path) as vcf:
                 num_records = 0
-                for variant in ivcf.variants(partition.region):
+                for variant in vcf.variants(partition.region):
                     num_records += 1
                     last_position = variant.POS
                     tcw.append("CHROM", variant.CHROM)
