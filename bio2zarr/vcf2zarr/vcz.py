@@ -251,7 +251,7 @@ def mkschema(
 
 
 def encode(
-    if_path,
+    icf_path,
     zarr_path,
     schema_path=None,
     variants_chunk_size=None,
@@ -266,7 +266,7 @@ def encode(
     # Rough heuristic to split work up enough to keep utilisation high
     target_num_partitions = max(1, worker_processes * 4)
     encode_init(
-        if_path,
+        icf_path,
         zarr_path,
         target_num_partitions,
         schema_path=schema_path,
