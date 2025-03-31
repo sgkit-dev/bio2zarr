@@ -1,4 +1,4 @@
-# 0.1.5 2025-03-xx
+# 0.1.5 2025-03-31
 
 - Add support for merging contig IDs across multiple VCFs (#335)
 
