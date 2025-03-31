@@ -14,24 +14,24 @@ def assert_part_counts_non_zero(part_counts, index_file):
     assert np.all(part_counts > 0)
 
 
-class TestIndexedVcf:
+class TestVcfFile:
     def get_instance(self, index_file):
         vcf_path = data_path / (".".join(list(index_file.split("."))[:-1]))
-        return vcf_utils.IndexedVcf(vcf_path, data_path / index_file)
+        return vcf_utils.VcfFile(vcf_path, data_path / index_file)
 
     def test_context_manager_success(self):
         # Nominal case
-        with vcf_utils.IndexedVcf(data_path / "sample.bcf") as iv:
+        with vcf_utils.VcfFile(data_path / "sample.bcf") as iv:
             assert iv.vcf is not None
         assert iv.vcf is None
 
     def test_context_manager_error(self):
         with pytest.raises(FileNotFoundError, match="no-such-file"):
-            with vcf_utils.IndexedVcf(data_path / "no-such-file.bcf"):
+            with vcf_utils.VcfFile(data_path / "no-such-file.bcf"):
                 pass
 
     def test_indels_filtered(self):
-        with vcf_utils.IndexedVcf(data_path / "chr_m_indels.vcf.gz") as vfile:
+        with vcf_utils.VcfFile(data_path / "chr_m_indels.vcf.gz") as vfile:
             # Hand-picked example that results in filtering
             region = vcf_utils.Region("chrM", 300, 314)
             pos = [var.POS for var in vfile.variants(region)]
@@ -173,7 +173,7 @@ class TestIndexedVcf:
     ):
         copy_path = tmp_path / vcf_file
         shutil.copyfile(data_path / vcf_file, copy_path)
-        indexed_vcf = vcf_utils.IndexedVcf(copy_path)
+        indexed_vcf = vcf_utils.VcfFile(copy_path)
         regions = list(indexed_vcf.partition_into_regions(num_parts=num_parts))
         assert len(regions) == 1
         part_variant_counts = np.array(
@@ -238,12 +238,12 @@ class TestIndexedVcf:
     @pytest.mark.parametrize("path", ["y", data_path / "xxx", "/x/y.csi"])
     def test_missing_index_file(self, path):
         with pytest.raises(FileNotFoundError, match="Specified index path"):
-            vcf_utils.IndexedVcf(data_path / "sample.vcf.gz", path)
+            vcf_utils.VcfFile(data_path / "sample.vcf.gz", path)
 
     def test_bad_index_format(self):
         vcf_file = data_path / "sample.vcf.gz"
         with pytest.raises(ValueError, match="Only .tbi or .csi indexes"):
-            vcf_utils.IndexedVcf(vcf_file, vcf_file)
+            vcf_utils.VcfFile(vcf_file, vcf_file)
 
     @pytest.mark.parametrize(
         "filename",
@@ -256,11 +256,11 @@ class TestIndexedVcf:
         ],
     )
     def test_unindexed_single_contig(self, tmp_path, filename):
-        f1 = vcf_utils.IndexedVcf(data_path / filename)
+        f1 = vcf_utils.VcfFile(data_path / filename)
         assert f1.index is not None
         copy_path = tmp_path / filename
         shutil.copyfile(data_path / filename, copy_path)
-        f2 = vcf_utils.IndexedVcf(copy_path)
+        f2 = vcf_utils.VcfFile(copy_path)
         assert f2.index is None
         crc1 = f1.contig_record_counts()
         assert len(crc1) == 1
@@ -280,7 +280,7 @@ class TestIndexedVcf:
     def test_unindexed_multi_contig(self, tmp_path, filename):
         copy_path = tmp_path / filename
         shutil.copyfile(data_path / filename, copy_path)
-        f = vcf_utils.IndexedVcf(copy_path)
+        f = vcf_utils.VcfFile(copy_path)
         with pytest.raises(ValueError, match="Multi-contig VCFs must be indexed"):
             list(f.variants())
 

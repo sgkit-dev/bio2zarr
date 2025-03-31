@@ -624,8 +624,8 @@ def vcfpartition(vcfs, verbose, num_partitions, partition_size):
         num_parts_per_path = max(1, num_partitions // len(vcfs))
 
     for vcf_path in vcfs:
-        indexed_vcf = vcf_utils.IndexedVcf(vcf_path)
-        regions = indexed_vcf.partition_into_regions(
+        vcf_file = vcf_utils.VcfFile(vcf_path)
+        regions = vcf_file.partition_into_regions(
             num_parts=num_parts_per_path, target_part_size=partition_size
         )
         for region in regions:
