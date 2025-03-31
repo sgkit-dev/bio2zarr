@@ -9,14 +9,12 @@ import numcodecs
 import numpy as np
 import zarr
 
-from bio2zarr import constants, core, provenance, schema, zarr_utils
+from bio2zarr import constants, core, plink, provenance, schema, zarr_utils
 from bio2zarr.vcf2zarr import icf
 
 logger = logging.getLogger(__name__)
 
-SOURCES = {
-    "icf": icf.IntermediateColumnarFormat,
-}
+SOURCES = {"icf": icf.IntermediateColumnarFormat, "plink": plink.PlinkFormat}
 
 
 def compute_la_field(genotypes):
@@ -260,7 +258,7 @@ class VcfZarrWriter:
         )
 
     def encode_samples(self, root):
-        if self.schema.samples != self.source.metadata.samples:
+        if [s.id for s in self.schema.samples] != self.source.samples:
             raise ValueError("Subsetting or reordering samples not supported currently")
         array = root.array(
             "sample_id",
@@ -369,9 +367,13 @@ class VcfZarrWriter:
         partition_path.mkdir(exist_ok=True)
         logger.info(f"Encoding partition {partition_index} to {partition_path}")
 
-        self.encode_id_partition(partition_index)
-        self.encode_filters_partition(partition_index)
-        self.encode_contig_partition(partition_index)
+        all_field_names = [field.name for field in self.schema.fields]
+        if "variant_id" in all_field_names:
+            self.encode_id_partition(partition_index)
+        if "variant_filter" in all_field_names:
+            self.encode_filters_partition(partition_index)
+        if "variant_contig" in all_field_names:
+            self.encode_contig_partition(partition_index)
         self.encode_alleles_partition(partition_index)
         for array_spec in self.schema.fields:
             if array_spec.vcf_field is not None:
@@ -417,32 +419,24 @@ class VcfZarrWriter:
     def encode_array_partition(self, array_spec, partition_index):
         partition = self.metadata.partitions[partition_index]
         ba = self.init_partition_array(partition_index, array_spec.name)
-        source_field = self.source.fields[array_spec.vcf_field]
-        sanitiser = source_field.sanitiser_factory(ba.buff.shape)
-
-        for value in source_field.iter_values(partition.start, partition.stop):
-            # We write directly into the buffer in the sanitiser function
-            # to make it easier to reason about dimension padding
-            j = ba.next_buffer_row()
-            sanitiser(ba.buff, j, value)
+        self.source.write_other_field_to_buffered_array(
+            ba,
+            array_spec.vcf_field,
+            partition.start,
+            partition.stop,
+        )
         self.finalise_partition_array(partition_index, ba)
 
     def encode_genotypes_partition(self, partition_index):
         partition = self.metadata.partitions[partition_index]
         gt = self.init_partition_array(partition_index, "call_genotype")
         gt_phased = self.init_partition_array(partition_index, "call_genotype_phased")
-
-        source_field = self.source.fields["FORMAT/GT"]
-        for value in source_field.iter_values(partition.start, partition.stop):
-            j = gt.next_buffer_row()
-            zarr_utils.sanitise_value_int_2d(
-                gt.buff, j, value[:, :-1] if value is not None else None
-            )
-            j = gt_phased.next_buffer_row()
-            zarr_utils.sanitise_value_int_1d(
-                gt_phased.buff, j, value[:, -1] if value is not None else None
-            )
-
+        self.source.write_genotypes_to_buffered_array(
+            gt,
+            gt_phased,
+            partition.start,
+            partition.stop,
+        )
         self.finalise_partition_array(partition_index, gt)
         self.finalise_partition_array(partition_index, gt_phased)
 
@@ -509,17 +503,11 @@ class VcfZarrWriter:
     def encode_alleles_partition(self, partition_index):
         alleles = self.init_partition_array(partition_index, "variant_allele")
         partition = self.metadata.partitions[partition_index]
-        ref_field = self.source.fields["REF"]
-        alt_field = self.source.fields["ALT"]
 
-        for ref, alt in zip(
-            ref_field.iter_values(partition.start, partition.stop),
-            alt_field.iter_values(partition.start, partition.stop),
-        ):
-            j = alleles.next_buffer_row()
-            alleles.buff[j, :] = constants.STR_FILL
-            alleles.buff[j, 0] = ref[0]
-            alleles.buff[j, 1 : 1 + len(alt)] = alt
+        self.source.write_alleles_to_buffered_array(
+            alleles, partition.start, partition.stop
+        )
+
         self.finalise_partition_array(partition_index, alleles)
 
     def encode_id_partition(self, partition_index):

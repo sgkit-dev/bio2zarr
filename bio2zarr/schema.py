@@ -6,7 +6,6 @@ import numcodecs
 import numpy as np
 
 from bio2zarr import core
-from bio2zarr.vcf2zarr import icf
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +158,23 @@ class ZarrArraySpec:
 
 
 @dataclasses.dataclass
+class Contig:
+    id: str
+    length: int = None
+
+
+@dataclasses.dataclass
+class Sample:
+    id: str
+
+
+@dataclasses.dataclass
+class Filter:
+    id: str
+    description: str = ""
+
+
+@dataclasses.dataclass
 class VcfZarrSchema(core.JsonDataclass):
     format_version: str
     samples_chunk_size: int
@@ -197,9 +213,9 @@ class VcfZarrSchema(core.JsonDataclass):
                 f"{d['format_version']} != {ZARR_SCHEMA_FORMAT_VERSION}"
             )
         ret = VcfZarrSchema(**d)
-        ret.samples = [icf.Sample(**sd) for sd in d["samples"]]
-        ret.contigs = [icf.Contig(**sd) for sd in d["contigs"]]
-        ret.filters = [icf.Filter(**sd) for sd in d["filters"]]
+        ret.samples = [Sample(**sd) for sd in d["samples"]]
+        ret.contigs = [Contig(**sd) for sd in d["contigs"]]
+        ret.filters = [Filter(**sd) for sd in d["filters"]]
         ret.fields = [ZarrArraySpec(**sd) for sd in d["fields"]]
         return ret
 

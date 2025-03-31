@@ -39,7 +39,6 @@ def schema_path(icf_path, tmp_path_factory):
 def schema(schema_path):
     with open(schema_path) as f:
         a = schema_mod.VcfZarrSchema.fromjson(f.read())
-        print(a.asjson())
         return a
 
 

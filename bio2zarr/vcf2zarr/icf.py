@@ -13,7 +13,7 @@ from typing import Any
 import numcodecs
 import numpy as np
 
-from bio2zarr import zarr_utils
+from bio2zarr import schema, zarr_utils
 
 from .. import constants, core, provenance, vcf_utils
 
@@ -119,23 +119,6 @@ ICF_DEFAULT_COMPRESSOR = numcodecs.Blosc(
 
 
 @dataclasses.dataclass
-class Contig:
-    id: str
-    length: int = None
-
-
-@dataclasses.dataclass
-class Sample:
-    id: str
-
-
-@dataclasses.dataclass
-class Filter:
-    id: str
-    description: str = ""
-
-
-@dataclasses.dataclass
 class IcfMetadata(core.JsonDataclass):
     samples: list
     contigs: list
@@ -189,9 +172,9 @@ class IcfMetadata(core.JsonDataclass):
         d = d.copy()
         d["partitions"] = partitions
         d["fields"] = [VcfField.fromdict(fd) for fd in d["fields"]]
-        d["samples"] = [Sample(**sd) for sd in d["samples"]]
-        d["filters"] = [Filter(**fd) for fd in d["filters"]]
-        d["contigs"] = [Contig(**cd) for cd in d["contigs"]]
+        d["samples"] = [schema.Sample(**sd) for sd in d["samples"]]
+        d["filters"] = [schema.Filter(**fd) for fd in d["filters"]]
+        d["contigs"] = [schema.Contig(**cd) for cd in d["contigs"]]
         return IcfMetadata(**d)
 
     def __eq__(self, other):
@@ -242,7 +225,7 @@ def scan_vcf(path, target_num_partitions):
                     description = ""
                 if h["ID"] == "PASS":
                     pass_index = len(filters)
-                filters.append(Filter(h["ID"], description))
+                filters.append(schema.Filter(h["ID"], description))
 
         # Ensure PASS is the first filter if present
         if pass_index > 0:
@@ -264,9 +247,9 @@ def scan_vcf(path, target_num_partitions):
             contig_lengths = [None for _ in vcf.seqnames]
 
         metadata = IcfMetadata(
-            samples=[Sample(sample_id) for sample_id in vcf.samples],
+            samples=[schema.Sample(sample_id) for sample_id in vcf.samples],
             contigs=[
-                Contig(contig_id, length)
+                schema.Contig(contig_id, length)
                 for contig_id, length in zip(vcf.seqnames, contig_lengths)
             ],
             filters=filters,
@@ -790,6 +773,10 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
         return len(self.metadata.partitions)
 
     @property
+    def samples(self):
+        return [sample.id for sample in self.metadata.samples]
+
+    @property
     def num_samples(self):
         return len(self.metadata.samples)
 
@@ -802,6 +789,41 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
         return {
             "vcf_header": self.vcf_header,
         }
+
+    def write_alleles_to_buffered_array(self, ba, start, stop):
+        ref_field = self.fields["REF"]
+        alt_field = self.fields["ALT"]
+
+        for ref, alt in zip(
+            ref_field.iter_values(start, stop),
+            alt_field.iter_values(start, stop),
+        ):
+            j = ba.next_buffer_row()
+            ba.buff[j, :] = constants.STR_FILL
+            ba.buff[j, 0] = ref[0]
+            ba.buff[j, 1 : 1 + len(alt)] = alt
+
+    def write_other_field_to_buffered_array(self, ba, field_name, start, stop):
+        source_field = self.fields[field_name]
+        sanitiser = source_field.sanitiser_factory(ba.buff.shape)
+
+        for value in source_field.iter_values(start, stop):
+            # We write directly into the buffer in the sanitiser function
+            # to make it easier to reason about dimension padding
+            j = ba.next_buffer_row()
+            sanitiser(ba.buff, j, value)
+
+    def write_genotypes_to_buffered_array(self, gt, gt_phased, start, stop):
+        source_field = self.fields["FORMAT/GT"]
+        for value in source_field.iter_values(start, stop):
+            j = gt.next_buffer_row()
+            zarr_utils.sanitise_value_int_2d(
+                gt.buff, j, value[:, :-1] if value is not None else None
+            )
+            j = gt_phased.next_buffer_row()
+            zarr_utils.sanitise_value_int_1d(
+                gt_phased.buff, j, value[:, -1] if value is not None else None
+            )
 
 
 @dataclasses.dataclass
