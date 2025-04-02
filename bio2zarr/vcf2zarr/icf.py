@@ -16,8 +16,126 @@ import numpy as np
 from bio2zarr import schema, zarr_utils
 
 from .. import constants, core, provenance, vcf_utils
+from functools import partial
 
 logger = logging.getLogger(__name__)
+
+def sanitise_value_bool(shape, value):
+    x = True
+    if value is None:
+        x = False
+    return x
+
+
+def sanitise_value_float_scalar(shape, value):
+    x = value
+    if value is None:
+        x = [constants.FLOAT32_MISSING]
+    return x[0]
+
+
+def sanitise_value_int_scalar(shape, value):
+    x = value
+    if value is None:
+        x = [constants.INT_MISSING]
+    else:
+        x = sanitise_int_array(value, ndmin=1, dtype=np.int32)
+    return x[0]
+
+
+def sanitise_value_string_scalar(shape, value):
+    if value is None:
+        return "."
+    else:
+        return value[0]
+
+
+def sanitise_value_string_1d(shape, value):
+    if value is None:
+        return np.full(shape, ".", dtype='O')
+    else:
+        value = drop_empty_second_dim(value)
+        result = np.full(shape, "", dtype=value.dtype)
+        result[:value.shape[0]] = value
+        return result
+
+
+def sanitise_value_string_2d(shape, value):
+    if value is None:
+        return np.full(shape, ".", dtype='O')
+    else:
+        result = np.full(shape, "", dtype='O')
+        if value.ndim == 2:
+            result[:value.shape[0], :value.shape[1]] = value
+        else:
+            # Convert 1D array into 2D with appropriate shape
+            for k, val in enumerate(value):
+                result[k, :len(val)] = val
+        return result
+
+
+def drop_empty_second_dim(value):
+    assert len(value.shape) == 1 or value.shape[1] == 1
+    if len(value.shape) == 2 and value.shape[1] == 1:
+        value = value[..., 0]
+    return value
+
+def sanitise_value_float_1d(shape, value):
+    if value is None:
+        return np.full(shape, constants.FLOAT32_MISSING)
+    else:
+        value = np.array(value, ndmin=1, dtype=np.float32, copy=True)
+        # numpy will map None values to Nan, but we need a
+        # specific NaN
+        value[np.isnan(value)] = constants.FLOAT32_MISSING
+        value = drop_empty_second_dim(value)
+        result = np.full(shape, constants.FLOAT32_FILL, dtype=np.float32)
+        result[:value.shape[0]] = value
+        print(result)
+        return result
+
+def sanitise_value_float_2d(shape, value):
+    if value is None:
+        return np.full(shape, constants.FLOAT32_MISSING)
+    else:
+        value = np.array(value, ndmin=2, dtype=np.float32, copy=True)
+        result = np.full(shape, constants.FLOAT32_FILL, dtype=np.float32)
+        result[:, :value.shape[1]] = value
+        print(result)
+        return result
+
+
+def sanitise_int_array(value, ndmin, dtype):
+    if isinstance(value, tuple):
+        value = [
+            constants.VCF_INT_MISSING if x is None else x for x in value
+        ]  # NEEDS TEST
+    value = np.array(value, ndmin=ndmin, copy=True)
+    value[value == constants.VCF_INT_MISSING] = -1
+    value[value == constants.VCF_INT_FILL] = -2
+    # TODO watch out for clipping here!
+    return value.astype(dtype)
+
+
+def sanitise_value_int_1d(shape, value):
+    if value is None:
+        return np.full(shape, -1)
+    else:
+        value = sanitise_int_array(value, 1, np.int32)
+        value = drop_empty_second_dim(value)
+        result = np.full(shape, -2, dtype=np.int32)
+        result[:value.shape[0]] = value
+        return result
+
+
+def sanitise_value_int_2d(shape, value):
+    if value is None:
+        return np.full(shape, -1)
+    else:
+        value = sanitise_int_array(value, 2, np.int32)
+        result = np.full(shape, -2, dtype=np.int32)
+        result[:, :value.shape[1]] = value
+        return result
 
 
 @dataclasses.dataclass
@@ -572,35 +690,41 @@ class IntermediateColumnarFormatField:
 
     def sanitiser_factory(self, shape):
         """
-        Return a function that sanitised values from this column
-        and writes into a buffer of the specified shape.
+        Return a function that sanitises values from this column
+        and returns a properly formatted array with the specified shape.
+        
+        Args:
+            shape: The shape of the target buffer, used to determine how to format the output
+            
+        Returns:
+            A function that takes a value and returns a sanitised version
         """
-        assert len(shape) <= 3
+        assert len(shape) <= 2
         if self.vcf_field.vcf_type == "Flag":
-            assert len(shape) == 1
-            return zarr_utils.sanitise_value_bool
+            assert len(shape) == 0
+            return partial(sanitise_value_bool, shape)
         elif self.vcf_field.vcf_type == "Float":
-            if len(shape) == 1:
-                return zarr_utils.sanitise_value_float_scalar
-            elif len(shape) == 2:
-                return zarr_utils.sanitise_value_float_1d
+            if len(shape) == 0:
+                return partial(sanitise_value_float_scalar, shape)
+            elif len(shape) == 1:
+                return partial(sanitise_value_float_1d, shape)
             else:
-                return zarr_utils.sanitise_value_float_2d
+                return partial(sanitise_value_float_2d, shape)
         elif self.vcf_field.vcf_type == "Integer":
-            if len(shape) == 1:
-                return zarr_utils.sanitise_value_int_scalar
-            elif len(shape) == 2:
-                return zarr_utils.sanitise_value_int_1d
+            if len(shape) == 0:
+                return partial(sanitise_value_int_scalar, shape)
+            elif len(shape) == 1:
+                return partial(sanitise_value_int_1d, shape)
             else:
-                return zarr_utils.sanitise_value_int_2d
+                return partial(sanitise_value_int_2d, shape)
         else:
             assert self.vcf_field.vcf_type in ("String", "Character")
-            if len(shape) == 1:
-                return zarr_utils.sanitise_value_string_scalar
-            elif len(shape) == 2:
-                return zarr_utils.sanitise_value_string_1d
+            if len(shape) == 0:
+                return partial(sanitise_value_string_scalar, shape)
+            elif len(shape) == 1:
+                return partial(sanitise_value_string_1d, shape)
             else:
-                return zarr_utils.sanitise_value_string_2d
+                return partial(sanitise_value_string_2d, shape)
 
 
 @dataclasses.dataclass
@@ -790,7 +914,7 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
             "vcf_header": self.vcf_header,
         }
 
-    def write_alleles_to_buffered_array(self, ba, start, stop):
+    def iter_alleles(self, start, stop, num_alleles):
         ref_field = self.fields["REF"]
         alt_field = self.fields["ALT"]
 
@@ -798,32 +922,25 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
             ref_field.iter_values(start, stop),
             alt_field.iter_values(start, stop),
         ):
-            j = ba.next_buffer_row()
-            ba.buff[j, :] = constants.STR_FILL
-            ba.buff[j, 0] = ref[0]
-            ba.buff[j, 1 : 1 + len(alt)] = alt
+            alleles = np.full(num_alleles, constants.STR_FILL, dtype="O")
+            alleles[0] = ref[0]
+            alleles[1 : 1 + len(alt)] = alt
+            yield alleles
 
-    def write_other_field_to_buffered_array(self, ba, field_name, start, stop):
+    def iter_field(self, field_name, shape, start, stop):
         source_field = self.fields[field_name]
-        sanitiser = source_field.sanitiser_factory(ba.buff.shape)
-
+        sanitiser = source_field.sanitiser_factory(shape)
         for value in source_field.iter_values(start, stop):
-            # We write directly into the buffer in the sanitiser function
-            # to make it easier to reason about dimension padding
-            j = ba.next_buffer_row()
-            sanitiser(ba.buff, j, value)
+            yield sanitiser(value)
 
-    def write_genotypes_to_buffered_array(self, gt, gt_phased, start, stop):
+    def iter_genotypes(self, shape, start, stop):
         source_field = self.fields["FORMAT/GT"]
         for value in source_field.iter_values(start, stop):
-            j = gt.next_buffer_row()
-            zarr_utils.sanitise_value_int_2d(
-                gt.buff, j, value[:, :-1] if value is not None else None
-            )
-            j = gt_phased.next_buffer_row()
-            zarr_utils.sanitise_value_int_1d(
-                gt_phased.buff, j, value[:, -1] if value is not None else None
-            )
+            genotypes = value[:, :-1] if value is not None else None
+            phased = value[:, -1] if value is not None else None
+            sanitised_genotypes = sanitise_value_int_2d(shape, genotypes)
+            sanitised_phased = sanitise_value_int_1d(shape[:-1], phased)
+            yield sanitised_genotypes, sanitised_phased
 
 
 @dataclasses.dataclass

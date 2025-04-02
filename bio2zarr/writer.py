@@ -87,10 +87,10 @@ class LocalisableFieldDescriptor:
 
 localisable_fields = [
     LocalisableFieldDescriptor(
-        "call_LAD", "FORMAT/AD", zarr_utils.sanitise_int_array, compute_lad_field
+        "call_LAD", "FORMAT/AD", icf.sanitise_int_array, compute_lad_field
     ),
     LocalisableFieldDescriptor(
-        "call_LPL", "FORMAT/PL", zarr_utils.sanitise_int_array, compute_lpl_field
+        "call_LPL", "FORMAT/PL", icf.sanitise_int_array, compute_lpl_field
     ),
 ]
 
@@ -419,24 +419,33 @@ class VcfZarrWriter:
     def encode_array_partition(self, array_spec, partition_index):
         partition = self.metadata.partitions[partition_index]
         ba = self.init_partition_array(partition_index, array_spec.name)
-        self.source.write_other_field_to_buffered_array(
-            ba,
+        for value in self.source.iter_field(
             array_spec.vcf_field,
+            ba.buff.shape[1:],
             partition.start,
             partition.stop,
-        )
+        ):
+            j = ba.next_buffer_row()
+            ba.buff[j] = value
+            
         self.finalise_partition_array(partition_index, ba)
 
     def encode_genotypes_partition(self, partition_index):
         partition = self.metadata.partitions[partition_index]
         gt = self.init_partition_array(partition_index, "call_genotype")
         gt_phased = self.init_partition_array(partition_index, "call_genotype_phased")
-        self.source.write_genotypes_to_buffered_array(
-            gt,
-            gt_phased,
+        
+        for genotype, phased in self.source.iter_genotypes(
+            gt.buff.shape[1:],
             partition.start,
-            partition.stop,
-        )
+            partition.stop
+        ):
+            j = gt.next_buffer_row()
+            gt.buff[j] = genotype
+            
+            j_phased = gt_phased.next_buffer_row()
+            gt_phased.buff[j_phased] = phased
+            
         self.finalise_partition_array(partition_index, gt)
         self.finalise_partition_array(partition_index, gt_phased)
 
@@ -504,9 +513,9 @@ class VcfZarrWriter:
         alleles = self.init_partition_array(partition_index, "variant_allele")
         partition = self.metadata.partitions[partition_index]
 
-        self.source.write_alleles_to_buffered_array(
-            alleles, partition.start, partition.stop
-        )
+        for value in self.source.iter_alleles(partition.start, partition.stop, alleles.array.shape[1]):
+            j = alleles.next_buffer_row()
+            alleles.buff[j] = value
 
         self.finalise_partition_array(partition_index, alleles)
 
