@@ -557,18 +557,12 @@ class VcfZarrWriter:
         self.finalise_partition_array(partition_index, var_filter)
 
     def encode_contig_partition(self, partition_index):
-        lookup = {contig.id: index for index, contig in enumerate(self.schema.contigs)}
         contig = self.init_partition_array(partition_index, "variant_contig")
         partition = self.metadata.partitions[partition_index]
-        field = self.source.fields["CHROM"]
 
-        for value in field.iter_values(partition.start, partition.stop):
+        for contig_index in self.source.iter_contig(partition.start, partition.stop):
             j = contig.next_buffer_row()
-            # Note: because we are using the indexes to define the lookups
-            # and we always have an index, it seems that we the contig lookup
-            # will always succeed. However, if anyone ever does hit a KeyError
-            # here, please do open an issue with a reproducible example!
-            contig.buff[j] = lookup[value[0]]
+            contig.buff[j] = contig_index
 
         self.finalise_partition_array(partition_index, contig)
 

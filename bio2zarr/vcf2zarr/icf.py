@@ -424,7 +424,6 @@ def sanitise_value_float_1d(shape, value):
         value = drop_empty_second_dim(value)
         result = np.full(shape, constants.FLOAT32_FILL, dtype=np.float32)
         result[: value.shape[0]] = value
-        print(result)
         return result
 
 
@@ -435,7 +434,6 @@ def sanitise_value_float_2d(shape, value):
         value = np.array(value, ndmin=2, dtype=np.float32, copy=True)
         result = np.full(shape, constants.FLOAT32_FILL, dtype=np.float32)
         result[:, : value.shape[1]] = value
-        print(result)
         return result
 
 
@@ -942,6 +940,19 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
                             f"Filter '{filter_id}' was not defined in the header."
                         ) from None
             yield filters
+
+    def iter_contig(self, start, stop):
+        source_field = self.fields["CHROM"]
+        lookup = {
+            contig.id: index for index, contig in enumerate(self.metadata.contigs)
+        }
+
+        for value in source_field.iter_values(start, stop):
+            # Note: because we are using the indexes to define the lookups
+            # and we always have an index, it seems that we the contig lookup
+            # will always succeed. However, if anyone ever does hit a KeyError
+            # here, please do open an issue with a reproducible example!
+            yield lookup[value[0]]
 
     def iter_field(self, field_name, shape, start, stop):
         source_field = self.fields[field_name]
