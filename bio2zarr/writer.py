@@ -9,12 +9,21 @@ import numcodecs
 import numpy as np
 import zarr
 
-from bio2zarr import constants, core, plink, provenance, schema, zarr_utils
-from bio2zarr.vcf2zarr import icf
+from bio2zarr import constants, core, provenance, schema, zarr_utils
 
 logger = logging.getLogger(__name__)
 
-SOURCES = {"icf": icf.IntermediateColumnarFormat, "plink": plink.PlinkFormat}
+
+def sanitise_int_array(value, ndmin, dtype):
+    if isinstance(value, tuple):
+        value = [
+            constants.VCF_INT_MISSING if x is None else x for x in value
+        ]  # NEEDS TEST
+    value = np.array(value, ndmin=ndmin, copy=True)
+    value[value == constants.VCF_INT_MISSING] = -1
+    value[value == constants.VCF_INT_FILL] = -2
+    # TODO watch out for clipping here!
+    return value.astype(dtype)
 
 
 def compute_la_field(genotypes):
@@ -87,10 +96,10 @@ class LocalisableFieldDescriptor:
 
 localisable_fields = [
     LocalisableFieldDescriptor(
-        "call_LAD", "FORMAT/AD", icf.sanitise_int_array, compute_lad_field
+        "call_LAD", "FORMAT/AD", sanitise_int_array, compute_lad_field
     ),
     LocalisableFieldDescriptor(
-        "call_LPL", "FORMAT/PL", icf.sanitise_int_array, compute_lpl_field
+        "call_LPL", "FORMAT/PL", sanitise_int_array, compute_lpl_field
     ),
 ]
 
@@ -344,8 +353,7 @@ class VcfZarrWriter:
         if self.metadata is None:
             with open(self.wip_path / "metadata.json") as f:
                 self.metadata = VcfZarrWriterMetadata.fromdict(json.load(f))
-            source_loader = SOURCES[self.source_type]
-            self.source = source_loader(self.metadata.source_path)
+            self.source = self.source_type(self.metadata.source_path)
 
     def partition_path(self, partition_index):
         return self.partitions_path / f"p{partition_index}"
