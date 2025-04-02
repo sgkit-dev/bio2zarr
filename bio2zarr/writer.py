@@ -427,25 +427,23 @@ class VcfZarrWriter:
         ):
             j = ba.next_buffer_row()
             ba.buff[j] = value
-            
+
         self.finalise_partition_array(partition_index, ba)
 
     def encode_genotypes_partition(self, partition_index):
         partition = self.metadata.partitions[partition_index]
         gt = self.init_partition_array(partition_index, "call_genotype")
         gt_phased = self.init_partition_array(partition_index, "call_genotype_phased")
-        
+
         for genotype, phased in self.source.iter_genotypes(
-            gt.buff.shape[1:],
-            partition.start,
-            partition.stop
+            gt.buff.shape[1:], partition.start, partition.stop
         ):
             j = gt.next_buffer_row()
             gt.buff[j] = genotype
-            
+
             j_phased = gt_phased.next_buffer_row()
             gt_phased.buff[j_phased] = phased
-            
+
         self.finalise_partition_array(partition_index, gt)
         self.finalise_partition_array(partition_index, gt_phased)
 
@@ -513,7 +511,9 @@ class VcfZarrWriter:
         alleles = self.init_partition_array(partition_index, "variant_allele")
         partition = self.metadata.partitions[partition_index]
 
-        for value in self.source.iter_alleles(partition.start, partition.stop, alleles.array.shape[1]):
+        for value in self.source.iter_alleles(
+            partition.start, partition.stop, alleles.array.shape[1]
+        ):
             j = alleles.next_buffer_row()
             alleles.buff[j] = value
 
