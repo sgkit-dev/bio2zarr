@@ -547,21 +547,12 @@ class VcfZarrWriter:
         self.finalise_partition_array(partition_index, vid_mask)
 
     def encode_filters_partition(self, partition_index):
-        lookup = {filt.id: index for index, filt in enumerate(self.schema.filters)}
         var_filter = self.init_partition_array(partition_index, "variant_filter")
         partition = self.metadata.partitions[partition_index]
 
-        field = self.source.fields["FILTERS"]
-        for value in field.iter_values(partition.start, partition.stop):
+        for filter_values in self.source.iter_filters(partition.start, partition.stop):
             j = var_filter.next_buffer_row()
-            var_filter.buff[j] = False
-            for f in value:
-                try:
-                    var_filter.buff[j, lookup[f]] = True
-                except KeyError:
-                    raise ValueError(
-                        f"Filter '{f}' was not defined in the header."
-                    ) from None
+            var_filter.buff[j] = filter_values
 
         self.finalise_partition_array(partition_index, var_filter)
 

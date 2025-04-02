@@ -927,6 +927,22 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
             else:
                 yield None
 
+    def iter_filters(self, start, stop):
+        source_field = self.fields["FILTERS"]
+        lookup = {filt.id: index for index, filt in enumerate(self.metadata.filters)}
+
+        for filter_values in source_field.iter_values(start, stop):
+            filters = np.zeros(len(self.metadata.filters), dtype=bool)
+            if filter_values is not None:
+                for filter_id in filter_values:
+                    try:
+                        filters[lookup[filter_id]] = True
+                    except KeyError:
+                        raise ValueError(
+                            f"Filter '{filter_id}' was not defined in the header."
+                        ) from None
+            yield filters
+
     def iter_field(self, field_name, shape, start, stop):
         source_field = self.fields[field_name]
         sanitiser = source_field.sanitiser_factory(shape)
