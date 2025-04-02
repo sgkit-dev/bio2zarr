@@ -276,7 +276,7 @@ def encode(
         max_variant_chunks=max_variant_chunks,
         dimension_separator=dimension_separator,
     )
-    vzw = writer.VcfZarrWriter("icf", zarr_path)
+    vzw = writer.VcfZarrWriter(icf.IntermediateColumnarFormat, zarr_path)
     vzw.encode_all_partitions(
         worker_processes=worker_processes,
         show_progress=show_progress,
@@ -329,12 +329,12 @@ def encode_init(
 
 
 def encode_partition(zarr_path, partition):
-    writer_instance = writer.VcfZarrWriter("icf", zarr_path)
+    writer_instance = writer.VcfZarrWriter(icf.IntermediateColumnarFormat, zarr_path)
     writer_instance.encode_partition(partition)
 
 
 def encode_finalise(zarr_path, show_progress=False):
-    writer_instance = writer.VcfZarrWriter("icf", zarr_path)
+    writer_instance = writer.VcfZarrWriter(icf.IntermediateColumnarFormat, zarr_path)
     writer_instance.finalise(show_progress=show_progress)
 
 
