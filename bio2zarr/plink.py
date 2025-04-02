@@ -17,7 +17,7 @@ class PlinkFormat:
         self.num_samples = len(self.samples)
         self.root_attrs = {}
 
-    def write_alleles_to_buffered_array(self, ba, start, stop):
+    def iter_alleles(self, start, stop, num_alleles):
         ref_field = self.bed.allele_1
         alt_field = self.bed.allele_2
 
@@ -26,35 +26,23 @@ class PlinkFormat:
             ref_field[start:stop],
             alt_field[start:stop],
         ):
-            j = ba.next_buffer_row()
-            ba.buff[j, :] = constants.STR_FILL
-            ba.buff[j, 0] = ref
-            ba.buff[j, 1] = alt
+            alleles = np.full(num_alleles, constants.STR_FILL, dtype="O")
+            alleles[0] = ref
+            alleles[1 : 1 + len(alt)] = alt
+            yield alleles
 
-    def write_other_field_to_buffered_array(self, ba, field_name, start, stop):
+    def iter_field(self, field_name, shape, start, stop):
         data = {
-            "POS": self.bed.bp_position,
+            "position": self.bed.bp_position,
         }[field_name]
         for value in data[start:stop]:
-            j = ba.next_buffer_row()
-            ba.buff[j] = value
+            yield value
 
-    def write_genotypes_to_buffered_array(self, gt, gt_phased, start, stop):
-        bed_chunk = self.bed.read(slice(start, stop), dtype=np.int8).T
-        # Iterate through each sample's genotypes
-        for values in bed_chunk:
-            # Write to genotype array
-            j = gt.next_buffer_row()
-            g = np.zeros_like(gt.buff[j])
-            g[values == -127] = -1  # Missing values
-            g[values == 0] = [1, 1]  # Homozygous ALT (2 in PLINK)
-            g[values == 1] = [1, 0]  # Heterozygous (1 in PLINK)
-            g[values == 2] = [0, 0]  # Homozygous REF (0 in PLINK)
-            gt.buff[j] = g
-
-            # Write to phased array (PLINK data is unphased)
-            j_phased = gt_phased.next_buffer_row()
-            gt_phased.buff[j_phased] = False
+    def iter_genotypes(self, start, stop):
+        gt_calls = self.bed.gts.values[start:stop]
+        phased = np.zeros_like(gt_calls, dtype=bool)
+        for idx in range(len(gt_calls)):
+            yield gt_calls[idx], phased[idx]
 
 
 # Import here to avoid circular import
@@ -82,7 +70,7 @@ def generate_schema(
 
     array_specs = [
         schema.ZarrArraySpec.new(
-            vcf_field="POS",
+            vcf_field="position",
             name="variant_position",
             dtype="i4",
             shape=[m],
