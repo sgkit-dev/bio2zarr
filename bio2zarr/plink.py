@@ -35,14 +35,18 @@ class PlinkFormat:
         data = {
             "position": self.bed.bp_position,
         }[field_name]
-        for value in data[start:stop]:
-            yield value
+        yield from data[start:stop]
 
-    def iter_genotypes(self, start, stop):
-        gt_calls = self.bed.gts.values[start:stop]
-        phased = np.zeros_like(gt_calls, dtype=bool)
-        for idx in range(len(gt_calls)):
-            yield gt_calls[idx], phased[idx]
+    def iter_genotypes(self, shape, start, stop):
+        bed_chunk = self.bed.read(slice(start, stop), dtype=np.int8).T
+        gt = np.zeros(shape, dtype=np.int8)
+        phased = np.zeros(shape[:-1], dtype=bool)
+        for values in bed_chunk:
+            gt[values == -127] = -1  # Missing values
+            gt[values == 0] = [1, 1]  # Homozygous ALT (2 in PLINK)
+            gt[values == 1] = [1, 0]  # Heterozygous (1 in PLINK)
+            gt[values == 2] = [0, 0]  # Homozygous REF (0 in PLINK)
+            yield gt, phased
 
 
 # Import here to avoid circular import

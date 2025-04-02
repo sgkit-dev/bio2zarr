@@ -1,7 +1,4 @@
-import numpy as np
 import zarr
-
-from bio2zarr import constants
 
 
 def zarr_v3() -> bool:

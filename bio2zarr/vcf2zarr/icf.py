@@ -8,134 +8,17 @@ import pathlib
 import pickle
 import shutil
 import sys
+from functools import partial
 from typing import Any
 
 import numcodecs
 import numpy as np
 
-from bio2zarr import schema, zarr_utils
+from bio2zarr import schema
 
 from .. import constants, core, provenance, vcf_utils
-from functools import partial
 
 logger = logging.getLogger(__name__)
-
-def sanitise_value_bool(shape, value):
-    x = True
-    if value is None:
-        x = False
-    return x
-
-
-def sanitise_value_float_scalar(shape, value):
-    x = value
-    if value is None:
-        x = [constants.FLOAT32_MISSING]
-    return x[0]
-
-
-def sanitise_value_int_scalar(shape, value):
-    x = value
-    if value is None:
-        x = [constants.INT_MISSING]
-    else:
-        x = sanitise_int_array(value, ndmin=1, dtype=np.int32)
-    return x[0]
-
-
-def sanitise_value_string_scalar(shape, value):
-    if value is None:
-        return "."
-    else:
-        return value[0]
-
-
-def sanitise_value_string_1d(shape, value):
-    if value is None:
-        return np.full(shape, ".", dtype='O')
-    else:
-        value = drop_empty_second_dim(value)
-        result = np.full(shape, "", dtype=value.dtype)
-        result[:value.shape[0]] = value
-        return result
-
-
-def sanitise_value_string_2d(shape, value):
-    if value is None:
-        return np.full(shape, ".", dtype='O')
-    else:
-        result = np.full(shape, "", dtype='O')
-        if value.ndim == 2:
-            result[:value.shape[0], :value.shape[1]] = value
-        else:
-            # Convert 1D array into 2D with appropriate shape
-            for k, val in enumerate(value):
-                result[k, :len(val)] = val
-        return result
-
-
-def drop_empty_second_dim(value):
-    assert len(value.shape) == 1 or value.shape[1] == 1
-    if len(value.shape) == 2 and value.shape[1] == 1:
-        value = value[..., 0]
-    return value
-
-def sanitise_value_float_1d(shape, value):
-    if value is None:
-        return np.full(shape, constants.FLOAT32_MISSING)
-    else:
-        value = np.array(value, ndmin=1, dtype=np.float32, copy=True)
-        # numpy will map None values to Nan, but we need a
-        # specific NaN
-        value[np.isnan(value)] = constants.FLOAT32_MISSING
-        value = drop_empty_second_dim(value)
-        result = np.full(shape, constants.FLOAT32_FILL, dtype=np.float32)
-        result[:value.shape[0]] = value
-        print(result)
-        return result
-
-def sanitise_value_float_2d(shape, value):
-    if value is None:
-        return np.full(shape, constants.FLOAT32_MISSING)
-    else:
-        value = np.array(value, ndmin=2, dtype=np.float32, copy=True)
-        result = np.full(shape, constants.FLOAT32_FILL, dtype=np.float32)
-        result[:, :value.shape[1]] = value
-        print(result)
-        return result
-
-
-def sanitise_int_array(value, ndmin, dtype):
-    if isinstance(value, tuple):
-        value = [
-            constants.VCF_INT_MISSING if x is None else x for x in value
-        ]  # NEEDS TEST
-    value = np.array(value, ndmin=ndmin, copy=True)
-    value[value == constants.VCF_INT_MISSING] = -1
-    value[value == constants.VCF_INT_FILL] = -2
-    # TODO watch out for clipping here!
-    return value.astype(dtype)
-
-
-def sanitise_value_int_1d(shape, value):
-    if value is None:
-        return np.full(shape, -1)
-    else:
-        value = sanitise_int_array(value, 1, np.int32)
-        value = drop_empty_second_dim(value)
-        result = np.full(shape, -2, dtype=np.int32)
-        result[:value.shape[0]] = value
-        return result
-
-
-def sanitise_value_int_2d(shape, value):
-    if value is None:
-        return np.full(shape, -1)
-    else:
-        value = sanitise_int_array(value, 2, np.int32)
-        result = np.full(shape, -2, dtype=np.int32)
-        result[:, :value.shape[1]] = value
-        return result
 
 
 @dataclasses.dataclass
@@ -469,6 +352,126 @@ def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
     return icf_metadata, header
 
 
+def sanitise_value_bool(shape, value):
+    x = True
+    if value is None:
+        x = False
+    return x
+
+
+def sanitise_value_float_scalar(shape, value):
+    x = value
+    if value is None:
+        x = [constants.FLOAT32_MISSING]
+    return x[0]
+
+
+def sanitise_value_int_scalar(shape, value):
+    x = value
+    if value is None:
+        x = [constants.INT_MISSING]
+    else:
+        x = sanitise_int_array(value, ndmin=1, dtype=np.int32)
+    return x[0]
+
+
+def sanitise_value_string_scalar(shape, value):
+    if value is None:
+        return "."
+    else:
+        return value[0]
+
+
+def sanitise_value_string_1d(shape, value):
+    if value is None:
+        return np.full(shape, ".", dtype="O")
+    else:
+        value = drop_empty_second_dim(value)
+        result = np.full(shape, "", dtype=value.dtype)
+        result[: value.shape[0]] = value
+        return result
+
+
+def sanitise_value_string_2d(shape, value):
+    if value is None:
+        return np.full(shape, ".", dtype="O")
+    else:
+        result = np.full(shape, "", dtype="O")
+        if value.ndim == 2:
+            result[: value.shape[0], : value.shape[1]] = value
+        else:
+            # Convert 1D array into 2D with appropriate shape
+            for k, val in enumerate(value):
+                result[k, : len(val)] = val
+        return result
+
+
+def drop_empty_second_dim(value):
+    assert len(value.shape) == 1 or value.shape[1] == 1
+    if len(value.shape) == 2 and value.shape[1] == 1:
+        value = value[..., 0]
+    return value
+
+
+def sanitise_value_float_1d(shape, value):
+    if value is None:
+        return np.full(shape, constants.FLOAT32_MISSING)
+    else:
+        value = np.array(value, ndmin=1, dtype=np.float32, copy=True)
+        # numpy will map None values to Nan, but we need a
+        # specific NaN
+        value[np.isnan(value)] = constants.FLOAT32_MISSING
+        value = drop_empty_second_dim(value)
+        result = np.full(shape, constants.FLOAT32_FILL, dtype=np.float32)
+        result[: value.shape[0]] = value
+        print(result)
+        return result
+
+
+def sanitise_value_float_2d(shape, value):
+    if value is None:
+        return np.full(shape, constants.FLOAT32_MISSING)
+    else:
+        value = np.array(value, ndmin=2, dtype=np.float32, copy=True)
+        result = np.full(shape, constants.FLOAT32_FILL, dtype=np.float32)
+        result[:, : value.shape[1]] = value
+        print(result)
+        return result
+
+
+def sanitise_int_array(value, ndmin, dtype):
+    if isinstance(value, tuple):
+        value = [
+            constants.VCF_INT_MISSING if x is None else x for x in value
+        ]  # NEEDS TEST
+    value = np.array(value, ndmin=ndmin, copy=True)
+    value[value == constants.VCF_INT_MISSING] = -1
+    value[value == constants.VCF_INT_FILL] = -2
+    # TODO watch out for clipping here!
+    return value.astype(dtype)
+
+
+def sanitise_value_int_1d(shape, value):
+    if value is None:
+        return np.full(shape, -1)
+    else:
+        value = sanitise_int_array(value, 1, np.int32)
+        value = drop_empty_second_dim(value)
+        result = np.full(shape, -2, dtype=np.int32)
+        result[: value.shape[0]] = value
+        return result
+
+
+def sanitise_value_int_2d(shape, value):
+    if value is None:
+        return np.full(shape, -1)
+    else:
+        value = sanitise_int_array(value, 2, np.int32)
+        result = np.full(shape, -2, dtype=np.int32)
+        result[:, : value.shape[1]] = value
+        return result
+
+
 missing_value_map = {
     "Integer": constants.INT_MISSING,
     "Float": constants.FLOAT32_MISSING,
@@ -689,16 +692,6 @@ class IntermediateColumnarFormatField:
         return ret
 
     def sanitiser_factory(self, shape):
-        """
-        Return a function that sanitises values from this column
-        and returns a properly formatted array with the specified shape.
-        
-        Args:
-            shape: The shape of the target buffer, used to determine how to format the output
-            
-        Returns:
-            A function that takes a value and returns a sanitised version
-        """
         assert len(shape) <= 2
         if self.vcf_field.vcf_type == "Flag":
             assert len(shape) == 0
