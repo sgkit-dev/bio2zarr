@@ -920,6 +920,13 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
             alleles[1 : 1 + len(alt)] = alt
             yield alleles
 
+    def iter_id(self, start, stop):
+        for value in self.fields["ID"].iter_values(start, stop):
+            if value is not None:
+                yield value[0]
+            else:
+                yield None
+
     def iter_field(self, field_name, shape, start, stop):
         source_field = self.fields[field_name]
         sanitiser = source_field.sanitiser_factory(shape)

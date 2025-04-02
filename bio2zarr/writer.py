@@ -531,14 +531,13 @@ class VcfZarrWriter:
         vid = self.init_partition_array(partition_index, "variant_id")
         vid_mask = self.init_partition_array(partition_index, "variant_id_mask")
         partition = self.metadata.partitions[partition_index]
-        field = self.source.fields["ID"]
 
-        for value in field.iter_values(partition.start, partition.stop):
+        for value in self.source.iter_id(partition.start, partition.stop):
             j = vid.next_buffer_row()
             k = vid_mask.next_buffer_row()
             assert j == k
             if value is not None:
-                vid.buff[j] = value[0]
+                vid.buff[j] = value
                 vid_mask.buff[j] = False
             else:
                 vid.buff[j] = constants.STR_MISSING
