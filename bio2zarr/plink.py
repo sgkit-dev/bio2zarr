@@ -82,7 +82,7 @@ def generate_schema(
         schema.ZarrArraySpec.new(
             vcf_field=None,
             name="variant_allele",
-            dtype="str",
+            dtype="O",
             shape=[m, 2],
             dimensions=["variants", "alleles"],
             chunks=[variants_chunk_size, 2],
@@ -151,13 +151,10 @@ def convert(
         PlinkFormat(bed_path),
         target_num_partitions=target_num_partitions,
         schema=schema_instance,
-        #        dimension_separator=None,
-        #       max_variant_chunks=None
     )
     vzw.encode_all_partitions(
         worker_processes=worker_processes,
         show_progress=show_progress,
-        # max_memory=None,
     )
     vzw.finalise(show_progress)
 
