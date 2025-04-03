@@ -5,7 +5,7 @@ import bed_reader
 import numpy as np
 import zarr
 
-from bio2zarr import constants, schema, writer
+from bio2zarr import constants, core, schema, writer
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +18,9 @@ class PlinkFormat:
         self.samples = [schema.Sample(id=sample) for sample in self.bed.iid]
         self.num_samples = len(self.samples)
         self.root_attrs = {}
+        self.contigs = [
+            schema.Contig(id=str(chrom)) for chrom in np.unique(self.bed.chromosome)
+        ]
 
     def iter_alleles(self, start, stop, num_alleles):
         ref_field = self.bed.allele_1
@@ -48,6 +51,11 @@ class PlinkFormat:
             gt[values == 1] = [1, 0]  # Heterozygous (1 in PLINK)
             gt[values == 2] = [0, 0]  # Homozygous REF (0 in PLINK)
             yield gt, phased
+
+    def iter_contig(self, start, stop):
+        chrom_to_contig_index = {contig.id: i for i, contig in enumerate(self.contigs)}
+        for chrom in self.bed.chromosome[start:stop]:
+            yield chrom_to_contig_index[str(chrom)]
 
 
 def generate_schema(
@@ -87,6 +95,15 @@ def generate_schema(
             dimensions=["variants", "alleles"],
             chunks=[variants_chunk_size, 2],
             description=None,
+        ),
+        schema.ZarrArraySpec.new(
+            vcf_field=None,
+            name="variant_contig",
+            dtype=core.min_int_dtype(0, len(np.unique(bed.chromosome))),
+            shape=[m],
+            dimensions=["variants"],
+            chunks=[variants_chunk_size],
+            description="Contig/chromosome index for each variant",
         ),
         schema.ZarrArraySpec.new(
             vcf_field=None,
@@ -155,8 +172,7 @@ def convert(
     )
     vzw.finalise(show_progress)
 
-    # TODO - index code needs variant_contig
-    # vzw.create_index()
+    vzw.create_index()
 
 
 # FIXME do this more efficiently - currently reading the whole thing
