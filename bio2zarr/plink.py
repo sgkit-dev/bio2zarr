@@ -15,7 +15,7 @@ class PlinkFormat:
         self.path = path
         self.bed = bed_reader.open_bed(path, num_threads=1)
         self.num_records = self.bed.sid_count
-        self.samples = list(self.bed.iid)
+        self.samples = [schema.Sample(id=sample) for sample in self.bed.iid]
         self.num_samples = len(self.samples)
         self.root_attrs = {}
 
@@ -122,9 +122,6 @@ def generate_schema(
         samples_chunk_size=samples_chunk_size,
         variants_chunk_size=variants_chunk_size,
         fields=array_specs,
-        samples=[schema.Sample(id=sample) for sample in bed.iid],
-        contigs=[],
-        filters=[],
     )
 
 

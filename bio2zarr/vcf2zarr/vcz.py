@@ -226,9 +226,6 @@ def generate_schema(
         samples_chunk_size=samples_chunk_size,
         variants_chunk_size=variants_chunk_size,
         fields=array_specs,
-        samples=icf.metadata.samples,
-        contigs=icf.metadata.contigs,
-        filters=icf.metadata.filters,
     )
 
 

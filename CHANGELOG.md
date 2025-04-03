@@ -1,6 +1,7 @@
 # 0.1.5 2025-03-xx
 
 - Add support for merging contig IDs across multiple VCFs (#342)
+- Remove explicit sample, contig and filter lists from the schema (#343)
 
 # 0.1.4 2025-03-10
 

@@ -889,7 +889,15 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
 
     @property
     def samples(self):
-        return [sample.id for sample in self.metadata.samples]
+        return self.metadata.samples
+
+    @property
+    def contigs(self):
+        return self.metadata.contigs
+
+    @property
+    def filters(self):
+        return self.metadata.filters
 
     @property
     def num_samples(self):

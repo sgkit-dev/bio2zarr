@@ -9,7 +9,7 @@ from bio2zarr import core
 
 logger = logging.getLogger(__name__)
 
-ZARR_SCHEMA_FORMAT_VERSION = "0.4"
+ZARR_SCHEMA_FORMAT_VERSION = "0.5"
 
 DEFAULT_ZARR_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7)
 
@@ -179,9 +179,6 @@ class VcfZarrSchema(core.JsonDataclass):
     format_version: str
     samples_chunk_size: int
     variants_chunk_size: int
-    samples: list
-    contigs: list
-    filters: list
     fields: list
 
     def validate(self):
@@ -213,9 +210,6 @@ class VcfZarrSchema(core.JsonDataclass):
                 f"{d['format_version']} != {ZARR_SCHEMA_FORMAT_VERSION}"
             )
         ret = VcfZarrSchema(**d)
-        ret.samples = [Sample(**sd) for sd in d["samples"]]
-        ret.contigs = [Contig(**sd) for sd in d["contigs"]]
-        ret.filters = [Filter(**sd) for sd in d["filters"]]
         ret.fields = [ZarrArraySpec(**sd) for sd in d["fields"]]
         return ret
 

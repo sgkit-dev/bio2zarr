@@ -238,9 +238,12 @@ class VcfZarrWriter:
         root.attrs.update(self.source.root_attrs)
 
         # Doing this synchronously - this is fine surely
-        self.encode_samples(root)
-        self.encode_filter_id(root)
-        self.encode_contig_id(root)
+        if hasattr(self.source, "samples"):
+            self.encode_samples(root)
+        if hasattr(self.source, "filters"):
+            self.encode_filter_id(root)
+        if hasattr(self.source, "contigs"):
+            self.encode_contigs(root)
 
         self.wip_path.mkdir()
         self.arrays_path.mkdir()
@@ -267,12 +270,11 @@ class VcfZarrWriter:
         )
 
     def encode_samples(self, root):
-        if [s.id for s in self.schema.samples] != self.source.samples:
-            raise ValueError("Subsetting or reordering samples not supported currently")
+        samples = self.source.samples
         array = root.array(
             "sample_id",
-            data=[sample.id for sample in self.schema.samples],
-            shape=len(self.schema.samples),
+            data=[sample.id for sample in samples],
+            shape=len(samples),
             dtype="str",
             compressor=schema.DEFAULT_ZARR_COMPRESSOR,
             chunks=(self.schema.samples_chunk_size,),
@@ -280,20 +282,21 @@ class VcfZarrWriter:
         array.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
         logger.debug("Samples done")
 
-    def encode_contig_id(self, root):
+    def encode_contigs(self, root):
+        contigs = self.source.contigs
         array = root.array(
             "contig_id",
-            data=[contig.id for contig in self.schema.contigs],
-            shape=len(self.schema.contigs),
+            data=[contig.id for contig in contigs],
+            shape=len(contigs),
             dtype="str",
             compressor=schema.DEFAULT_ZARR_COMPRESSOR,
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
-        if all(contig.length is not None for contig in self.schema.contigs):
+        if all(contig.length is not None for contig in contigs):
             array = root.array(
                 "contig_length",
-                data=[contig.length for contig in self.schema.contigs],
-                shape=len(self.schema.contigs),
+                data=[contig.length for contig in contigs],
+                shape=len(contigs),
                 dtype=np.int64,
                 compressor=schema.DEFAULT_ZARR_COMPRESSOR,
             )
@@ -302,10 +305,11 @@ class VcfZarrWriter:
     def encode_filter_id(self, root):
         # TODO need a way to store description also
         # https://github.com/sgkit-dev/vcf-zarr-spec/issues/19
+        filters = self.source.filters
         array = root.array(
             "filter_id",
-            data=[filt.id for filt in self.schema.filters],
-            shape=len(self.schema.filters),
+            data=[filt.id for filt in filters],
+            shape=len(filters),
             dtype="str",
             compressor=schema.DEFAULT_ZARR_COMPRESSOR,
         )
