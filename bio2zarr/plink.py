@@ -58,14 +58,19 @@ class PlinkFormat:
         m = self.bed.sid_count
         logging.info(f"Scanned plink with {n} samples and {m} variants")
 
-        # FIXME
-        if samples_chunk_size is None:
-            samples_chunk_size = 1000
-        if variants_chunk_size is None:
-            variants_chunk_size = 10_000
+        schema_instance = schema.VcfZarrSchema(
+            format_version=schema.ZARR_SCHEMA_FORMAT_VERSION,
+            samples_chunk_size=samples_chunk_size,
+            variants_chunk_size=variants_chunk_size,
+            fields=[],
+            samples=[schema.Sample(id=sample) for sample in self.bed.iid],
+            contigs=[],
+            filters=[],
+        )
 
         logger.info(
-            f"Generating schema with chunks={variants_chunk_size, samples_chunk_size}"
+            "Generating schema with chunks="
+            f"{schema_instance.variants_chunk_size, schema_instance.samples_chunk_size}"
         )
 
         array_specs = [
@@ -75,7 +80,7 @@ class PlinkFormat:
                 dtype="i4",
                 shape=[m],
                 dimensions=["variants"],
-                chunks=[variants_chunk_size],
+                chunks=[schema_instance.variants_chunk_size],
                 description=None,
             ),
             schema.ZarrArraySpec.new(
@@ -84,7 +89,7 @@ class PlinkFormat:
                 dtype="O",
                 shape=[m, 2],
                 dimensions=["variants", "alleles"],
-                chunks=[variants_chunk_size, 2],
+                chunks=[schema_instance.variants_chunk_size, 2],
                 description=None,
             ),
             schema.ZarrArraySpec.new(
@@ -93,7 +98,10 @@ class PlinkFormat:
                 dtype="bool",
                 shape=[m, n],
                 dimensions=["variants", "samples"],
-                chunks=[variants_chunk_size, samples_chunk_size],
+                chunks=[
+                    schema_instance.variants_chunk_size,
+                    schema_instance.samples_chunk_size,
+                ],
                 description=None,
             ),
             schema.ZarrArraySpec.new(
@@ -102,7 +110,11 @@ class PlinkFormat:
                 dtype="i1",
                 shape=[m, n, 2],
                 dimensions=["variants", "samples", "ploidy"],
-                chunks=[variants_chunk_size, samples_chunk_size, 2],
+                chunks=[
+                    schema_instance.variants_chunk_size,
+                    schema_instance.samples_chunk_size,
+                    2,
+                ],
                 description=None,
             ),
             schema.ZarrArraySpec.new(
@@ -111,20 +123,16 @@ class PlinkFormat:
                 dtype="bool",
                 shape=[m, n, 2],
                 dimensions=["variants", "samples", "ploidy"],
-                chunks=[variants_chunk_size, samples_chunk_size, 2],
+                chunks=[
+                    schema_instance.variants_chunk_size,
+                    schema_instance.samples_chunk_size,
+                    2,
+                ],
                 description=None,
             ),
         ]
-
-        return schema.VcfZarrSchema(
-            format_version=schema.ZARR_SCHEMA_FORMAT_VERSION,
-            samples_chunk_size=samples_chunk_size,
-            variants_chunk_size=variants_chunk_size,
-            fields=array_specs,
-            samples=[schema.Sample(id=sample) for sample in self.bed.iid],
-            contigs=[],
-            filters=[],
-        )
+        schema_instance.fields = array_specs
+        return schema_instance
 
 
 def convert(

@@ -15,9 +15,7 @@ from typing import Any
 import numcodecs
 import numpy as np
 
-from bio2zarr import schema
-
-from .. import constants, core, provenance, vcf_utils, writer
+from .. import constants, core, provenance, schema, vcf_utils, writer
 
 logger = logging.getLogger(__name__)
 
@@ -1029,19 +1027,24 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
     def generate_schema(
         self, variants_chunk_size=None, samples_chunk_size=None, local_alleles=None
     ):
-        # Import schema here to avoid circular import
-        from bio2zarr import schema
-
         m = self.num_records
         n = self.num_samples
-        if samples_chunk_size is None:
-            samples_chunk_size = 10_000
-        if variants_chunk_size is None:
-            variants_chunk_size = 1000
         if local_alleles is None:
             local_alleles = False
+
+        schema_instance = schema.VcfZarrSchema(
+            format_version=schema.ZARR_SCHEMA_FORMAT_VERSION,
+            samples_chunk_size=samples_chunk_size,
+            variants_chunk_size=variants_chunk_size,
+            fields=[],
+            samples=self.metadata.samples,
+            contigs=self.metadata.contigs,
+            filters=self.metadata.filters,
+        )
+
         logger.info(
-            f"Generating schema with chunks={variants_chunk_size, samples_chunk_size}"
+            "Generating schema with chunks="
+            f"{schema_instance.variants_chunk_size, schema_instance.samples_chunk_size}"
         )
 
         def spec_from_field(field, array_name=None):
@@ -1049,8 +1052,8 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
                 field,
                 num_samples=n,
                 num_variants=m,
-                samples_chunk_size=samples_chunk_size,
-                variants_chunk_size=variants_chunk_size,
+                samples_chunk_size=schema_instance.samples_chunk_size,
+                variants_chunk_size=schema_instance.variants_chunk_size,
                 array_name=array_name,
             )
 
@@ -1069,7 +1072,7 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
                 shape=shape,
                 description="",
                 dimensions=dimensions,
-                chunks=chunks or [variants_chunk_size],
+                chunks=chunks or [schema_instance.variants_chunk_size],
             )
 
         alt_field = self.fields["ALT"]
@@ -1085,14 +1088,14 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
                 dtype="bool",
                 shape=(m, self.metadata.num_filters),
                 dimensions=["variants", "filters"],
-                chunks=(variants_chunk_size, self.metadata.num_filters),
+                chunks=(schema_instance.variants_chunk_size, self.metadata.num_filters),
             ),
             fixed_field_spec(
                 name="variant_allele",
                 dtype="O",
                 shape=(m, max_alleles),
                 dimensions=["variants", "alleles"],
-                chunks=(variants_chunk_size, max_alleles),
+                chunks=(schema_instance.variants_chunk_size, max_alleles),
             ),
             fixed_field_spec(
                 name="variant_id",
@@ -1127,7 +1130,10 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
         if gt_field is not None and n > 0:
             ploidy = max(gt_field.summary.max_number - 1, 1)
             shape = [m, n]
-            chunks = [variants_chunk_size, samples_chunk_size]
+            chunks = [
+                schema_instance.variants_chunk_size,
+                schema_instance.samples_chunk_size,
+            ]
             dimensions = ["variants", "samples"]
             array_specs.append(
                 schema.ZarrArraySpec.new(
@@ -1169,15 +1175,8 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
         if local_alleles:
             array_specs = convert_local_allele_field_types(array_specs)
 
-        return schema.VcfZarrSchema(
-            format_version=schema.ZARR_SCHEMA_FORMAT_VERSION,
-            samples_chunk_size=samples_chunk_size,
-            variants_chunk_size=variants_chunk_size,
-            fields=array_specs,
-            samples=self.metadata.samples,
-            contigs=self.metadata.contigs,
-            filters=self.metadata.filters,
-        )
+        schema_instance.fields = array_specs
+        return schema_instance
 
 
 @dataclasses.dataclass

@@ -184,6 +184,28 @@ class VcfZarrSchema(core.JsonDataclass):
     filters: list
     fields: list
 
+    def __init__(
+        self,
+        format_version: str,
+        samples: list,
+        contigs: list,
+        filters: list,
+        fields: list,
+        variants_chunk_size: int = None,
+        samples_chunk_size: int = None,
+    ):
+        self.format_version = format_version
+        self.samples = samples
+        self.contigs = contigs
+        self.filters = filters
+        self.fields = fields
+        if variants_chunk_size is None:
+            variants_chunk_size = 1000
+        self.variants_chunk_size = variants_chunk_size
+        if samples_chunk_size is None:
+            samples_chunk_size = 10_000
+        self.samples_chunk_size = samples_chunk_size
+
     def validate(self):
         """
         Checks that the schema is well-formed and within required limits.

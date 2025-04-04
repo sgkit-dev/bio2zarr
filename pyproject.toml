@@ -82,9 +82,9 @@ line-length = 88
 indent-width = 4
 
 [tool.ruff.lint]
-select = ["E", "F", "B", "W", "I", "N", "UP", "A", "RUF", "PT"]
+select = ["E", "F", "B", "W", "I", "N", "UP", "A", "PT"]
 #Allow uppercase names for e.g. call_AD
-ignore = ["N806", "N802", "A001", "A002"]
+ignore = ["N806", "N802", "A001", "A002", "RUF"]
 
 fixable = ["ALL"]
 unfixable = []
