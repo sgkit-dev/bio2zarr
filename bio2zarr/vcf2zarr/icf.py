@@ -822,6 +822,62 @@ class IcfPartitionWriter(contextlib.AbstractContextManager):
         return False
 
 
+def convert_local_allele_field_types(fields):
+    """
+    Update the specified list of fields to include the LAA field, and to convert
+    any supported localisable fields to the L* counterpart.
+
+    Note that we currently support only two ALT alleles per sample, and so the
+    dimensions of these fields are fixed by that requirement. Later versions may
+    use summary data storted in the ICF to make different choices, if information
+    about subsequent alleles (not in the actual genotype calls) should also be
+    stored.
+    """
+    fields_by_name = {field.name: field for field in fields}
+    gt = fields_by_name["call_genotype"]
+    if gt.shape[-1] != 2:
+        raise ValueError("Local alleles only supported on diploid data")
+
+    # TODO check if LA is already in here
+
+    shape = gt.shape[:-1]
+    chunks = gt.chunks[:-1]
+    dimensions = gt.dimensions[:-1]
+
+    la = schema.ZarrArraySpec.new(
+        vcf_field=None,
+        name="call_LA",
+        dtype="i1",
+        shape=gt.shape,
+        chunks=gt.chunks,
+        dimensions=(*dimensions, "local_alleles"),
+        description=(
+            "0-based indices into REF+ALT, indicating which alleles"
+            " are relevant (local) for the current sample"
+        ),
+    )
+    ad = fields_by_name.get("call_AD", None)
+    if ad is not None:
+        # TODO check if call_LAD is in the list already
+        ad.name = "call_LAD"
+        ad.vcf_field = None
+        ad.shape = (*shape, 2)
+        ad.chunks = (*chunks, 2)
+        ad.dimensions = (*dimensions, "local_alleles")
+        ad.description += " (local-alleles)"
+
+    pl = fields_by_name.get("call_PL", None)
+    if pl is not None:
+        # TODO check if call_LPL is in the list already
+        pl.name = "call_LPL"
+        pl.vcf_field = None
+        pl.shape = (*shape, 3)
+        pl.chunks = (*chunks, 3)
+        pl.description += " (local-alleles)"
+        pl.dimensions = (*dimensions, "local_" + pl.dimensions[-1])
+    return [*fields, la]
+
+
 class IntermediateColumnarFormat(collections.abc.Mapping):
     def __init__(self, path):
         self.path = pathlib.Path(path)
@@ -1110,8 +1166,6 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
             )
 
         if local_alleles:
-            from bio2zarr.vcf2zarr.vcz import convert_local_allele_field_types
-
             array_specs = convert_local_allele_field_types(array_specs)
 
         return schema.VcfZarrSchema(
