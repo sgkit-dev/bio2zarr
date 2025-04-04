@@ -3,7 +3,7 @@ import logging
 import pathlib
 import tempfile
 
-from bio2zarr import core, schema, writer
+from bio2zarr import schema, writer
 
 from . import icf
 
@@ -80,158 +80,6 @@ def convert_local_allele_field_types(fields):
     return [*fields, la]
 
 
-def generate_schema(
-    icf, variants_chunk_size=None, samples_chunk_size=None, local_alleles=None
-):
-    # Import schema here to avoid circular import
-    from bio2zarr import schema
-
-    m = icf.num_records
-    n = icf.num_samples
-    if samples_chunk_size is None:
-        samples_chunk_size = 10_000
-    if variants_chunk_size is None:
-        variants_chunk_size = 1000
-    if local_alleles is None:
-        local_alleles = False
-    logger.info(
-        f"Generating schema with chunks={variants_chunk_size, samples_chunk_size}"
-    )
-
-    def spec_from_field(field, array_name=None):
-        return schema.ZarrArraySpec.from_field(
-            field,
-            num_samples=n,
-            num_variants=m,
-            samples_chunk_size=samples_chunk_size,
-            variants_chunk_size=variants_chunk_size,
-            array_name=array_name,
-        )
-
-    def fixed_field_spec(
-        name,
-        dtype,
-        vcf_field=None,
-        shape=(m,),
-        dimensions=("variants",),
-        chunks=None,
-    ):
-        return schema.ZarrArraySpec.new(
-            vcf_field=vcf_field,
-            name=name,
-            dtype=dtype,
-            shape=shape,
-            description="",
-            dimensions=dimensions,
-            chunks=chunks or [variants_chunk_size],
-        )
-
-    alt_field = icf.fields["ALT"]
-    max_alleles = alt_field.vcf_field.summary.max_number + 1
-
-    array_specs = [
-        fixed_field_spec(
-            name="variant_contig",
-            dtype=core.min_int_dtype(0, icf.metadata.num_contigs),
-        ),
-        fixed_field_spec(
-            name="variant_filter",
-            dtype="bool",
-            shape=(m, icf.metadata.num_filters),
-            dimensions=["variants", "filters"],
-            chunks=(variants_chunk_size, icf.metadata.num_filters),
-        ),
-        fixed_field_spec(
-            name="variant_allele",
-            dtype="O",
-            shape=(m, max_alleles),
-            dimensions=["variants", "alleles"],
-            chunks=(variants_chunk_size, max_alleles),
-        ),
-        fixed_field_spec(
-            name="variant_id",
-            dtype="O",
-        ),
-        fixed_field_spec(
-            name="variant_id_mask",
-            dtype="bool",
-        ),
-    ]
-    name_map = {field.full_name: field for field in icf.metadata.fields}
-
-    # Only three of the fixed fields have a direct one-to-one mapping.
-    array_specs.extend(
-        [
-            spec_from_field(name_map["QUAL"], array_name="variant_quality"),
-            spec_from_field(name_map["POS"], array_name="variant_position"),
-            spec_from_field(name_map["rlen"], array_name="variant_length"),
-        ]
-    )
-    array_specs.extend([spec_from_field(field) for field in icf.metadata.info_fields])
-
-    gt_field = None
-    for field in icf.metadata.format_fields:
-        if field.name == "GT":
-            gt_field = field
-            continue
-        array_specs.append(spec_from_field(field))
-
-    if gt_field is not None and n > 0:
-        ploidy = max(gt_field.summary.max_number - 1, 1)
-        shape = [m, n]
-        chunks = [variants_chunk_size, samples_chunk_size]
-        dimensions = ["variants", "samples"]
-        array_specs.append(
-            schema.ZarrArraySpec.new(
-                vcf_field=None,
-                name="call_genotype_phased",
-                dtype="bool",
-                shape=list(shape),
-                chunks=list(chunks),
-                dimensions=list(dimensions),
-                description="",
-            )
-        )
-        shape += [ploidy]
-        chunks += [ploidy]
-        dimensions += ["ploidy"]
-        array_specs.append(
-            schema.ZarrArraySpec.new(
-                vcf_field=None,
-                name="call_genotype",
-                dtype=gt_field.smallest_dtype(),
-                shape=list(shape),
-                chunks=list(chunks),
-                dimensions=list(dimensions),
-                description="",
-            )
-        )
-        array_specs.append(
-            schema.ZarrArraySpec.new(
-                vcf_field=None,
-                name="call_genotype_mask",
-                dtype="bool",
-                shape=list(shape),
-                chunks=list(chunks),
-                dimensions=list(dimensions),
-                description="",
-            )
-        )
-
-    if local_alleles:
-        array_specs = convert_local_allele_field_types(array_specs)
-
-    return schema.VcfZarrSchema(
-        format_version=schema.ZARR_SCHEMA_FORMAT_VERSION,
-        samples_chunk_size=samples_chunk_size,
-        variants_chunk_size=variants_chunk_size,
-        fields=array_specs,
-        samples=icf.metadata.samples,
-        contigs=icf.metadata.contigs,
-        filters=icf.metadata.filters,
-    )
-
-
 def mkschema(
     if_path,
     out,
@@ -241,8 +89,7 @@ def mkschema(
     local_alleles=None,
 ):
     store = icf.IntermediateColumnarFormat(if_path)
-    spec = generate_schema(
-        store,
+    spec = store.generate_schema(
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
         local_alleles=local_alleles,
@@ -303,8 +150,7 @@ def encode_init(
 ):
     icf_store = icf.IntermediateColumnarFormat(icf_path)
     if schema_path is None:
-        schema_instance = generate_schema(
-            icf_store,
+        schema_instance = icf_store.generate_schema(
             variants_chunk_size=variants_chunk_size,
             samples_chunk_size=samples_chunk_size,
             local_alleles=local_alleles,

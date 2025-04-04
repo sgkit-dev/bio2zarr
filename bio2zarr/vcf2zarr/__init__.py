@@ -11,7 +11,6 @@ from .vcz import (
     encode_finalise,
     encode_init,
     encode_partition,
-    generate_schema,
     inspect,
     mkschema,
 )
@@ -33,6 +32,5 @@ __all__ = [
     "encode_partition",
     "inspect",
     "mkschema",
-    "generate_schema",
     "verify",
 ]

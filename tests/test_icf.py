@@ -41,7 +41,7 @@ class TestSmallExample:
             vcf2zarr.mkschema(icf.path, f)
         with open(schema_file) as f:
             schema1 = schema.VcfZarrSchema.fromjson(f.read())
-        schema2 = vcf2zarr.generate_schema(icf)
+        schema2 = icf.generate_schema()
         assert schema1 == schema2
 
     def test_summary_table(self, icf):
@@ -215,7 +215,7 @@ class TestGeneratedFieldsExample:
 
     @pytest.fixture(scope="class")
     def schema(self, icf):
-        return vcf2zarr.generate_schema(icf)
+        return icf.generate_schema()
 
     @pytest.mark.parametrize(
         ("name", "dtype", "shape", "dimensions"),

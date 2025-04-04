@@ -49,83 +49,82 @@ class PlinkFormat:
             gt[values == 2] = [0, 0]  # Homozygous REF (0 in PLINK)
             yield gt, phased
 
+    def generate_schema(
+        self,
+        variants_chunk_size=None,
+        samples_chunk_size=None,
+    ):
+        n = self.bed.iid_count
+        m = self.bed.sid_count
+        logging.info(f"Scanned plink with {n} samples and {m} variants")
 
-def generate_schema(
-    bed,
-    variants_chunk_size=None,
-    samples_chunk_size=None,
-):
-    n = bed.iid_count
-    m = bed.sid_count
-    logging.info(f"Scanned plink with {n} samples and {m} variants")
+        # FIXME
+        if samples_chunk_size is None:
+            samples_chunk_size = 1000
+        if variants_chunk_size is None:
+            variants_chunk_size = 10_000
 
-    # FIXME
-    if samples_chunk_size is None:
-        samples_chunk_size = 1000
-    if variants_chunk_size is None:
-        variants_chunk_size = 10_000
+        logger.info(
+            f"Generating schema with chunks={variants_chunk_size, samples_chunk_size}"
+        )
 
-    logger.info(
-        f"Generating schema with chunks={variants_chunk_size, samples_chunk_size}"
-    )
+        array_specs = [
+            schema.ZarrArraySpec.new(
+                vcf_field="position",
+                name="variant_position",
+                dtype="i4",
+                shape=[m],
+                dimensions=["variants"],
+                chunks=[variants_chunk_size],
+                description=None,
+            ),
+            schema.ZarrArraySpec.new(
+                vcf_field=None,
+                name="variant_allele",
+                dtype="O",
+                shape=[m, 2],
+                dimensions=["variants", "alleles"],
+                chunks=[variants_chunk_size, 2],
+                description=None,
+            ),
+            schema.ZarrArraySpec.new(
+                vcf_field=None,
+                name="call_genotype_phased",
+                dtype="bool",
+                shape=[m, n],
+                dimensions=["variants", "samples"],
+                chunks=[variants_chunk_size, samples_chunk_size],
+                description=None,
+            ),
+            schema.ZarrArraySpec.new(
+                vcf_field=None,
+                name="call_genotype",
+                dtype="i1",
+                shape=[m, n, 2],
+                dimensions=["variants", "samples", "ploidy"],
+                chunks=[variants_chunk_size, samples_chunk_size, 2],
+                description=None,
+            ),
+            schema.ZarrArraySpec.new(
+                vcf_field=None,
+                name="call_genotype_mask",
+                dtype="bool",
+                shape=[m, n, 2],
+                dimensions=["variants", "samples", "ploidy"],
+                chunks=[variants_chunk_size, samples_chunk_size, 2],
+                description=None,
+            ),
+        ]
 
-    array_specs = [
-        schema.ZarrArraySpec.new(
-            vcf_field="position",
-            name="variant_position",
-            dtype="i4",
-            shape=[m],
-            dimensions=["variants"],
-            chunks=[variants_chunk_size],
-            description=None,
-        ),
-        schema.ZarrArraySpec.new(
-            vcf_field=None,
-            name="variant_allele",
-            dtype="O",
-            shape=[m, 2],
-            dimensions=["variants", "alleles"],
-            chunks=[variants_chunk_size, 2],
-            description=None,
-        ),
-        schema.ZarrArraySpec.new(
-            vcf_field=None,
-            name="call_genotype_phased",
-            dtype="bool",
-            shape=[m, n],
-            dimensions=["variants", "samples"],
-            chunks=[variants_chunk_size, samples_chunk_size],
-            description=None,
-        ),
-        schema.ZarrArraySpec.new(
-            vcf_field=None,
-            name="call_genotype",
-            dtype="i1",
-            shape=[m, n, 2],
-            dimensions=["variants", "samples", "ploidy"],
-            chunks=[variants_chunk_size, samples_chunk_size, 2],
-            description=None,
-        ),
-        schema.ZarrArraySpec.new(
-            vcf_field=None,
-            name="call_genotype_mask",
-            dtype="bool",
-            shape=[m, n, 2],
-            dimensions=["variants", "samples", "ploidy"],
-            chunks=[variants_chunk_size, samples_chunk_size, 2],
-            description=None,
-        ),
-    ]
-
-    return schema.VcfZarrSchema(
-        format_version=schema.ZARR_SCHEMA_FORMAT_VERSION,
-        samples_chunk_size=samples_chunk_size,
-        variants_chunk_size=variants_chunk_size,
-        fields=array_specs,
-        samples=[schema.Sample(id=sample) for sample in bed.iid],
-        contigs=[],
-        filters=[],
-    )
+        return schema.VcfZarrSchema(
+            format_version=schema.ZARR_SCHEMA_FORMAT_VERSION,
+            samples_chunk_size=samples_chunk_size,
+            variants_chunk_size=variants_chunk_size,
+            fields=array_specs,
+            samples=[schema.Sample(id=sample) for sample in self.bed.iid],
+            contigs=[],
+            filters=[],
+        )
 
 
 def convert(
@@ -137,9 +136,8 @@ def convert(
     worker_processes=1,
     show_progress=False,
 ):
-    bed = bed_reader.open_bed(bed_path, num_threads=1)
-    schema_instance = generate_schema(
-        bed,
+    plink_format = PlinkFormat(bed_path)
+    schema_instance = plink_format.generate_schema(
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
     )
@@ -148,7 +146,7 @@ def convert(
     # Rough heuristic to split work up enough to keep utilisation high
     target_num_partitions = max(1, worker_processes * 4)
     vzw.init(
-        PlinkFormat(bed_path),
+        plink_format,
         target_num_partitions=target_num_partitions,
         schema=schema_instance,
     )

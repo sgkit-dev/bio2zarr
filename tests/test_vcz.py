@@ -171,8 +171,7 @@ class TestSchemaChunkSize:
     )
     def test_chunk_sizes(self, icf_path, samples_chunk_size, variants_chunk_size):
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        schema = vcz_mod.generate_schema(
-            icf,
+        schema = icf.generate_schema(
             variants_chunk_size=variants_chunk_size,
             samples_chunk_size=samples_chunk_size,
         )
@@ -190,7 +189,7 @@ class TestSchemaChunkSize:
 
     def test_default_chunk_size(self, icf_path):
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        schema = vcz_mod.generate_schema(icf)
+        schema = icf.generate_schema()
         assert schema.samples_chunk_size == 10_000
         assert schema.variants_chunk_size == 1000
 
@@ -202,29 +201,29 @@ class TestSchemaJsonRoundTrip:
 
     def test_generated_no_changes(self, icf_path):
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        self.assert_json_round_trip(vcz_mod.generate_schema(icf))
+        self.assert_json_round_trip(icf.generate_schema())
 
     def test_generated_no_fields(self, icf_path):
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        schema = vcz_mod.generate_schema(icf)
+        schema = icf.generate_schema()
         schema.fields.clear()
         self.assert_json_round_trip(schema)
 
     def test_generated_no_samples(self, icf_path):
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        schema = vcz_mod.generate_schema(icf)
+        schema = icf.generate_schema()
         schema.samples.clear()
         self.assert_json_round_trip(schema)
 
     def test_generated_change_dtype(self, icf_path):
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        schema = vcz_mod.generate_schema(icf)
+        schema = icf.generate_schema()
         schema.field_map()["variant_position"].dtype = "i8"
         self.assert_json_round_trip(schema)
 
     def test_generated_change_compressor(self, icf_path):
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        schema = vcz_mod.generate_schema(icf)
+        schema = icf.generate_schema()
         schema.field_map()["variant_position"].compressor = {"cname": "FAKE"}
         self.assert_json_round_trip(schema)
 
@@ -236,7 +235,7 @@ class TestSchemaEncode:
     def test_codec(self, tmp_path, icf_path, cname, clevel, shuffle):
         zarr_path = tmp_path / "zarr"
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        schema = vcz_mod.generate_schema(icf)
+        schema = icf.generate_schema()
         for array_spec in schema.fields:
             array_spec.compressor["cname"] = cname
             array_spec.compressor["clevel"] = clevel
@@ -256,7 +255,7 @@ class TestSchemaEncode:
     def test_genotype_dtype(self, tmp_path, icf_path, dtype):
         zarr_path = tmp_path / "zarr"
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        schema = vcz_mod.generate_schema(icf)
+        schema = icf.generate_schema()
         schema.field_map()["call_genotype"].dtype = dtype
         schema_path = tmp_path / "schema"
         with open(schema_path, "w") as f:
@@ -269,7 +268,7 @@ class TestSchemaEncode:
     def test_region_index_dtype(self, tmp_path, icf_path, dtype):
         zarr_path = tmp_path / "zarr"
         icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        schema = vcz_mod.generate_schema(icf)
+        schema = icf.generate_schema()
         schema.field_map()["variant_position"].dtype = dtype
         schema_path = tmp_path / "schema"
         with open(schema_path, "w") as f:
@@ -308,9 +307,7 @@ class TestChunkNbytes:
 
     def test_chunk_size(self, icf_path, tmp_path):
         store = vcf2zarr.IntermediateColumnarFormat(icf_path)
-        schema = vcz_mod.generate_schema(
-            store, samples_chunk_size=2, variants_chunk_size=3
-        )
+        schema = store.generate_schema(samples_chunk_size=2, variants_chunk_size=3)
         fields = schema.field_map()
         assert fields["call_genotype"].chunk_nbytes == 3 * 2 * 2
         assert fields["variant_position"].chunk_nbytes == 3 * 4
