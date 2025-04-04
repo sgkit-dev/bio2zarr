@@ -109,8 +109,6 @@ class TestSmallExample:
             dtype=np.float32,
         )
         values = ds["variant_AF"].values
-        print(values)
-        print(variant_AF)
         nt.assert_array_almost_equal(values, variant_AF, 3)
         nans = np.isnan(variant_AF)
         nt.assert_array_equal(
