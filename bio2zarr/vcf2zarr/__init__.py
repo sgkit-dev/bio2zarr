@@ -1,16 +1,14 @@
 from .icf import (
     IntermediateColumnarFormat,
-    explode,
-    explode_finalise,
-    explode_init,
-    explode_partition,
-)
-from .vcz import (
     convert,
     encode,
     encode_finalise,
     encode_init,
     encode_partition,
+    explode,
+    explode_finalise,
+    explode_init,
+    explode_partition,
     inspect,
     mkschema,
 )

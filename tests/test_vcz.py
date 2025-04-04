@@ -11,7 +11,6 @@ import zarr
 from bio2zarr import core, vcf2zarr, writer
 from bio2zarr import schema as schema_mod
 from bio2zarr.vcf2zarr import icf as icf_mod
-from bio2zarr.vcf2zarr import vcz as vcz_mod
 from bio2zarr.zarr_utils import zarr_v3
 
 
@@ -722,7 +721,7 @@ class TestBadSchemaChanges:
 
 class TestInspect:
     def test_icf(self, icf_path):
-        df = pd.DataFrame(vcz_mod.inspect(icf_path))
+        df = pd.DataFrame(icf_mod.inspect(icf_path))
         assert sorted(list(df)) == sorted(
             [
                 "name",
@@ -764,7 +763,7 @@ class TestInspect:
         )
 
     def test_vcz(self, zarr_path):
-        df = pd.DataFrame(vcz_mod.inspect(zarr_path))
+        df = pd.DataFrame(icf_mod.inspect(zarr_path))
         cols = [
             "name",
             "dtype",
@@ -813,9 +812,9 @@ class TestInspect:
     @pytest.mark.parametrize("bad_path", ["/NO_WAY", "TTTTTT"])
     def test_no_such_path(self, bad_path):
         with pytest.raises(ValueError, match=f"Path not found: {bad_path}"):
-            vcz_mod.inspect(bad_path)
+            icf_mod.inspect(bad_path)
 
     @pytest.mark.parametrize("path", ["./", "tests/data/vcf/sample.vcf.gz"])
     def test_unknown_format(self, path):
         with pytest.raises(ValueError, match="not in ICF or VCF Zarr format"):
-            vcz_mod.inspect(path)
+            icf_mod.inspect(path)
