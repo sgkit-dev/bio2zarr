@@ -10,14 +10,26 @@ from bio2zarr import constants, vcz
 logger = logging.getLogger(__name__)
 
 
-class PlinkFormat:
+class PlinkFormat(vcz.Source):
     def __init__(self, path):
-        self.path = path
+        self._path = pathlib.Path(path)
         self.bed = bed_reader.open_bed(path, num_threads=1, count_A1=False)
-        self.num_records = self.bed.sid_count
-        self.samples = list(self.bed.iid)
-        self.num_samples = len(self.samples)
-        self.root_attrs = {}
+
+    @property
+    def path(self):
+        return self._path
+
+    @property
+    def num_records(self):
+        return self.bed.sid_count
+
+    @property
+    def samples(self):
+        return [vcz.Sample(id=sample) for sample in self.bed.iid]
+
+    @property
+    def num_samples(self):
+        return len(self.samples)
 
     def iter_alleles(self, start, stop, num_alleles):
         ref_field = self.bed.allele_1
@@ -62,9 +74,6 @@ class PlinkFormat:
             samples_chunk_size=samples_chunk_size,
             variants_chunk_size=variants_chunk_size,
             fields=[],
-            samples=[vcz.Sample(id=sample) for sample in self.bed.iid],
-            contigs=[],
-            filters=[],
         )
 
         logger.info(
