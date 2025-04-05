@@ -944,7 +944,15 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
 
     @property
     def samples(self):
-        return [sample.id for sample in self.metadata.samples]
+        return self.metadata.samples
+
+    @property
+    def contigs(self):
+        return self.metadata.contigs
+
+    @property
+    def filters(self):
+        return self.metadata.filters
 
     @property
     def num_samples(self):
@@ -1037,9 +1045,6 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
             samples_chunk_size=samples_chunk_size,
             variants_chunk_size=variants_chunk_size,
             fields=[],
-            samples=self.metadata.samples,
-            contigs=self.metadata.contigs,
-            filters=self.metadata.filters,
         )
 
         logger.info(

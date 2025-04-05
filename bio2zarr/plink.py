@@ -15,7 +15,7 @@ class PlinkFormat:
         self.path = path
         self.bed = bed_reader.open_bed(path, num_threads=1, count_A1=False)
         self.num_records = self.bed.sid_count
-        self.samples = list(self.bed.iid)
+        self.samples = [vcz.Sample(id=sample) for sample in self.bed.iid]
         self.num_samples = len(self.samples)
         self.root_attrs = {}
 
@@ -62,9 +62,6 @@ class PlinkFormat:
             samples_chunk_size=samples_chunk_size,
             variants_chunk_size=variants_chunk_size,
             fields=[],
-            samples=[vcz.Sample(id=sample) for sample in self.bed.iid],
-            contigs=[],
-            filters=[],
         )
 
         logger.info(
