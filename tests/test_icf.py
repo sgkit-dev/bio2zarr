@@ -6,8 +6,8 @@ import numpy as np
 import numpy.testing as nt
 import pytest
 
-from bio2zarr import provenance, vcf2zarr, vcf_utils
-from bio2zarr.vcf2zarr import icf as icf_mod
+from bio2zarr import icf as icf_mod
+from bio2zarr import provenance, vcf_utils, vcz
 
 
 class TestSmallExample:
@@ -25,7 +25,7 @@ class TestSmallExample:
     @pytest.fixture(scope="class")
     def icf(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.exploded"
-        return vcf2zarr.explode(out, [self.data_path])
+        return icf_mod.explode(out, [self.data_path])
 
     def test_format_version(self, icf):
         assert icf.metadata.format_version == icf_mod.ICF_METADATA_FORMAT_VERSION
@@ -38,10 +38,10 @@ class TestSmallExample:
     def test_mkschema(self, tmp_path, icf):
         schema_file = tmp_path / "schema.json"
         with open(schema_file, "w") as f:
-            vcf2zarr.mkschema(icf.path, f)
+            icf_mod.mkschema(icf.path, f)
         with open(schema_file) as f:
-            schema1 = vcf2zarr.VcfZarrSchema.fromjson(f.read())
-        schema2 = vcf2zarr.VcfZarrSchema.generate(icf)
+            schema1 = vcz.VcfZarrSchema.fromjson(f.read())
+        schema2 = icf.generate_schema()
         assert schema1 == schema2
 
     def test_summary_table(self, icf):
@@ -50,7 +50,7 @@ class TestSmallExample:
         assert tuple(sorted(fields)) == self.fields
 
     def test_inspect(self, icf):
-        assert icf.summary_table() == vcf2zarr.inspect(icf.path)
+        assert icf.summary_table() == icf_mod.inspect(icf.path)
 
     def test_mapping_methods(self, icf):
         assert len(icf) == len(self.fields)
@@ -97,7 +97,7 @@ class TestWithGtHeaderNoGenotypes:
     @pytest.fixture(scope="class")
     def icf(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.exploded"
-        return vcf2zarr.explode(out, [self.data_path])
+        return icf_mod.explode(out, [self.data_path])
 
     def test_gts(self, icf):
         values = icf["FORMAT/GT"].values
@@ -119,7 +119,7 @@ class TestIcfWriterExample:
     def test_init_paths(self, tmp_path):
         icf_path = tmp_path / "x.icf"
         assert not icf_path.exists()
-        summary = vcf2zarr.explode_init(icf_path, [self.data_path])
+        summary = icf_mod.explode_init(icf_path, [self.data_path])
         assert summary.num_partitions == 3
         assert icf_path.exists()
         wip_path = icf_path / "wip"
@@ -132,50 +132,50 @@ class TestIcfWriterExample:
     def test_finalise_paths(self, tmp_path):
         icf_path = tmp_path / "x.icf"
         wip_path = icf_path / "wip"
-        summary = vcf2zarr.explode_init(icf_path, [self.data_path])
+        summary = icf_mod.explode_init(icf_path, [self.data_path])
         assert icf_path.exists()
         for j in range(summary.num_partitions):
-            vcf2zarr.explode_partition(icf_path, j)
+            icf_mod.explode_partition(icf_path, j)
         assert wip_path.exists()
-        vcf2zarr.explode_finalise(icf_path)
+        icf_mod.explode_finalise(icf_path)
         assert icf_path.exists()
         assert not wip_path.exists()
 
     def test_finalise_no_partitions_fails(self, tmp_path):
         icf_path = tmp_path / "x.icf"
-        vcf2zarr.explode_init(icf_path, [self.data_path])
+        icf_mod.explode_init(icf_path, [self.data_path])
         with pytest.raises(FileNotFoundError, match="3 partitions: \\[0, 1, 2\\]"):
-            vcf2zarr.explode_finalise(icf_path)
+            icf_mod.explode_finalise(icf_path)
 
     @pytest.mark.parametrize("partition", [0, 1, 2])
     def test_finalise_missing_partition_fails(self, tmp_path, partition):
         icf_path = tmp_path / "x.icf"
-        vcf2zarr.explode_init(icf_path, [self.data_path])
+        icf_mod.explode_init(icf_path, [self.data_path])
         for j in range(3):
             if j != partition:
-                vcf2zarr.explode_partition(icf_path, j)
+                icf_mod.explode_partition(icf_path, j)
         with pytest.raises(FileNotFoundError, match=f"1 partitions: \\[{partition}\\]"):
-            vcf2zarr.explode_finalise(icf_path)
+            icf_mod.explode_finalise(icf_path)
 
     @pytest.mark.parametrize("partition", [0, 1, 2])
     def test_explode_partition(self, tmp_path, partition):
         icf_path = tmp_path / "x.icf"
-        vcf2zarr.explode_init(icf_path, [self.data_path])
+        icf_mod.explode_init(icf_path, [self.data_path])
         summary_file = icf_path / "wip" / f"p{partition}.json"
         assert not summary_file.exists()
-        vcf2zarr.explode_partition(icf_path, partition)
+        icf_mod.explode_partition(icf_path, partition)
         assert summary_file.exists()
 
     def test_double_explode_partition(self, tmp_path):
         partition = 1
         icf_path = tmp_path / "x.icf"
-        vcf2zarr.explode_init(icf_path, [self.data_path])
+        icf_mod.explode_init(icf_path, [self.data_path])
         summary_file = icf_path / "wip" / f"p{partition}.json"
         assert not summary_file.exists()
-        vcf2zarr.explode_partition(icf_path, partition)
+        icf_mod.explode_partition(icf_path, partition)
         with open(summary_file) as f:
             s1 = f.read()
-        vcf2zarr.explode_partition(icf_path, partition)
+        icf_mod.explode_partition(icf_path, partition)
         with open(summary_file) as f:
             s2 = f.read()
         assert s1 == s2
@@ -183,19 +183,19 @@ class TestIcfWriterExample:
     @pytest.mark.parametrize("partition", [-1, 3, 100])
     def test_explode_partition_out_of_range(self, tmp_path, partition):
         icf_path = tmp_path / "x.icf"
-        vcf2zarr.explode_init(icf_path, [self.data_path])
+        icf_mod.explode_init(icf_path, [self.data_path])
         with pytest.raises(ValueError, match="Partition index not in the valid range"):
-            vcf2zarr.explode_partition(icf_path, partition)
+            icf_mod.explode_partition(icf_path, partition)
 
     def test_explode_same_file_twice(self, tmp_path):
         icf_path = tmp_path / "x.icf"
         with pytest.raises(ValueError, match="Duplicate path provided"):
-            vcf2zarr.explode(icf_path, [self.data_path, self.data_path])
+            icf_mod.explode(icf_path, [self.data_path, self.data_path])
 
     def test_explode_same_data_twice(self, tmp_path):
         icf_path = tmp_path / "x.icf"
         with pytest.raises(ValueError, match="Overlapping VCF regions"):
-            vcf2zarr.explode(icf_path, [self.data_path, "tests/data/vcf/sample.bcf"])
+            icf_mod.explode(icf_path, [self.data_path, "tests/data/vcf/sample.bcf"])
 
 
 class TestGeneratedFieldsExample:
@@ -211,11 +211,11 @@ class TestGeneratedFieldsExample:
         # df = sgkit.load_dataset("tmp/fields.vcf.sg")
         # print(df["variant_IC2"])
         # print(df["variant_IC2"].values)
-        return vcf2zarr.explode(out, [self.data_path])
+        return icf_mod.explode(out, [self.data_path])
 
     @pytest.fixture(scope="class")
     def schema(self, icf):
-        return vcf2zarr.VcfZarrSchema.generate(icf)
+        return icf.generate_schema()
 
     @pytest.mark.parametrize(
         ("name", "dtype", "shape", "dimensions"),
@@ -279,16 +279,16 @@ class TestInitProperties:
 
     def run_explode(self, tmp_path, **kwargs):
         icf_path = tmp_path / "icf"
-        vcf2zarr.explode(icf_path, [self.data_path], **kwargs)
-        return vcf2zarr.IntermediateColumnarFormat(icf_path)
+        icf_mod.explode(icf_path, [self.data_path], **kwargs)
+        return icf_mod.IntermediateColumnarFormat(icf_path)
 
     def run_dexplode(self, tmp_path, **kwargs):
         icf_path = tmp_path / "icf"
-        summary = vcf2zarr.explode_init(icf_path, [self.data_path], **kwargs)
+        summary = icf_mod.explode_init(icf_path, [self.data_path], **kwargs)
         for j in range(summary.num_partitions):
-            vcf2zarr.explode_partition(icf_path, j)
-        vcf2zarr.explode_finalise(icf_path)
-        return vcf2zarr.IntermediateColumnarFormat(icf_path)
+            icf_mod.explode_partition(icf_path, j)
+        icf_mod.explode_finalise(icf_path)
+        return icf_mod.IntermediateColumnarFormat(icf_path)
 
     @pytest.mark.parametrize(
         "compressor",
@@ -340,40 +340,40 @@ class TestCorruptionDetection:
 
     def test_missing_field(self, tmp_path):
         icf_path = tmp_path / "icf"
-        vcf2zarr.explode(icf_path, [self.data_path])
+        icf_mod.explode(icf_path, [self.data_path])
         shutil.rmtree(icf_path / "POS")
-        icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         with pytest.raises(FileNotFoundError):
             icf["POS"].values  # noqa B018
 
     def test_missing_chunk_index(self, tmp_path):
         icf_path = tmp_path / "icf"
-        vcf2zarr.explode(icf_path, [self.data_path])
+        icf_mod.explode(icf_path, [self.data_path])
         chunk_index_path = icf_path / "POS" / "p0" / "chunk_index"
         assert chunk_index_path.exists()
         chunk_index_path.unlink()
-        icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         with pytest.raises(FileNotFoundError):
             icf["POS"].values  # noqa B018
 
     def test_missing_chunk_file(self, tmp_path):
         icf_path = tmp_path / "icf"
-        vcf2zarr.explode(icf_path, [self.data_path])
+        icf_mod.explode(icf_path, [self.data_path])
         chunk_file = icf_path / "POS" / "p0" / "2"
         assert chunk_file.exists()
         chunk_file.unlink()
-        icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         with pytest.raises(FileNotFoundError):
             icf["POS"].values  # noqa B018
 
     def test_empty_chunk_file(self, tmp_path):
         icf_path = tmp_path / "icf"
-        vcf2zarr.explode(icf_path, [self.data_path])
+        icf_mod.explode(icf_path, [self.data_path])
         chunk_file = icf_path / "POS" / "p0" / "2"
         assert chunk_file.exists()
         with open(chunk_file, "w") as _:
             pass
-        icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         with pytest.raises(RuntimeError, match="blosc"):
             icf["POS"].values  # noqa B018
 
@@ -381,21 +381,21 @@ class TestCorruptionDetection:
     @pytest.mark.parametrize("length", [10, 100, 185])
     def test_truncated_chunk_file(self, tmp_path, length):
         icf_path = tmp_path / "icf"
-        vcf2zarr.explode(icf_path, [self.data_path])
+        icf_mod.explode(icf_path, [self.data_path])
         chunk_file = icf_path / "POS" / "p0" / "2"
         with open(chunk_file, "rb") as f:
             buff = f.read(length)
         assert len(buff) == length
         with open(chunk_file, "wb") as f:
             f.write(buff)
-        icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         # Either Blosc or pickling errors happen here
         with pytest.raises((RuntimeError, pickle.UnpicklingError)):
             icf["POS"].values  # noqa B018
 
     def test_chunk_incorrect_length(self, tmp_path):
         icf_path = tmp_path / "icf"
-        vcf2zarr.explode(icf_path, [self.data_path])
+        icf_mod.explode(icf_path, [self.data_path])
         chunk_file = icf_path / "POS" / "p0" / "2"
         compressor = numcodecs.Blosc(cname="zstd")
         with open(chunk_file, "rb") as f:
@@ -406,7 +406,7 @@ class TestCorruptionDetection:
         pkl = pickle.dumps(x[0])
         with open(chunk_file, "wb") as f:
             f.write(compressor.encode(pkl))
-        icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         with pytest.raises(ValueError, match="Corruption detected"):
             icf["POS"].values  # noqa B018
         with pytest.raises(ValueError, match="Corruption detected"):
@@ -419,7 +419,7 @@ class TestSlicing:
     @pytest.fixture(scope="class")
     def icf(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.exploded"
-        return vcf2zarr.explode(
+        return icf_mod.explode(
             out, [self.data_path], column_chunk_size=0.0125, worker_processes=0
         )
 

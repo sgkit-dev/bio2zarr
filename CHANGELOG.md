@@ -4,6 +4,8 @@
 
 - Add support for unindexed (and uncompressed) VCFs (#337)
 
+- Remove explicit sample, contig and filter lists from the schema (#343)
+
 # 0.1.4 2025-03-10
 
 - Fix bug in handling all-missing genotypes (#328)
