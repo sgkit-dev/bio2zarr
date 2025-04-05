@@ -8,12 +8,14 @@ import pathlib
 import pickle
 import shutil
 import sys
+import tempfile
+from functools import partial
 from typing import Any
 
 import numcodecs
 import numpy as np
 
-from .. import constants, core, provenance, vcf_utils
+from . import constants, core, provenance, vcf_utils, vcz
 
 logger = logging.getLogger(__name__)
 
@@ -117,23 +119,6 @@ ICF_DEFAULT_COMPRESSOR = numcodecs.Blosc(
 
 
 @dataclasses.dataclass
-class Contig:
-    id: str
-    length: int = None
-
-
-@dataclasses.dataclass
-class Sample:
-    id: str
-
-
-@dataclasses.dataclass
-class Filter:
-    id: str
-    description: str = ""
-
-
-@dataclasses.dataclass
 class IcfMetadata(core.JsonDataclass):
     samples: list
     contigs: list
@@ -187,9 +172,9 @@ class IcfMetadata(core.JsonDataclass):
         d = d.copy()
         d["partitions"] = partitions
         d["fields"] = [VcfField.fromdict(fd) for fd in d["fields"]]
-        d["samples"] = [Sample(**sd) for sd in d["samples"]]
-        d["filters"] = [Filter(**fd) for fd in d["filters"]]
-        d["contigs"] = [Contig(**cd) for cd in d["contigs"]]
+        d["samples"] = [vcz.Sample(**sd) for sd in d["samples"]]
+        d["filters"] = [vcz.Filter(**fd) for fd in d["filters"]]
+        d["contigs"] = [vcz.Contig(**cd) for cd in d["contigs"]]
         return IcfMetadata(**d)
 
     def __eq__(self, other):
@@ -240,7 +225,7 @@ def scan_vcf(path, target_num_partitions):
                     description = ""
                 if h["ID"] == "PASS":
                     pass_index = len(filters)
-                filters.append(Filter(h["ID"], description))
+                filters.append(vcz.Filter(h["ID"], description))
 
         # Ensure PASS is the first filter if present
         if pass_index > 0:
@@ -262,9 +247,9 @@ def scan_vcf(path, target_num_partitions):
             contig_lengths = [None for _ in vcf.seqnames]
 
         metadata = IcfMetadata(
-            samples=[Sample(sample_id) for sample_id in vcf.samples],
+            samples=[vcz.Sample(sample_id) for sample_id in vcf.samples],
             contigs=[
-                Contig(contig_id, length)
+                vcz.Contig(contig_id, length)
                 for contig_id, length in zip(vcf.seqnames, contig_lengths)
             ],
             filters=filters,
@@ -366,64 +351,58 @@ def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
     return icf_metadata, header
 
 
-def sanitise_value_bool(buff, j, value):
+def sanitise_value_bool(shape, value):
     x = True
     if value is None:
         x = False
-    buff[j] = x
+    return x
 
 
-def sanitise_value_float_scalar(buff, j, value):
+def sanitise_value_float_scalar(shape, value):
     x = value
     if value is None:
         x = [constants.FLOAT32_MISSING]
-    buff[j] = x[0]
+    return x[0]
 
 
-def sanitise_value_int_scalar(buff, j, value):
+def sanitise_value_int_scalar(shape, value):
     x = value
     if value is None:
-        # print("MISSING", INT_MISSING, INT_FILL)
         x = [constants.INT_MISSING]
     else:
         x = sanitise_int_array(value, ndmin=1, dtype=np.int32)
-    buff[j] = x[0]
+    return x[0]
 
 
-def sanitise_value_string_scalar(buff, j, value):
+def sanitise_value_string_scalar(shape, value):
     if value is None:
-        buff[j] = "."
+        return "."
     else:
-        buff[j] = value[0]
+        return value[0]
 
 
-def sanitise_value_string_1d(buff, j, value):
+def sanitise_value_string_1d(shape, value):
     if value is None:
-        buff[j] = "."
+        return np.full(shape, ".", dtype="O")
     else:
-        # value = np.array(value, ndmin=1, dtype=buff.dtype, copy=False)
-        # FIXME failure isn't coming from here, it seems to be from an
-        # incorrectly detected dimension in the zarr array
-        # The dimesions look all wrong, and the dtype should be Object
-        # not str
         value = drop_empty_second_dim(value)
-        buff[j] = ""
-        buff[j, : value.shape[0]] = value
+        result = np.full(shape, "", dtype=value.dtype)
+        result[: value.shape[0]] = value
+        return result
 
 
-def sanitise_value_string_2d(buff, j, value):
+def sanitise_value_string_2d(shape, value):
     if value is None:
-        buff[j] = "."
+        return np.full(shape, ".", dtype="O")
     else:
-        # print(buff.shape, value.dtype, value)
-        # assert value.ndim == 2
-        buff[j] = ""
+        result = np.full(shape, "", dtype="O")
         if value.ndim == 2:
-            buff[j, :, : value.shape[1]] = value
+            result[: value.shape[0], : value.shape[1]] = value
         else:
-            # TODO check if this is still necessary
+            # Convert 1D array into 2D with appropriate shape
             for k, val in enumerate(value):
-                buff[j, k, : len(val)] = val
+                result[k, : len(val)] = val
+        return result
 
 
 def drop_empty_second_dim(value):
@@ -433,27 +412,28 @@ def drop_empty_second_dim(value):
     return value
 
 
-def sanitise_value_float_1d(buff, j, value):
+def sanitise_value_float_1d(shape, value):
     if value is None:
-        buff[j] = constants.FLOAT32_MISSING
+        return np.full(shape, constants.FLOAT32_MISSING)
     else:
-        value = np.array(value, ndmin=1, dtype=buff.dtype, copy=True)
+        value = np.array(value, ndmin=1, dtype=np.float32, copy=True)
         # numpy will map None values to Nan, but we need a
         # specific NaN
         value[np.isnan(value)] = constants.FLOAT32_MISSING
         value = drop_empty_second_dim(value)
-        buff[j] = constants.FLOAT32_FILL
-        buff[j, : value.shape[0]] = value
+        result = np.full(shape, constants.FLOAT32_FILL, dtype=np.float32)
+        result[: value.shape[0]] = value
+        return result
 
 
-def sanitise_value_float_2d(buff, j, value):
+def sanitise_value_float_2d(shape, value):
     if value is None:
-        buff[j] = constants.FLOAT32_MISSING
+        return np.full(shape, constants.FLOAT32_MISSING)
     else:
-        # print("value = ", value)
-        value = np.array(value, ndmin=2, dtype=buff.dtype, copy=True)
-        buff[j] = constants.FLOAT32_FILL
-        buff[j, :, : value.shape[1]] = value
+        value = np.array(value, ndmin=2, dtype=np.float32, copy=True)
+        result = np.full(shape, constants.FLOAT32_FILL, dtype=np.float32)
+        result[:, : value.shape[1]] = value
+        return result
 
 
 def sanitise_int_array(value, ndmin, dtype):
@@ -468,23 +448,25 @@ def sanitise_int_array(value, ndmin, dtype):
     return value.astype(dtype)
 
 
-def sanitise_value_int_1d(buff, j, value):
+def sanitise_value_int_1d(shape, value):
     if value is None:
-        buff[j] = -1
+        return np.full(shape, -1)
     else:
-        value = sanitise_int_array(value, 1, buff.dtype)
+        value = sanitise_int_array(value, 1, np.int32)
         value = drop_empty_second_dim(value)
-        buff[j] = -2
-        buff[j, : value.shape[0]] = value
+        result = np.full(shape, -2, dtype=np.int32)
+        result[: value.shape[0]] = value
+        return result
 
 
-def sanitise_value_int_2d(buff, j, value):
+def sanitise_value_int_2d(shape, value):
     if value is None:
-        buff[j] = -1
+        return np.full(shape, -1)
     else:
-        value = sanitise_int_array(value, 2, buff.dtype)
-        buff[j] = -2
-        buff[j, :, : value.shape[1]] = value
+        value = sanitise_int_array(value, 2, np.int32)
+        result = np.full(shape, -2, dtype=np.int32)
+        result[:, : value.shape[1]] = value
+        return result
 
 
 missing_value_map = {
@@ -707,36 +689,32 @@ class IntermediateColumnarFormatField:
         return ret
 
     def sanitiser_factory(self, shape):
-        """
-        Return a function that sanitised values from this column
-        and writes into a buffer of the specified shape.
-        """
-        assert len(shape) <= 3
+        assert len(shape) <= 2
         if self.vcf_field.vcf_type == "Flag":
-            assert len(shape) == 1
-            return sanitise_value_bool
+            assert len(shape) == 0
+            return partial(sanitise_value_bool, shape)
         elif self.vcf_field.vcf_type == "Float":
-            if len(shape) == 1:
-                return sanitise_value_float_scalar
-            elif len(shape) == 2:
-                return sanitise_value_float_1d
+            if len(shape) == 0:
+                return partial(sanitise_value_float_scalar, shape)
+            elif len(shape) == 1:
+                return partial(sanitise_value_float_1d, shape)
             else:
-                return sanitise_value_float_2d
+                return partial(sanitise_value_float_2d, shape)
         elif self.vcf_field.vcf_type == "Integer":
-            if len(shape) == 1:
-                return sanitise_value_int_scalar
-            elif len(shape) == 2:
-                return sanitise_value_int_1d
+            if len(shape) == 0:
+                return partial(sanitise_value_int_scalar, shape)
+            elif len(shape) == 1:
+                return partial(sanitise_value_int_1d, shape)
             else:
-                return sanitise_value_int_2d
+                return partial(sanitise_value_int_2d, shape)
         else:
             assert self.vcf_field.vcf_type in ("String", "Character")
-            if len(shape) == 1:
-                return sanitise_value_string_scalar
-            elif len(shape) == 2:
-                return sanitise_value_string_1d
+            if len(shape) == 0:
+                return partial(sanitise_value_string_scalar, shape)
+            elif len(shape) == 1:
+                return partial(sanitise_value_string_1d, shape)
             else:
-                return sanitise_value_string_2d
+                return partial(sanitise_value_string_2d, shape)
 
 
 @dataclasses.dataclass
@@ -843,6 +821,62 @@ class IcfPartitionWriter(contextlib.AbstractContextManager):
         return False
 
 
+def convert_local_allele_field_types(fields):
+    """
+    Update the specified list of fields to include the LAA field, and to convert
+    any supported localisable fields to the L* counterpart.
+
+    Note that we currently support only two ALT alleles per sample, and so the
+    dimensions of these fields are fixed by that requirement. Later versions may
+    use summary data storted in the ICF to make different choices, if information
+    about subsequent alleles (not in the actual genotype calls) should also be
+    stored.
+    """
+    fields_by_name = {field.name: field for field in fields}
+    gt = fields_by_name["call_genotype"]
+    if gt.shape[-1] != 2:
+        raise ValueError("Local alleles only supported on diploid data")
+
+    # TODO check if LA is already in here
+
+    shape = gt.shape[:-1]
+    chunks = gt.chunks[:-1]
+    dimensions = gt.dimensions[:-1]
+
+    la = vcz.ZarrArraySpec.new(
+        vcf_field=None,
+        name="call_LA",
+        dtype="i1",
+        shape=gt.shape,
+        chunks=gt.chunks,
+        dimensions=(*dimensions, "local_alleles"),
+        description=(
+            "0-based indices into REF+ALT, indicating which alleles"
+            " are relevant (local) for the current sample"
+        ),
+    )
+    ad = fields_by_name.get("call_AD", None)
+    if ad is not None:
+        # TODO check if call_LAD is in the list already
+        ad.name = "call_LAD"
+        ad.vcf_field = None
+        ad.shape = (*shape, 2)
+        ad.chunks = (*chunks, 2)
+        ad.dimensions = (*dimensions, "local_alleles")
+        ad.description += " (local-alleles)"
+
+    pl = fields_by_name.get("call_PL", None)
+    if pl is not None:
+        # TODO check if call_LPL is in the list already
+        pl.name = "call_LPL"
+        pl.vcf_field = None
+        pl.shape = (*shape, 3)
+        pl.chunks = (*chunks, 3)
+        pl.description += " (local-alleles)"
+        pl.dimensions = (*dimensions, "local_" + pl.dimensions[-1])
+    return [*fields, la]
+
+
 class IntermediateColumnarFormat(collections.abc.Mapping):
     def __init__(self, path):
         self.path = pathlib.Path(path)
@@ -909,12 +943,240 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
         return len(self.metadata.partitions)
 
     @property
+    def samples(self):
+        return [sample.id for sample in self.metadata.samples]
+
+    @property
     def num_samples(self):
         return len(self.metadata.samples)
 
     @property
     def num_fields(self):
         return len(self.fields)
+
+    @property
+    def root_attrs(self):
+        return {
+            "vcf_header": self.vcf_header,
+        }
+
+    def iter_alleles(self, start, stop, num_alleles):
+        ref_field = self.fields["REF"]
+        alt_field = self.fields["ALT"]
+
+        for ref, alt in zip(
+            ref_field.iter_values(start, stop),
+            alt_field.iter_values(start, stop),
+        ):
+            alleles = np.full(num_alleles, constants.STR_FILL, dtype="O")
+            alleles[0] = ref[0]
+            alleles[1 : 1 + len(alt)] = alt
+            yield alleles
+
+    def iter_id(self, start, stop):
+        for value in self.fields["ID"].iter_values(start, stop):
+            if value is not None:
+                yield value[0]
+            else:
+                yield None
+
+    def iter_filters(self, start, stop):
+        source_field = self.fields["FILTERS"]
+        lookup = {filt.id: index for index, filt in enumerate(self.metadata.filters)}
+
+        for filter_values in source_field.iter_values(start, stop):
+            filters = np.zeros(len(self.metadata.filters), dtype=bool)
+            if filter_values is not None:
+                for filter_id in filter_values:
+                    try:
+                        filters[lookup[filter_id]] = True
+                    except KeyError:
+                        raise ValueError(
+                            f"Filter '{filter_id}' was not defined in the header."
+                        ) from None
+            yield filters
+
+    def iter_contig(self, start, stop):
+        source_field = self.fields["CHROM"]
+        lookup = {
+            contig.id: index for index, contig in enumerate(self.metadata.contigs)
+        }
+
+        for value in source_field.iter_values(start, stop):
+            # Note: because we are using the indexes to define the lookups
+            # and we always have an index, it seems that we the contig lookup
+            # will always succeed. However, if anyone ever does hit a KeyError
+            # here, please do open an issue with a reproducible example!
+            yield lookup[value[0]]
+
+    def iter_field(self, field_name, shape, start, stop):
+        source_field = self.fields[field_name]
+        sanitiser = source_field.sanitiser_factory(shape)
+        for value in source_field.iter_values(start, stop):
+            yield sanitiser(value)
+
+    def iter_genotypes(self, shape, start, stop):
+        source_field = self.fields["FORMAT/GT"]
+        for value in source_field.iter_values(start, stop):
+            genotypes = value[:, :-1] if value is not None else None
+            phased = value[:, -1] if value is not None else None
+            sanitised_genotypes = sanitise_value_int_2d(shape, genotypes)
+            sanitised_phased = sanitise_value_int_1d(shape[:-1], phased)
+            yield sanitised_genotypes, sanitised_phased
+
+    def generate_schema(
+        self, variants_chunk_size=None, samples_chunk_size=None, local_alleles=None
+    ):
+        m = self.num_records
+        n = self.num_samples
+        if local_alleles is None:
+            local_alleles = False
+
+        schema_instance = vcz.VcfZarrSchema(
+            format_version=vcz.ZARR_SCHEMA_FORMAT_VERSION,
+            samples_chunk_size=samples_chunk_size,
+            variants_chunk_size=variants_chunk_size,
+            fields=[],
+            samples=self.metadata.samples,
+            contigs=self.metadata.contigs,
+            filters=self.metadata.filters,
+        )
+
+        logger.info(
+            "Generating schema with chunks="
+            f"{schema_instance.variants_chunk_size, schema_instance.samples_chunk_size}"
+        )
+
+        def spec_from_field(field, array_name=None):
+            return vcz.ZarrArraySpec.from_field(
+                field,
+                num_samples=n,
+                num_variants=m,
+                samples_chunk_size=schema_instance.samples_chunk_size,
+                variants_chunk_size=schema_instance.variants_chunk_size,
+                array_name=array_name,
+            )
+
+        def fixed_field_spec(
+            name,
+            dtype,
+            vcf_field=None,
+            shape=(m,),
+            dimensions=("variants",),
+            chunks=None,
+        ):
+            return vcz.ZarrArraySpec.new(
+                vcf_field=vcf_field,
+                name=name,
+                dtype=dtype,
+                shape=shape,
+                description="",
+                dimensions=dimensions,
+                chunks=chunks or [schema_instance.variants_chunk_size],
+            )
+
+        alt_field = self.fields["ALT"]
+        max_alleles = alt_field.vcf_field.summary.max_number + 1
+
+        array_specs = [
+            fixed_field_spec(
+                name="variant_contig",
+                dtype=core.min_int_dtype(0, self.metadata.num_contigs),
+            ),
+            fixed_field_spec(
+                name="variant_filter",
+                dtype="bool",
+                shape=(m, self.metadata.num_filters),
+                dimensions=["variants", "filters"],
+                chunks=(schema_instance.variants_chunk_size, self.metadata.num_filters),
+            ),
+            fixed_field_spec(
+                name="variant_allele",
+                dtype="O",
+                shape=(m, max_alleles),
+                dimensions=["variants", "alleles"],
+                chunks=(schema_instance.variants_chunk_size, max_alleles),
+            ),
+            fixed_field_spec(
+                name="variant_id",
+                dtype="O",
+            ),
+            fixed_field_spec(
+                name="variant_id_mask",
+                dtype="bool",
+            ),
+        ]
+        name_map = {field.full_name: field for field in self.metadata.fields}
+
+        # Only three of the fixed fields have a direct one-to-one mapping.
+        array_specs.extend(
+            [
+                spec_from_field(name_map["QUAL"], array_name="variant_quality"),
+                spec_from_field(name_map["POS"], array_name="variant_position"),
+                spec_from_field(name_map["rlen"], array_name="variant_length"),
+            ]
+        )
+        array_specs.extend(
+            [spec_from_field(field) for field in self.metadata.info_fields]
+        )
+
+        gt_field = None
+        for field in self.metadata.format_fields:
+            if field.name == "GT":
+                gt_field = field
+                continue
+            array_specs.append(spec_from_field(field))
+
+        if gt_field is not None and n > 0:
+            ploidy = max(gt_field.summary.max_number - 1, 1)
+            shape = [m, n]
+            chunks = [
+                schema_instance.variants_chunk_size,
+                schema_instance.samples_chunk_size,
+            ]
+            dimensions = ["variants", "samples"]
+            array_specs.append(
+                vcz.ZarrArraySpec.new(
+                    vcf_field=None,
+                    name="call_genotype_phased",
+                    dtype="bool",
+                    shape=list(shape),
+                    chunks=list(chunks),
+                    dimensions=list(dimensions),
+                    description="",
+                )
+            )
+            shape += [ploidy]
+            chunks += [ploidy]
+            dimensions += ["ploidy"]
+            array_specs.append(
+                vcz.ZarrArraySpec.new(
+                    vcf_field=None,
+                    name="call_genotype",
+                    dtype=gt_field.smallest_dtype(),
+                    shape=list(shape),
+                    chunks=list(chunks),
+                    dimensions=list(dimensions),
+                    description="",
+                )
+            )
+            array_specs.append(
+                vcz.ZarrArraySpec.new(
+                    vcf_field=None,
+                    name="call_genotype_mask",
+                    dtype="bool",
+                    shape=list(shape),
+                    chunks=list(chunks),
+                    dimensions=list(dimensions),
+                    description="",
+                )
+            )
+
+        if local_alleles:
+            array_specs = convert_local_allele_field_types(array_specs)
+
+        schema_instance.fields = array_specs
+        return schema_instance
 
 
 @dataclasses.dataclass
@@ -1255,3 +1517,161 @@ def explode_partition(icf_path, partition):
 def explode_finalise(icf_path):
     writer = IntermediateColumnarFormatWriter(icf_path)
     writer.finalise()
+
+
+def inspect(path):
+    path = pathlib.Path(path)
+    if not path.exists():
+        raise ValueError(f"Path not found: {path}")
+    if (path / "metadata.json").exists():
+        obj = IntermediateColumnarFormat(path)
+    # NOTE: this is too strict, we should support more general Zarrs, see #276
+    elif (path / ".zmetadata").exists():
+        obj = vcz.VcfZarr(path)
+    else:
+        raise ValueError(f"{path} not in ICF or VCF Zarr format")
+    return obj.summary_table()
+
+
+def mkschema(
+    if_path,
+    out,
+    *,
+    variants_chunk_size=None,
+    samples_chunk_size=None,
+    local_alleles=None,
+):
+    store = IntermediateColumnarFormat(if_path)
+    spec = store.generate_schema(
+        variants_chunk_size=variants_chunk_size,
+        samples_chunk_size=samples_chunk_size,
+        local_alleles=local_alleles,
+    )
+    out.write(spec.asjson())
+
+
+def convert(
+    vcfs,
+    out_path,
+    *,
+    variants_chunk_size=None,
+    samples_chunk_size=None,
+    worker_processes=1,
+    local_alleles=None,
+    show_progress=False,
+    icf_path=None,
+):
+    if icf_path is None:
+        cm = temp_icf_path(prefix="vcf2zarr")
+    else:
+        cm = contextlib.nullcontext(icf_path)
+
+    with cm as icf_path:
+        explode(
+            icf_path,
+            vcfs,
+            worker_processes=worker_processes,
+            show_progress=show_progress,
+        )
+        encode(
+            icf_path,
+            out_path,
+            variants_chunk_size=variants_chunk_size,
+            samples_chunk_size=samples_chunk_size,
+            worker_processes=worker_processes,
+            show_progress=show_progress,
+            local_alleles=local_alleles,
+        )
+
+
+@contextlib.contextmanager
+def temp_icf_path(prefix=None):
+    with tempfile.TemporaryDirectory(prefix=prefix) as tmp:
+        yield pathlib.Path(tmp) / "icf"
+
+
+def encode(
+    icf_path,
+    zarr_path,
+    schema_path=None,
+    variants_chunk_size=None,
+    samples_chunk_size=None,
+    max_variant_chunks=None,
+    dimension_separator=None,
+    max_memory=None,
+    local_alleles=None,
+    worker_processes=1,
+    show_progress=False,
+):
+    # Rough heuristic to split work up enough to keep utilisation high
+    target_num_partitions = max(1, worker_processes * 4)
+    encode_init(
+        icf_path,
+        zarr_path,
+        target_num_partitions,
+        schema_path=schema_path,
+        variants_chunk_size=variants_chunk_size,
+        samples_chunk_size=samples_chunk_size,
+        local_alleles=local_alleles,
+        max_variant_chunks=max_variant_chunks,
+        dimension_separator=dimension_separator,
+    )
+    vzw = vcz.VcfZarrWriter(IntermediateColumnarFormat, zarr_path)
+    vzw.encode_all_partitions(
+        worker_processes=worker_processes,
+        show_progress=show_progress,
+        max_memory=max_memory,
+    )
+    vzw.finalise(show_progress)
+    vzw.create_index()
+
+
+def encode_init(
+    icf_path,
+    zarr_path,
+    target_num_partitions,
+    *,
+    schema_path=None,
+    variants_chunk_size=None,
+    samples_chunk_size=None,
+    local_alleles=None,
+    max_variant_chunks=None,
+    dimension_separator=None,
+    max_memory=None,
+    worker_processes=1,
+    show_progress=False,
+):
+    icf_store = IntermediateColumnarFormat(icf_path)
+    if schema_path is None:
+        schema_instance = icf_store.generate_schema(
+            variants_chunk_size=variants_chunk_size,
+            samples_chunk_size=samples_chunk_size,
+            local_alleles=local_alleles,
+        )
+    else:
+        logger.info(f"Reading schema from {schema_path}")
+        if variants_chunk_size is not None or samples_chunk_size is not None:
+            raise ValueError(
+                "Cannot specify schema along with chunk sizes"
+            )  # NEEDS TEST
+        with open(schema_path) as f:
+            schema_instance = vcz.VcfZarrSchema.fromjson(f.read())
+    zarr_path = pathlib.Path(zarr_path)
+    vzw = vcz.VcfZarrWriter("icf", zarr_path)
+    return vzw.init(
+        icf_store,
+        target_num_partitions=target_num_partitions,
+        schema=schema_instance,
+        dimension_separator=dimension_separator,
+        max_variant_chunks=max_variant_chunks,
+    )
+
+
+def encode_partition(zarr_path, partition):
+    writer_instance = vcz.VcfZarrWriter(IntermediateColumnarFormat, zarr_path)
+    writer_instance.encode_partition(partition)
+
+
+def encode_finalise(zarr_path, show_progress=False):
+    writer_instance = vcz.VcfZarrWriter(IntermediateColumnarFormat, zarr_path)
+    writer_instance.finalise(show_progress=show_progress)

@@ -34,6 +34,16 @@ def display_size(n):
     return humanfriendly.format_size(n, binary=True)
 
 
+def parse_max_memory(max_memory):
+    if max_memory is None:
+        # Effectively unbounded
+        return 2**63
+    if isinstance(max_memory, str):
+        max_memory = humanfriendly.parse_size(max_memory)
+    logger.info(f"Set memory budget to {display_size(max_memory)}")
+    return max_memory
+
+
 def min_int_dtype(min_value, max_value):
     if min_value > max_value:
         raise ValueError("min_value must be <= max_value")

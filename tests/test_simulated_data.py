@@ -5,7 +5,7 @@ import pysam
 import pytest
 import sgkit as sg
 
-from bio2zarr import vcf2zarr
+from bio2zarr import icf
 
 
 def run_simulation(num_samples=2, ploidy=1, seed=42, sequence_length=100_000):
@@ -60,7 +60,7 @@ class TestTskitRoundTripVcf:
         ts = run_simulation(ploidy=ploidy)
         vcf_path = write_vcf(ts, tmp_path / "sim.vcf")
         out = tmp_path / "example.vcf.zarr"
-        vcf2zarr.convert([vcf_path], out)
+        icf.convert([vcf_path], out)
         ds = sg.load_dataset(out)
         assert_ts_ds_equal(ts, ds, ploidy)
 
@@ -81,7 +81,7 @@ class TestTskitRoundTripVcf:
 
     def validate_tss_vcf_list(self, contig_ids, tss, vcfs, tmp_path):
         out = tmp_path / "example.vcf.zarr"
-        vcf2zarr.convert(vcfs, out)
+        icf.convert(vcfs, out)
         ds = sg.load_dataset(out).set_index(
             variants=("variant_contig", "variant_position")
         )
@@ -103,7 +103,7 @@ class TestTskitRoundTripVcf:
         ts = run_simulation(num_samples=12, seed=34)
         vcf_path = write_vcf(ts, tmp_path / "sim.vcf", indexed=indexed)
         out = tmp_path / "example.vcf.zarr"
-        vcf2zarr.convert([vcf_path], out)
+        icf.convert([vcf_path], out)
         ds = sg.load_dataset(out)
         assert_ts_ds_equal(ts, ds)
 
@@ -138,4 +138,4 @@ class TestIncompatibleContigs:
             vcfs.append(vcf_path)
         out = tmp_path / "example.vcf.zarr"
         with pytest.raises(ValueError, match="Incompatible contig definitions"):
-            vcf2zarr.convert(vcfs, out)
+            icf.convert(vcfs, out)
