@@ -8,8 +8,8 @@ import sgkit as sg
 import xarray.testing as xt
 import zarr
 
-from bio2zarr import core, vcf2zarr, vcz
-from bio2zarr.vcf2zarr import icf as icf_mod
+from bio2zarr import core, vcz
+from bio2zarr import icf as icf_mod
 from bio2zarr.zarr_utils import zarr_v3
 
 
@@ -21,7 +21,7 @@ def vcf_file():
 @pytest.fixture(scope="module")
 def icf_path(vcf_file, tmp_path_factory):
     out = tmp_path_factory.mktemp("data") / "example.exploded"
-    vcf2zarr.explode(out, [vcf_file])
+    icf_mod.explode(out, [vcf_file])
     return out
 
 
@@ -29,7 +29,7 @@ def icf_path(vcf_file, tmp_path_factory):
 def schema_path(icf_path, tmp_path_factory):
     out = tmp_path_factory.mktemp("data") / "example.schema.json"
     with open(out, "w") as f:
-        vcf2zarr.mkschema(icf_path, f)
+        icf_mod.mkschema(icf_path, f)
     return out
 
 
@@ -46,7 +46,7 @@ def local_alleles_schema(icf_path, tmp_path_factory):
     # be much easier.
     out = tmp_path_factory.mktemp("data") / "example.schema.json"
     with open(out, "w") as f:
-        vcf2zarr.mkschema(icf_path, f, local_alleles=True)
+        icf_mod.mkschema(icf_path, f, local_alleles=True)
     with open(out) as f:
         return vcz.VcfZarrSchema.fromjson(f.read())
 
@@ -54,7 +54,7 @@ def local_alleles_schema(icf_path, tmp_path_factory):
 @pytest.fixture(scope="module")
 def zarr_path(icf_path, tmp_path_factory):
     out = tmp_path_factory.mktemp("data") / "example.zarr"
-    vcf2zarr.encode(icf_path, out)
+    icf_mod.encode(icf_path, out)
     return out
 
 
@@ -79,7 +79,7 @@ class TestEncodeMaxMemory:
     def test_not_enough_memory(self, tmp_path, icf_path, max_memory):
         zarr_path = tmp_path / "zarr"
         with pytest.raises(ValueError, match="Insufficient memory"):
-            vcf2zarr.encode(icf_path, zarr_path, max_memory=max_memory)
+            icf_mod.encode(icf_path, zarr_path, max_memory=max_memory)
 
     @pytest.mark.parametrize("max_memory", ["315KiB", "500KiB"])
     def test_not_enough_memory_for_two(
@@ -87,7 +87,7 @@ class TestEncodeMaxMemory:
     ):
         other_zarr_path = tmp_path / "zarr"
         with caplog.at_level("WARNING"):
-            vcf2zarr.encode(
+            icf_mod.encode(
                 icf_path,
                 other_zarr_path,
                 max_memory=max_memory,
@@ -123,7 +123,7 @@ class TestJsonVersions:
     @pytest.mark.parametrize("version", ["0.0", "1.0", "xxxxx", 0.1])
     def test_encode_metadata_mismatch(self, tmpdir, icf_path, version):
         zarr_path = tmpdir / "zarr"
-        vcf2zarr.encode_init(icf_path, zarr_path, 1)
+        icf_mod.encode_init(icf_path, zarr_path, 1)
         with open(zarr_path / "wip" / "metadata.json") as f:
             d = json.load(f)
         d["format_version"] = version
@@ -138,14 +138,14 @@ class TestEncodeDimensionSeparator:
     @pytest.mark.parametrize("dimension_separator", [None, "/"])
     def test_directories(self, tmp_path, icf_path, dimension_separator):
         zarr_path = tmp_path / "zarr"
-        vcf2zarr.encode(icf_path, zarr_path, dimension_separator=dimension_separator)
+        icf_mod.encode(icf_path, zarr_path, dimension_separator=dimension_separator)
         # print(zarr_path)
         chunk_file = zarr_path / "call_genotype" / "0" / "0" / "0"
         assert chunk_file.exists()
 
     def test_files(self, tmp_path, icf_path):
         zarr_path = tmp_path / "zarr"
-        vcf2zarr.encode(icf_path, zarr_path, dimension_separator=".")
+        icf_mod.encode(icf_path, zarr_path, dimension_separator=".")
         chunk_file = zarr_path / "call_genotype" / "0.0.0"
         assert chunk_file.exists()
 
@@ -153,9 +153,7 @@ class TestEncodeDimensionSeparator:
     def test_bad_value(self, tmp_path, icf_path, dimension_separator):
         zarr_path = tmp_path / "zarr"
         with pytest.raises(ValueError, match="dimension_separator must be either"):
-            vcf2zarr.encode(
-                icf_path, zarr_path, dimension_separator=dimension_separator
-            )
+            icf_mod.encode(icf_path, zarr_path, dimension_separator=dimension_separator)
 
 
 class TestSchemaChunkSize:
@@ -168,7 +166,7 @@ class TestSchemaChunkSize:
         ],
     )
     def test_chunk_sizes(self, icf_path, samples_chunk_size, variants_chunk_size):
-        icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         schema = icf.generate_schema(
             variants_chunk_size=variants_chunk_size,
             samples_chunk_size=samples_chunk_size,
@@ -186,7 +184,7 @@ class TestSchemaChunkSize:
         assert found > 0
 
     def test_default_chunk_size(self, icf_path):
-        icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         schema = icf.generate_schema()
         assert schema.samples_chunk_size == 10_000
         assert schema.variants_chunk_size == 1000
@@ -198,29 +196,29 @@ class TestSchemaJsonRoundTrip:
         assert schema == schema2
 
     def test_generated_no_changes(self, icf_path):
-        icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         self.assert_json_round_trip(icf.generate_schema())
 
     def test_generated_no_fields(self, icf_path):
-        icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         schema = icf.generate_schema()
         schema.fields.clear()
         self.assert_json_round_trip(schema)
 
     def test_generated_no_samples(self, icf_path):
-        icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         schema = icf.generate_schema()
         schema.samples.clear()
         self.assert_json_round_trip(schema)
 
     def test_generated_change_dtype(self, icf_path):
-        icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         schema = icf.generate_schema()
         schema.field_map()["variant_position"].dtype = "i8"
         self.assert_json_round_trip(schema)
 
     def test_generated_change_compressor(self, icf_path):
-        icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         schema = icf.generate_schema()
         schema.field_map()["variant_position"].compressor = {"cname": "FAKE"}
         self.assert_json_round_trip(schema)
@@ -232,7 +230,7 @@ class TestSchemaEncode:
     )
     def test_codec(self, tmp_path, icf_path, cname, clevel, shuffle):
         zarr_path = tmp_path / "zarr"
-        icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         schema = icf.generate_schema()
         for array_spec in schema.fields:
             array_spec.compressor["cname"] = cname
@@ -241,7 +239,7 @@ class TestSchemaEncode:
         schema_path = tmp_path / "schema"
         with open(schema_path, "w") as f:
             f.write(schema.asjson())
-        vcf2zarr.encode(icf_path, zarr_path, schema_path=schema_path)
+        icf_mod.encode(icf_path, zarr_path, schema_path=schema_path)
         root = zarr.open(zarr_path)
         for array_spec in schema.fields:
             a = root[array_spec.name]
@@ -252,26 +250,26 @@ class TestSchemaEncode:
     @pytest.mark.parametrize("dtype", ["i4", "i8"])
     def test_genotype_dtype(self, tmp_path, icf_path, dtype):
         zarr_path = tmp_path / "zarr"
-        icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         schema = icf.generate_schema()
         schema.field_map()["call_genotype"].dtype = dtype
         schema_path = tmp_path / "schema"
         with open(schema_path, "w") as f:
             f.write(schema.asjson())
-        vcf2zarr.encode(icf_path, zarr_path, schema_path=schema_path)
+        icf_mod.encode(icf_path, zarr_path, schema_path=schema_path)
         root = zarr.open(zarr_path)
         assert root["call_genotype"].dtype == dtype
 
     @pytest.mark.parametrize("dtype", ["i4", "i8"])
     def test_region_index_dtype(self, tmp_path, icf_path, dtype):
         zarr_path = tmp_path / "zarr"
-        icf = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
         schema = icf.generate_schema()
         schema.field_map()["variant_position"].dtype = dtype
         schema_path = tmp_path / "schema"
         with open(schema_path, "w") as f:
             f.write(schema.asjson())
-        vcf2zarr.encode(icf_path, zarr_path, schema_path=schema_path)
+        icf_mod.encode(icf_path, zarr_path, schema_path=schema_path)
         root = zarr.open(zarr_path)
         assert root["variant_position"].dtype == dtype
         assert root["region_index"].dtype == dtype
@@ -304,7 +302,7 @@ class TestChunkNbytes:
         assert field.chunk_nbytes == value
 
     def test_chunk_size(self, icf_path, tmp_path):
-        store = vcf2zarr.IntermediateColumnarFormat(icf_path)
+        store = icf_mod.IntermediateColumnarFormat(icf_path)
         schema = store.generate_schema(samples_chunk_size=2, variants_chunk_size=3)
         fields = schema.field_map()
         assert fields["call_genotype"].chunk_nbytes == 3 * 2 * 2
@@ -547,7 +545,7 @@ class TestVcfZarrWriterExample:
     def test_init_paths(self, icf_path, tmp_path):
         zarr_path = tmp_path / "x.zarr"
         assert not zarr_path.exists()
-        summary = vcf2zarr.encode_init(icf_path, zarr_path, 7, variants_chunk_size=3)
+        summary = icf_mod.encode_init(icf_path, zarr_path, 7, variants_chunk_size=3)
         assert summary.num_partitions == 3
         assert zarr_path.exists()
         wip_path = zarr_path / "wip"
@@ -567,57 +565,57 @@ class TestVcfZarrWriterExample:
     def test_finalise_paths(self, icf_path, tmp_path):
         zarr_path = tmp_path / "x.zarr"
         assert not zarr_path.exists()
-        summary = vcf2zarr.encode_init(icf_path, zarr_path, 7, variants_chunk_size=3)
+        summary = icf_mod.encode_init(icf_path, zarr_path, 7, variants_chunk_size=3)
         wip_path = zarr_path / "wip"
         assert wip_path.exists()
         for j in range(summary.num_partitions):
-            vcf2zarr.encode_partition(zarr_path, j)
+            icf_mod.encode_partition(zarr_path, j)
             assert (wip_path / "partitions" / f"p{j}").exists()
-        vcf2zarr.encode_finalise(zarr_path)
+        icf_mod.encode_finalise(zarr_path)
         assert zarr_path.exists()
         assert not wip_path.exists()
 
     def test_finalise_no_partitions_fails(self, icf_path, tmp_path):
         zarr_path = tmp_path / "x.zarr"
-        vcf2zarr.encode_init(icf_path, zarr_path, 3, variants_chunk_size=3)
+        icf_mod.encode_init(icf_path, zarr_path, 3, variants_chunk_size=3)
         with pytest.raises(
             FileNotFoundError, match="Partitions not encoded: \\[0, 1, 2\\]"
         ):
-            vcf2zarr.encode_finalise(zarr_path)
+            icf_mod.encode_finalise(zarr_path)
 
     @pytest.mark.parametrize("partition", [0, 1, 2])
     def test_finalise_missing_partition_fails(self, icf_path, tmp_path, partition):
         zarr_path = tmp_path / "x.zarr"
-        vcf2zarr.encode_init(icf_path, zarr_path, 3, variants_chunk_size=3)
+        icf_mod.encode_init(icf_path, zarr_path, 3, variants_chunk_size=3)
         for j in range(3):
             if j != partition:
-                vcf2zarr.encode_partition(zarr_path, j)
+                icf_mod.encode_partition(zarr_path, j)
         with pytest.raises(
             FileNotFoundError, match=f"Partitions not encoded: \\[{partition}\\]"
         ):
-            vcf2zarr.encode_finalise(zarr_path)
+            icf_mod.encode_finalise(zarr_path)
 
     @pytest.mark.parametrize("partition", [0, 1, 2])
     def test_encode_partition(self, icf_path, tmp_path, partition):
         zarr_path = tmp_path / "x.zarr"
-        vcf2zarr.encode_init(icf_path, zarr_path, 3, variants_chunk_size=3)
+        icf_mod.encode_init(icf_path, zarr_path, 3, variants_chunk_size=3)
         partition_path = zarr_path / "wip" / "partitions" / f"p{partition}"
         assert not partition_path.exists()
-        vcf2zarr.encode_partition(zarr_path, partition)
+        icf_mod.encode_partition(zarr_path, partition)
         assert partition_path.exists()
 
     def test_double_encode_partition(self, icf_path, tmp_path, caplog):
         partition = 1
         zarr_path = tmp_path / "x.zarr"
-        vcf2zarr.encode_init(icf_path, zarr_path, 3, variants_chunk_size=3)
+        icf_mod.encode_init(icf_path, zarr_path, 3, variants_chunk_size=3)
         partition_path = zarr_path / "wip" / "partitions" / f"p{partition}"
         assert not partition_path.exists()
-        vcf2zarr.encode_partition(zarr_path, partition)
+        icf_mod.encode_partition(zarr_path, partition)
         assert partition_path.exists()
         size = core.du(partition_path)
         assert size > 0
         with caplog.at_level("WARNING"):
-            vcf2zarr.encode_partition(zarr_path, partition)
+            icf_mod.encode_partition(zarr_path, partition)
         assert "Removing existing partition at" in caplog.text
         assert partition_path.exists()
         assert core.du(partition_path) == size
@@ -625,9 +623,9 @@ class TestVcfZarrWriterExample:
     @pytest.mark.parametrize("partition", [-1, 3, 100])
     def test_encode_partition_out_of_range(self, icf_path, tmp_path, partition):
         zarr_path = tmp_path / "x.zarr"
-        vcf2zarr.encode_init(icf_path, zarr_path, 3, variants_chunk_size=3)
+        icf_mod.encode_init(icf_path, zarr_path, 3, variants_chunk_size=3)
         with pytest.raises(ValueError, match="Partition index not in the valid range"):
-            vcf2zarr.encode_partition(zarr_path, partition)
+            icf_mod.encode_partition(zarr_path, partition)
 
 
 class TestClobberFixedFields:
@@ -674,7 +672,7 @@ class TestClobberFixedFields:
         vcf_file = tmp_path / "test.vcf"
         self.generate_vcf(vcf_file, info_field=field)
         with pytest.raises(ValueError, match=f"INFO field name.*{field}"):
-            vcf2zarr.explode(tmp_path / "x.icf", [tmp_path / "test.vcf.gz"])
+            icf_mod.explode(tmp_path / "x.icf", [tmp_path / "test.vcf.gz"])
 
     @pytest.mark.parametrize(
         "field",
@@ -688,7 +686,7 @@ class TestClobberFixedFields:
         vcf_file = tmp_path / "test.vcf"
         self.generate_vcf(vcf_file, format_field=field)
         with pytest.raises(ValueError, match=f"FORMAT field name.*{field}"):
-            vcf2zarr.explode(tmp_path / "x.icf", [tmp_path / "test.vcf.gz"])
+            icf_mod.explode(tmp_path / "x.icf", [tmp_path / "test.vcf.gz"])
 
 
 class TestBadSchemaChanges:
@@ -715,7 +713,7 @@ class TestBadSchemaChanges:
         with open(schema_path, "w") as f:
             json.dump(d, f)
         with pytest.raises(ValueError, match="Subsetting or reordering samples"):
-            vcf2zarr.encode(icf_path, tmp_path / "z", schema_path=schema_path)
+            icf_mod.encode(icf_path, tmp_path / "z", schema_path=schema_path)
 
 
 class TestInspect:
