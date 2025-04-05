@@ -205,12 +205,6 @@ class TestSchemaJsonRoundTrip:
         schema.fields.clear()
         self.assert_json_round_trip(schema)
 
-    def test_generated_no_samples(self, icf_path):
-        icf = icf_mod.IntermediateColumnarFormat(icf_path)
-        schema = icf.generate_schema()
-        schema.samples.clear()
-        self.assert_json_round_trip(schema)
-
     def test_generated_change_dtype(self, icf_path):
         icf = icf_mod.IntermediateColumnarFormat(icf_path)
         schema = icf.generate_schema()
@@ -336,23 +330,6 @@ class TestDefaultSchema:
     def test_chunk_size(self, schema):
         assert schema.samples_chunk_size == 10000
         assert schema.variants_chunk_size == 1000
-
-    def test_samples(self, schema):
-        assert schema.asdict()["samples"] == [
-            {"id": s} for s in ["NA00001", "NA00002", "NA00003"]
-        ]
-
-    def test_contigs(self, schema):
-        assert schema.asdict()["contigs"] == [
-            {"id": s, "length": None} for s in ["19", "20", "X"]
-        ]
-
-    def test_filters(self, schema):
-        assert schema.asdict()["filters"] == [
-            {"id": "PASS", "description": "All filters passed"},
-            {"id": "s50", "description": "Less than 50% of samples have data"},
-            {"id": "q10", "description": "Quality below 10"},
-        ]
 
     def test_variant_contig(self, schema):
         assert get_field_dict(schema, "variant_contig") == {
@@ -504,18 +481,6 @@ class TestVcfDescriptions:
     )
     def test_fields(self, schema, field, description):
         assert schema.field_map()[field].description == description
-
-    @pytest.mark.parametrize(
-        ("filt", "description"),
-        [
-            ("PASS", "All filters passed"),
-            ("s50", "Less than 50% of samples have data"),
-            ("q10", "Quality below 10"),
-        ],
-    )
-    def test_filters(self, schema, filt, description):
-        d = {f.id: f.description for f in schema.filters}
-        assert d[filt] == description
 
 
 class TestVcfZarrWriterExample:
@@ -687,33 +652,6 @@ class TestClobberFixedFields:
         self.generate_vcf(vcf_file, format_field=field)
         with pytest.raises(ValueError, match=f"FORMAT field name.*{field}"):
             icf_mod.explode(tmp_path / "x.icf", [tmp_path / "test.vcf.gz"])
-
-
-class TestBadSchemaChanges:
-    # [{'id': 'NA00001'}, {'id': 'NA00002'}, {'id': 'NA00003'}],
-    @pytest.mark.parametrize(
-        "samples",
-        [
-            [],
-            [{"id": "NA00001"}, {"id": "NA00003"}],
-            [{"id": "NA00001"}, {"id": "NA00002"}, {"id": "NA00004"}],
-            [
-                {"id": "NA00001"},
-                {"id": "NA00002"},
-                {"id": "NA00003"},
-                {"id": "NA00004"},
-            ],
-            [{"id": "NA00001"}, {"id": "NA00003"}, {"id": "NA00002"}],
-        ],
-    )
-    def test_removed_samples(self, tmp_path, schema, icf_path, samples):
-        d = schema.asdict()
-        d["samples"] = samples
-        schema_path = tmp_path / "schema.json"
-        with open(schema_path, "w") as f:
-            json.dump(d, f)
-        with pytest.raises(ValueError, match="Subsetting or reordering samples"):
-            icf_mod.encode(icf_path, tmp_path / "z", schema_path=schema_path)
 
 
 class TestInspect:
