@@ -1,3 +1,4 @@
+import abc
 import dataclasses
 import json
 import logging
@@ -13,7 +14,7 @@ from bio2zarr import constants, core, provenance, zarr_utils
 
 logger = logging.getLogger(__name__)
 
-ZARR_SCHEMA_FORMAT_VERSION = "0.4"
+ZARR_SCHEMA_FORMAT_VERSION = "0.5"
 DEFAULT_ZARR_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7)
 
 _fixed_field_descriptions = {
@@ -26,6 +27,62 @@ _fixed_field_descriptions = {
     "variant_quality": "Phred-scaled quality score",
     "variant_filter": "Filter status of the variant",
 }
+
+
+class Source(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def path(self):
+        pass
+
+    @property
+    @abc.abstractmethod
+    def num_records(self):
+        pass
+
+    @property
+    @abc.abstractmethod
+    def num_samples(self):
+        pass
+
+    @property
+    @abc.abstractmethod
+    def samples(self):
+        pass
+
+    @property
+    def contigs(self):
+        return None
+
+    @property
+    def filters(self):
+        return None
+
+    @property
+    def root_attrs(self):
+        return {}
+
+    @abc.abstractmethod
+    def iter_alleles(self, start, stop, num_alleles):
+        pass
+
+    @abc.abstractmethod
+    def iter_genotypes(self, start, stop, num_alleles):
+        pass
+
+    def iter_id(self, start, stop):
+        return
+
+    def iter_contig(self, start, stop):
+        return
+
+    @abc.abstractmethod
+    def iter_field(self, field_name, shape, start, stop):
+        pass
+
+    @abc.abstractmethod
+    def generate_schema(self, variants_chunk_size, samples_chunk_size, local_alleles):
+        pass
 
 
 @dataclasses.dataclass
@@ -182,25 +239,16 @@ class VcfZarrSchema(core.JsonDataclass):
     format_version: str
     samples_chunk_size: int
     variants_chunk_size: int
-    samples: list
-    contigs: list
-    filters: list
     fields: list
 
     def __init__(
         self,
         format_version: str,
-        samples: list,
-        contigs: list,
-        filters: list,
         fields: list,
         variants_chunk_size: int = None,
         samples_chunk_size: int = None,
     ):
         self.format_version = format_version
-        self.samples = samples
-        self.contigs = contigs
-        self.filters = filters
         self.fields = fields
         if variants_chunk_size is None:
             variants_chunk_size = 1000
@@ -238,9 +286,6 @@ class VcfZarrSchema(core.JsonDataclass):
                 f"{d['format_version']} != {ZARR_SCHEMA_FORMAT_VERSION}"
             )
         ret = VcfZarrSchema(**d)
-        ret.samples = [Sample(**sd) for sd in d["samples"]]
-        ret.contigs = [Contig(**sd) for sd in d["contigs"]]
-        ret.filters = [Filter(**sd) for sd in d["filters"]]
         ret.fields = [ZarrArraySpec(**sd) for sd in d["fields"]]
         return ret
 
@@ -474,8 +519,10 @@ class VcfZarrWriter:
 
         # Doing this synchronously - this is fine surely
         self.encode_samples(root)
-        self.encode_filter_id(root)
-        self.encode_contig_id(root)
+        if self.source.filters is not None:
+            self.encode_filter_id(root)
+        if self.source.contigs is not None:
+            self.encode_contigs(root)
 
         self.wip_path.mkdir()
         self.arrays_path.mkdir()
@@ -502,12 +549,11 @@ class VcfZarrWriter:
         )
 
     def encode_samples(self, root):
-        if [s.id for s in self.schema.samples] != self.source.samples:
-            raise ValueError("Subsetting or reordering samples not supported currently")
+        samples = self.source.samples
         array = root.array(
             "sample_id",
-            data=[sample.id for sample in self.schema.samples],
-            shape=len(self.schema.samples),
+            data=[sample.id for sample in samples],
+            shape=len(samples),
             dtype="str",
             compressor=DEFAULT_ZARR_COMPRESSOR,
             chunks=(self.schema.samples_chunk_size,),
@@ -515,20 +561,21 @@ class VcfZarrWriter:
         array.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
         logger.debug("Samples done")
 
-    def encode_contig_id(self, root):
+    def encode_contigs(self, root):
+        contigs = self.source.contigs
         array = root.array(
             "contig_id",
-            data=[contig.id for contig in self.schema.contigs],
-            shape=len(self.schema.contigs),
+            data=[contig.id for contig in contigs],
+            shape=len(contigs),
             dtype="str",
             compressor=DEFAULT_ZARR_COMPRESSOR,
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
-        if all(contig.length is not None for contig in self.schema.contigs):
+        if all(contig.length is not None for contig in contigs):
             array = root.array(
                 "contig_length",
-                data=[contig.length for contig in self.schema.contigs],
-                shape=len(self.schema.contigs),
+                data=[contig.length for contig in contigs],
+                shape=len(contigs),
                 dtype=np.int64,
                 compressor=DEFAULT_ZARR_COMPRESSOR,
             )
@@ -537,10 +584,11 @@ class VcfZarrWriter:
     def encode_filter_id(self, root):
         # TODO need a way to store description also
         # https://github.com/sgkit-dev/vcf-zarr-spec/issues/19
+        filters = self.source.filters
         array = root.array(
             "filter_id",
-            data=[filt.id for filt in self.schema.filters],
-            shape=len(self.schema.filters),
+            data=[filt.id for filt in filters],
+            shape=len(filters),
             dtype="str",
             compressor=DEFAULT_ZARR_COMPRESSOR,
         )
