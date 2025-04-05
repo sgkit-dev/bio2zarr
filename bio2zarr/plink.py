@@ -5,7 +5,7 @@ import bed_reader
 import numpy as np
 import zarr
 
-from bio2zarr import constants, schema, writer
+from bio2zarr import constants, vcz
 
 logger = logging.getLogger(__name__)
 
@@ -58,12 +58,12 @@ class PlinkFormat:
         m = self.bed.sid_count
         logging.info(f"Scanned plink with {n} samples and {m} variants")
 
-        schema_instance = schema.VcfZarrSchema(
-            format_version=schema.ZARR_SCHEMA_FORMAT_VERSION,
+        schema_instance = vcz.VcfZarrSchema(
+            format_version=vcz.ZARR_SCHEMA_FORMAT_VERSION,
             samples_chunk_size=samples_chunk_size,
             variants_chunk_size=variants_chunk_size,
             fields=[],
-            samples=[schema.Sample(id=sample) for sample in self.bed.iid],
+            samples=[vcz.Sample(id=sample) for sample in self.bed.iid],
             contigs=[],
             filters=[],
         )
@@ -74,7 +74,7 @@ class PlinkFormat:
         )
 
         array_specs = [
-            schema.ZarrArraySpec.new(
+            vcz.ZarrArraySpec.new(
                 vcf_field="position",
                 name="variant_position",
                 dtype="i4",
@@ -83,7 +83,7 @@ class PlinkFormat:
                 chunks=[schema_instance.variants_chunk_size],
                 description=None,
             ),
-            schema.ZarrArraySpec.new(
+            vcz.ZarrArraySpec.new(
                 vcf_field=None,
                 name="variant_allele",
                 dtype="O",
@@ -92,7 +92,7 @@ class PlinkFormat:
                 chunks=[schema_instance.variants_chunk_size, 2],
                 description=None,
             ),
-            schema.ZarrArraySpec.new(
+            vcz.ZarrArraySpec.new(
                 vcf_field=None,
                 name="call_genotype_phased",
                 dtype="bool",
@@ -104,7 +104,7 @@ class PlinkFormat:
                 ],
                 description=None,
             ),
-            schema.ZarrArraySpec.new(
+            vcz.ZarrArraySpec.new(
                 vcf_field=None,
                 name="call_genotype",
                 dtype="i1",
@@ -117,7 +117,7 @@ class PlinkFormat:
                 ],
                 description=None,
             ),
-            schema.ZarrArraySpec.new(
+            vcz.ZarrArraySpec.new(
                 vcf_field=None,
                 name="call_genotype_mask",
                 dtype="bool",
@@ -150,7 +150,7 @@ def convert(
         samples_chunk_size=samples_chunk_size,
     )
     zarr_path = pathlib.Path(zarr_path)
-    vzw = writer.VcfZarrWriter(PlinkFormat, zarr_path)
+    vzw = vcz.VcfZarrWriter(PlinkFormat, zarr_path)
     # Rough heuristic to split work up enough to keep utilisation high
     target_num_partitions = max(1, worker_processes * 4)
     vzw.init(

@@ -8,8 +8,7 @@ import sgkit as sg
 import xarray.testing as xt
 import zarr
 
-from bio2zarr import core, vcf2zarr, writer
-from bio2zarr import schema as schema_mod
+from bio2zarr import core, vcf2zarr, vcz
 from bio2zarr.vcf2zarr import icf as icf_mod
 from bio2zarr.zarr_utils import zarr_v3
 
@@ -37,7 +36,7 @@ def schema_path(icf_path, tmp_path_factory):
 @pytest.fixture(scope="module")
 def schema(schema_path):
     with open(schema_path) as f:
-        a = schema_mod.VcfZarrSchema.fromjson(f.read())
+        a = vcz.VcfZarrSchema.fromjson(f.read())
         return a
 
 
@@ -49,7 +48,7 @@ def local_alleles_schema(icf_path, tmp_path_factory):
     with open(out, "w") as f:
         vcf2zarr.mkschema(icf_path, f, local_alleles=True)
     with open(out) as f:
-        return schema_mod.VcfZarrSchema.fromjson(f.read())
+        return vcz.VcfZarrSchema.fromjson(f.read())
 
 
 @pytest.fixture(scope="module")
@@ -108,7 +107,7 @@ class TestJsonVersions:
         d = schema.asdict()
         d["format_version"] = version
         with pytest.raises(ValueError, match="Zarr schema format version mismatch"):
-            schema_mod.VcfZarrSchema.fromdict(d)
+            vcz.VcfZarrSchema.fromdict(d)
 
     @pytest.mark.parametrize("version", ["0.0", "1.0", "xxxxx", 0.1])
     def test_exploded_metadata_mismatch(self, tmpdir, icf_path, version):
@@ -129,7 +128,7 @@ class TestJsonVersions:
             d = json.load(f)
         d["format_version"] = version
         with pytest.raises(ValueError, match="VcfZarrWriter format version mismatch"):
-            writer.VcfZarrWriterMetadata.fromdict(d)
+            vcz.VcfZarrWriterMetadata.fromdict(d)
 
 
 @pytest.mark.skipif(
@@ -195,7 +194,7 @@ class TestSchemaChunkSize:
 
 class TestSchemaJsonRoundTrip:
     def assert_json_round_trip(self, schema):
-        schema2 = schema_mod.VcfZarrSchema.fromjson(schema.asjson())
+        schema2 = vcz.VcfZarrSchema.fromjson(schema.asjson())
         assert schema == schema2
 
     def test_generated_no_changes(self, icf_path):
@@ -316,7 +315,7 @@ class TestChunkNbytes:
 class TestValidateSchema:
     @pytest.mark.parametrize("size", [2**31, 2**31 + 1, 2**32])
     def test_chunk_too_large(self, schema, size):
-        schema = schema_mod.VcfZarrSchema.fromdict(schema.asdict())
+        schema = vcz.VcfZarrSchema.fromdict(schema.asdict())
         field = schema.field_map()["variant_H2"]
         field.shape = (size,)
         field.chunks = (size,)
@@ -325,7 +324,7 @@ class TestValidateSchema:
 
     @pytest.mark.parametrize("size", [2**31 - 1, 2**30])
     def test_chunk_not_too_large(self, schema, size):
-        schema = schema_mod.VcfZarrSchema.fromdict(schema.asdict())
+        schema = vcz.VcfZarrSchema.fromdict(schema.asdict())
         field = schema.field_map()["variant_H2"]
         field.shape = (size,)
         field.chunks = (size,)
@@ -334,7 +333,7 @@ class TestValidateSchema:
 
 class TestDefaultSchema:
     def test_format_version(self, schema):
-        assert schema.format_version == schema_mod.ZARR_SCHEMA_FORMAT_VERSION
+        assert schema.format_version == vcz.ZARR_SCHEMA_FORMAT_VERSION
 
     def test_chunk_size(self, schema):
         assert schema.samples_chunk_size == 10000

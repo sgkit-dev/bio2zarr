@@ -15,7 +15,7 @@ from typing import Any
 import numcodecs
 import numpy as np
 
-from .. import constants, core, provenance, schema, vcf_utils, writer
+from .. import constants, core, provenance, vcf_utils, vcz
 
 logger = logging.getLogger(__name__)
 
@@ -172,9 +172,9 @@ class IcfMetadata(core.JsonDataclass):
         d = d.copy()
         d["partitions"] = partitions
         d["fields"] = [VcfField.fromdict(fd) for fd in d["fields"]]
-        d["samples"] = [schema.Sample(**sd) for sd in d["samples"]]
-        d["filters"] = [schema.Filter(**fd) for fd in d["filters"]]
-        d["contigs"] = [schema.Contig(**cd) for cd in d["contigs"]]
+        d["samples"] = [vcz.Sample(**sd) for sd in d["samples"]]
+        d["filters"] = [vcz.Filter(**fd) for fd in d["filters"]]
+        d["contigs"] = [vcz.Contig(**cd) for cd in d["contigs"]]
         return IcfMetadata(**d)
 
     def __eq__(self, other):
@@ -225,7 +225,7 @@ def scan_vcf(path, target_num_partitions):
                     description = ""
                 if h["ID"] == "PASS":
                     pass_index = len(filters)
-                filters.append(schema.Filter(h["ID"], description))
+                filters.append(vcz.Filter(h["ID"], description))
 
         # Ensure PASS is the first filter if present
         if pass_index > 0:
@@ -247,9 +247,9 @@ def scan_vcf(path, target_num_partitions):
             contig_lengths = [None for _ in vcf.seqnames]
 
         metadata = IcfMetadata(
-            samples=[schema.Sample(sample_id) for sample_id in vcf.samples],
+            samples=[vcz.Sample(sample_id) for sample_id in vcf.samples],
             contigs=[
-                schema.Contig(contig_id, length)
+                vcz.Contig(contig_id, length)
                 for contig_id, length in zip(vcf.seqnames, contig_lengths)
             ],
             filters=filters,
@@ -843,7 +843,7 @@ def convert_local_allele_field_types(fields):
     chunks = gt.chunks[:-1]
     dimensions = gt.dimensions[:-1]
 
-    la = schema.ZarrArraySpec.new(
+    la = vcz.ZarrArraySpec.new(
         vcf_field=None,
         name="call_LA",
         dtype="i1",
@@ -1032,8 +1032,8 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
         if local_alleles is None:
             local_alleles = False
 
-        schema_instance = schema.VcfZarrSchema(
-            format_version=schema.ZARR_SCHEMA_FORMAT_VERSION,
+        schema_instance = vcz.VcfZarrSchema(
+            format_version=vcz.ZARR_SCHEMA_FORMAT_VERSION,
             samples_chunk_size=samples_chunk_size,
             variants_chunk_size=variants_chunk_size,
             fields=[],
@@ -1048,7 +1048,7 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
         )
 
         def spec_from_field(field, array_name=None):
-            return schema.ZarrArraySpec.from_field(
+            return vcz.ZarrArraySpec.from_field(
                 field,
                 num_samples=n,
                 num_variants=m,
@@ -1065,7 +1065,7 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
             dimensions=("variants",),
             chunks=None,
         ):
-            return schema.ZarrArraySpec.new(
+            return vcz.ZarrArraySpec.new(
                 vcf_field=vcf_field,
                 name=name,
                 dtype=dtype,
@@ -1136,7 +1136,7 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
             ]
             dimensions = ["variants", "samples"]
             array_specs.append(
-                schema.ZarrArraySpec.new(
+                vcz.ZarrArraySpec.new(
                     vcf_field=None,
                     name="call_genotype_phased",
                     dtype="bool",
@@ -1150,7 +1150,7 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
             chunks += [ploidy]
             dimensions += ["ploidy"]
             array_specs.append(
-                schema.ZarrArraySpec.new(
+                vcz.ZarrArraySpec.new(
                     vcf_field=None,
                     name="call_genotype",
                     dtype=gt_field.smallest_dtype(),
@@ -1161,7 +1161,7 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
                 )
             )
             array_specs.append(
-                schema.ZarrArraySpec.new(
+                vcz.ZarrArraySpec.new(
                     vcf_field=None,
                     name="call_genotype_mask",
                     dtype="bool",
@@ -1527,7 +1527,7 @@ def inspect(path):
         obj = IntermediateColumnarFormat(path)
     # NOTE: this is too strict, we should support more general Zarrs, see #276
     elif (path / ".zmetadata").exists():
-        obj = writer.VcfZarr(path)
+        obj = vcz.VcfZarr(path)
     else:
         raise ValueError(f"{path} not in ICF or VCF Zarr format")
     return obj.summary_table()
@@ -1616,7 +1616,7 @@ def encode(
         max_variant_chunks=max_variant_chunks,
         dimension_separator=dimension_separator,
     )
-    vzw = writer.VcfZarrWriter(IntermediateColumnarFormat, zarr_path)
+    vzw = vcz.VcfZarrWriter(IntermediateColumnarFormat, zarr_path)
     vzw.encode_all_partitions(
         worker_processes=worker_processes,
         show_progress=show_progress,
@@ -1655,9 +1655,9 @@ def encode_init(
                 "Cannot specify schema along with chunk sizes"
             )  # NEEDS TEST
         with open(schema_path) as f:
-            schema_instance = schema.VcfZarrSchema.fromjson(f.read())
+            schema_instance = vcz.VcfZarrSchema.fromjson(f.read())
     zarr_path = pathlib.Path(zarr_path)
-    vzw = writer.VcfZarrWriter("icf", zarr_path)
+    vzw = vcz.VcfZarrWriter("icf", zarr_path)
     return vzw.init(
         icf_store,
         target_num_partitions=target_num_partitions,
@@ -1668,10 +1668,10 @@ def encode_init(
 
 
 def encode_partition(zarr_path, partition):
-    writer_instance = writer.VcfZarrWriter(IntermediateColumnarFormat, zarr_path)
+    writer_instance = vcz.VcfZarrWriter(IntermediateColumnarFormat, zarr_path)
     writer_instance.encode_partition(partition)
 
 
 def encode_finalise(zarr_path, show_progress=False):
-    writer_instance = writer.VcfZarrWriter(IntermediateColumnarFormat, zarr_path)
+    writer_instance = vcz.VcfZarrWriter(IntermediateColumnarFormat, zarr_path)
     writer_instance.finalise(show_progress=show_progress)

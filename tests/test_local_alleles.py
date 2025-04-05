@@ -2,7 +2,7 @@ import numpy as np
 import numpy.testing as nt
 import pytest
 
-from bio2zarr import writer
+from bio2zarr import vcz
 
 
 class TestComputeLA:
@@ -23,13 +23,13 @@ class TestComputeLA:
     )
     def test_simple_examples(self, genotypes, expected):
         G = np.array(genotypes)
-        result = writer.compute_la_field(G)
+        result = vcz.compute_la_field(G)
         nt.assert_array_equal(result, expected)
 
     def test_extreme_value(self):
         G = np.array([[0, 2**32 - 1]])
         with pytest.raises(ValueError, match="Extreme"):
-            writer.compute_la_field(G)
+            vcz.compute_la_field(G)
 
 
 class TestComputeLAD:
@@ -64,7 +64,7 @@ class TestComputeLAD:
         ],
     )
     def test_simple_examples(self, ad, la, expected):
-        result = writer.compute_lad_field(np.array(ad), np.array(la))
+        result = vcz.compute_lad_field(np.array(ad), np.array(la))
         nt.assert_array_equal(result, expected)
 
 
@@ -104,5 +104,5 @@ class TestComputeLPL:
         ],
     )
     def test_simple_examples(self, pl, la, expected):
-        result = writer.compute_lpl_field(np.array(pl), np.array(la))
+        result = vcz.compute_lpl_field(np.array(pl), np.array(la))
         nt.assert_array_equal(result, expected)

@@ -6,7 +6,7 @@ import numpy as np
 import numpy.testing as nt
 import pytest
 
-from bio2zarr import provenance, schema, vcf2zarr, vcf_utils
+from bio2zarr import provenance, vcf2zarr, vcf_utils, vcz
 from bio2zarr.vcf2zarr import icf as icf_mod
 
 
@@ -40,7 +40,7 @@ class TestSmallExample:
         with open(schema_file, "w") as f:
             vcf2zarr.mkschema(icf.path, f)
         with open(schema_file) as f:
-            schema1 = schema.VcfZarrSchema.fromjson(f.read())
+            schema1 = vcz.VcfZarrSchema.fromjson(f.read())
         schema2 = icf.generate_schema()
         assert schema1 == schema2
 
