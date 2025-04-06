@@ -5,7 +5,7 @@ import bed_reader
 import numpy as np
 import zarr
 
-from bio2zarr import constants, vcz
+from bio2zarr import constants, core, vcz
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +18,9 @@ class PlinkFormat:
         self.samples = [vcz.Sample(id=sample) for sample in self.bed.iid]
         self.num_samples = len(self.samples)
         self.root_attrs = {}
+        self.contigs = [
+            vcz.Contig(id=str(chrom)) for chrom in np.unique(self.bed.chromosome)
+        ]
 
     def iter_alleles(self, start, stop, num_alleles):
         ref_field = self.bed.allele_1
@@ -31,6 +34,11 @@ class PlinkFormat:
             alleles[0] = ref
             alleles[1 : 1 + len(alt)] = alt
             yield alleles
+
+    def iter_contig(self, start, stop):
+        chrom_to_contig_index = {contig.id: i for i, contig in enumerate(self.contigs)}
+        for chrom in self.bed.chromosome[start:stop]:
+            yield chrom_to_contig_index[str(chrom)]
 
     def iter_field(self, field_name, shape, start, stop):
         assert field_name == "position"  # Only position field is supported from plink
@@ -87,6 +95,15 @@ class PlinkFormat:
                 dimensions=["variants", "alleles"],
                 chunks=[schema_instance.variants_chunk_size, 2],
                 description=None,
+            ),
+            vcz.ZarrArraySpec.new(
+                vcf_field=None,
+                name="variant_contig",
+                dtype=core.min_int_dtype(0, len(np.unique(self.bed.chromosome))),
+                shape=[m],
+                dimensions=["variants"],
+                chunks=[schema_instance.variants_chunk_size],
+                description="Contig/chromosome index for each variant",
             ),
             vcz.ZarrArraySpec.new(
                 vcf_field=None,
@@ -159,9 +176,7 @@ def convert(
         show_progress=show_progress,
     )
     vzw.finalise(show_progress)
-
-    # TODO - index code needs variant_contig
-    # vzw.create_index()
+    vzw.create_index()
 
 
 # FIXME do this more efficiently - currently reading the whole thing

@@ -106,6 +106,16 @@ class TestExample:
     def test_variant_allele(self, ds):
         nt.assert_array_equal(ds.variant_allele, [["A", "G"], ["T", "C"]])
 
+    def test_contig_id(self, ds):
+        """Test that contig identifiers are correctly extracted and stored."""
+        nt.assert_array_equal(ds.contig_id, ["1"])
+
+    def test_variant_contig(self, ds):
+        """Test that variant to contig mapping is correctly stored."""
+        nt.assert_array_equal(
+            ds.variant_contig, [0, 0]
+        )  # Both variants on chromosome 1
+
     def test_genotypes(self, ds):
         call_genotype = ds.call_genotype.values
         assert call_genotype.shape == (2, 10, 2)
@@ -195,6 +205,24 @@ class TestSimulatedExample:
         # print(expected)
         # FIXME not working
         nt.assert_array_equal(actual, expected)
+
+    def test_contig_arrays(self, ds):
+        """Test that contig arrays are correctly created and filled."""
+        # Verify contig_id exists and is a string array
+        assert hasattr(ds, "contig_id")
+        assert ds.contig_id.dtype == np.dtype("O")
+
+        # Verify variant_contig exists and contains integer indices
+        assert hasattr(ds, "variant_contig")
+        assert ds.variant_contig.dtype == np.dtype("int8")
+        assert ds.variant_contig.shape[0] == 100  # 100 variants
+
+        # Verify mapping between variant_contig and contig_id
+        # For each unique contig index, check at least one corresponding variant exists
+        for i, contig in enumerate(ds.contig_id.values):
+            assert np.any(
+                ds.variant_contig.values == i
+            ), f"No variants found for contig {contig}"
 
     # @pytest.mark.xfail
     @pytest.mark.parametrize(
