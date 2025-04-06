@@ -5,7 +5,7 @@ import bed_reader
 import numpy as np
 import zarr
 
-from bio2zarr import constants, vcz
+from bio2zarr import constants, core, vcz
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +28,17 @@ class PlinkFormat(vcz.Source):
         return [vcz.Sample(id=sample) for sample in self.bed.iid]
 
     @property
+    def contigs(self):
+        return [vcz.Contig(id=str(chrom)) for chrom in np.unique(self.bed.chromosome)]
+
+    @property
     def num_samples(self):
         return len(self.samples)
+
+    def iter_contig(self, start, stop):
+        chrom_to_contig_index = {contig.id: i for i, contig in enumerate(self.contigs)}
+        for chrom in self.bed.chromosome[start:stop]:
+            yield chrom_to_contig_index[str(chrom)]
 
     def iter_field(self, field_name, shape, start, stop):
         assert field_name == "position"  # Only position field is supported from plink
@@ -102,6 +111,12 @@ class PlinkFormat(vcz.Source):
                 description=None,
             ),
             vcz.ZarrArraySpec(
+                name="variant_contig",
+                dtype=core.min_int_dtype(0, len(np.unique(self.bed.chromosome))),
+                dimensions=["variants"],
+                description="Contig/chromosome index for each variant",
+            ),
+            vcz.ZarrArraySpec(
                 name="call_genotype_phased",
                 dtype="bool",
                 dimensions=["variants", "samples"],
@@ -155,9 +170,7 @@ def convert(
         show_progress=show_progress,
     )
     vzw.finalise(show_progress)
-
-    # TODO - index code needs variant_contig
-    # vzw.create_index()
+    vzw.create_index()
 
 
 # FIXME do this more efficiently - currently reading the whole thing
