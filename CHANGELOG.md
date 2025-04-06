@@ -1,5 +1,7 @@
 # 0.1.6 2025-0X-XX
 
+- Add contigs to plink output (#344)
+
 Breaking changes
 
 - Remove explicit sample, contig and filter lists from the schema.
