@@ -128,7 +128,7 @@ class PlinkFormat(vcz.Source):
                 dtype="i1",
                 dimensions=["variants", "samples", "ploidy"],
                 description=None,
-                compressor=vcz.DEFAULT_ZARR_COMPRESSOR_BOOL.get_config(),
+                compressor=vcz.DEFAULT_ZARR_COMPRESSOR_GENOTYPES.get_config(),
             ),
             vcz.ZarrArraySpec(
                 name="call_genotype_mask",
