@@ -1105,7 +1105,7 @@ def test_split_explode(tmp_path):
     pcvcf = vcf2zarr.IntermediateColumnarFormat(out)
     summary_d = pcvcf.fields["POS"].vcf_field.summary.asdict()
     # The compressed size can vary with different numcodecs versions
-    assert summary_d["compressed_size"] == 571 or summary_d["compressed_size"] == 587
+    assert summary_d["compressed_size"] in [571, 573, 587]
     del summary_d["compressed_size"]
     assert summary_d == {
         "num_chunks": 3,
