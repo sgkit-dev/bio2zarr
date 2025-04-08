@@ -9,7 +9,7 @@ import pytest
 import sgkit as sg
 import xarray.testing as xt
 
-from bio2zarr import constants, provenance, vcf2zarr
+from bio2zarr import constants, icf, provenance, vcz_verification
 
 
 def assert_dataset_equal(ds1, ds2, drop_vars=None):
@@ -25,7 +25,7 @@ class TestSmallExample:
     @pytest.fixture(scope="class")
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
-        vcf2zarr.convert([self.data_path], out)
+        icf.convert([self.data_path], out)
         return sg.load_dataset(out)
 
     def test_filters(self, ds):
@@ -246,7 +246,7 @@ class TestSmallExample:
     def test_no_genotypes(self, ds, tmp_path):
         path = "tests/data/vcf/sample_no_genotypes.vcf.gz"
         out = tmp_path / "example.vcf.zarr"
-        vcf2zarr.convert([path], out)
+        icf.convert([path], out)
         ds2 = sg.load_dataset(out)
         assert len(ds2["sample_id"]) == 0
         for field_name in ds:
@@ -266,7 +266,7 @@ class TestSmallExample:
         self, ds, tmp_path, variants_chunk_size, samples_chunk_size, y_chunks, x_chunks
     ):
         out = tmp_path / "example.vcf.zarr"
-        vcf2zarr.convert(
+        icf.convert(
             [self.data_path],
             out,
             variants_chunk_size=variants_chunk_size,
@@ -308,23 +308,23 @@ class TestSmallExample:
         # Rotate the list to check we are OK with different orderings
         files.rotate(rotate)
         assert len(files) == 3
-        vcf2zarr.convert(files, out, worker_processes=worker_processes)
+        icf.convert(files, out, worker_processes=worker_processes)
         ds2 = sg.load_dataset(out)
         xt.assert_equal(ds, ds2)
 
     @pytest.mark.parametrize("worker_processes", [0, 1, 2])
     def test_full_pipeline(self, ds, tmp_path, worker_processes):
         exploded = tmp_path / "example.exploded"
-        vcf2zarr.explode(
+        icf.explode(
             exploded,
             [self.data_path],
             worker_processes=worker_processes,
         )
         schema = tmp_path / "schema.json"
         with open(schema, "w") as f:
-            vcf2zarr.mkschema(exploded, f)
+            icf.mkschema(exploded, f)
         out = tmp_path / "example.zarr"
-        vcf2zarr.encode(exploded, out, schema, worker_processes=worker_processes)
+        icf.encode(exploded, out, schema, worker_processes=worker_processes)
         ds2 = sg.load_dataset(out)
         xt.assert_equal(ds, ds2)
 
@@ -334,9 +334,9 @@ class TestSmallExample:
         self, ds, tmp_path, max_variant_chunks, variants_chunk_size
     ):
         exploded = tmp_path / "example.exploded"
-        vcf2zarr.explode(exploded, [self.data_path])
+        icf.explode(exploded, [self.data_path])
         out = tmp_path / "example.zarr"
-        vcf2zarr.encode(
+        icf.encode(
             exploded,
             out,
             variants_chunk_size=variants_chunk_size,
@@ -352,7 +352,7 @@ class TestSmallExample:
     @pytest.mark.parametrize("worker_processes", [0, 1, 2])
     def test_worker_processes(self, ds, tmp_path, worker_processes):
         out = tmp_path / "example.vcf.zarr"
-        vcf2zarr.convert(
+        icf.convert(
             [self.data_path],
             out,
             variants_chunk_size=3,
@@ -364,12 +364,12 @@ class TestSmallExample:
     def test_inspect(self, tmp_path):
         # TODO pretty weak test, we should be doing this better somewhere else
         out = tmp_path / "example.vcf.zarr"
-        vcf2zarr.convert(
+        icf.convert(
             [self.data_path],
             out,
             variants_chunk_size=3,
         )
-        data = vcf2zarr.inspect(out)
+        data = icf.inspect(out)
         assert len(data) > 0
         for row in data:
             assert "name" in row
@@ -387,7 +387,7 @@ class TestSmallExample:
         # but the ordering of contigs has been permuted. This seems to be the
         # sample across VCF and BCF with tabix and VSI indexes
         zarr_path = tmp_path / "zarr"
-        vcf2zarr.convert([path], zarr_path)
+        icf.convert([path], zarr_path)
         ds2 = sg.load_dataset(zarr_path)
         contig_id_2 = ["19", "X", "20"]
         assert list(ds2["contig_id"].values) == contig_id_2
@@ -452,7 +452,7 @@ class TestSmallExample:
     def test_small_example_all_missing_gts(self, ds, tmp_path_factory):
         data_path = "tests/data/vcf/sample_all_missing_gts.vcf.gz"
         out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
-        vcf2zarr.convert([data_path], out, worker_processes=0)
+        icf.convert([data_path], out, worker_processes=0)
         ds2 = sg.load_dataset(out)
 
         assert_dataset_equal(
@@ -479,7 +479,7 @@ class TestSmallExampleLocalAlleles:
     @pytest.fixture(scope="class")
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
-        vcf2zarr.convert([self.data_path], out, local_alleles=True)
+        icf.convert([self.data_path], out, local_alleles=True)
         return sg.load_dataset(out)
 
     def test_call_LA(self, ds):
@@ -526,7 +526,7 @@ class TestTriploidExample:
     def ds(self, tmp_path_factory, request):
         data_path = f"tests/data/vcf/{request.param}.vcf.gz"
         out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
-        vcf2zarr.convert([data_path], out, local_alleles=False)
+        icf.convert([data_path], out, local_alleles=False)
         return sg.load_dataset(out)
 
     @pytest.mark.parametrize("name", ["triploid", "triploid2", "triploid3"])
@@ -536,7 +536,7 @@ class TestTriploidExample:
         with pytest.raises(
             ValueError, match=re.escape("Local alleles only supported on diploid")
         ):
-            vcf2zarr.convert([data_path], out, local_alleles=True)
+            icf.convert([data_path], out, local_alleles=True)
 
     def test_ok_without_local_alleles(self, ds):
         nt.assert_array_equal(ds.call_genotype.values, [[[0, 0, 0]]])
@@ -548,7 +548,7 @@ class TestWithGtHeaderNoGenotypes:
     @pytest.fixture(scope="class")
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
-        vcf2zarr.convert([self.data_path], out, worker_processes=0)
+        icf.convert([self.data_path], out, worker_processes=0)
         return sg.load_dataset(out)
 
     def test_gts(self, ds):
@@ -561,7 +561,7 @@ class Test1000G2020Example:
     @pytest.fixture(scope="class")
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
-        vcf2zarr.convert([self.data_path], out, worker_processes=0)
+        icf.convert([self.data_path], out, worker_processes=0)
         return sg.load_dataset(out)
 
     def test_position(self, ds):
@@ -672,7 +672,7 @@ class Test1000G2020ExampleLocalAlleles:
     @pytest.fixture(scope="class")
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
-        vcf2zarr.convert([self.data_path], out, worker_processes=0, local_alleles=True)
+        icf.convert([self.data_path], out, worker_processes=0, local_alleles=True)
         return sg.load_dataset(out)
 
     def test_position(self, ds):
@@ -761,7 +761,7 @@ class Test1000G2020AnnotationsExample:
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.zarr"
         # TODO capture warnings from htslib here
-        vcf2zarr.convert([self.data_path], out, worker_processes=0)
+        icf.convert([self.data_path], out, worker_processes=0)
         return sg.load_dataset(out)
 
     def test_position(self, ds):
@@ -995,7 +995,7 @@ class TestGeneratedFieldsExample:
     @pytest.fixture(scope="class")
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "vcf.zarr"
-        vcf2zarr.convert([self.data_path], out)
+        icf.convert([self.data_path], out)
         return sg.load_dataset(out)
 
     def test_info_string1(self, ds):
@@ -1037,14 +1037,14 @@ class TestSplitFileErrors:
     def test_entirely_incompatible(self, tmp_path):
         path = "tests/data/vcf/"
         with pytest.raises(ValueError, match="Incompatible"):
-            vcf2zarr.explode_init(
+            icf.explode_init(
                 tmp_path / "if", [path + "sample.vcf.gz", path + "1kg_2020_chrM.bcf"]
             )
 
     def test_duplicate_paths(self, tmp_path):
         path = "tests/data/vcf/"
         with pytest.raises(ValueError, match="Duplicate"):
-            vcf2zarr.explode_init(tmp_path / "if", [path + "sample.vcf.gz"] * 2)
+            icf.explode_init(tmp_path / "if", [path + "sample.vcf.gz"] * 2)
 
 
 @pytest.mark.parametrize(
@@ -1064,8 +1064,8 @@ class TestSplitFileErrors:
 def test_by_validating(name, tmp_path):
     path = f"tests/data/vcf/{name}"
     out = tmp_path / "test.zarr"
-    vcf2zarr.convert([path], out, worker_processes=0)
-    vcf2zarr.verify(path, out)
+    icf.convert([path], out, worker_processes=0)
+    vcz_verification.verify(path, out)
 
 
 @pytest.mark.parametrize(
@@ -1082,8 +1082,8 @@ def test_by_validating_split(source, suffix, files, tmp_path):
     source_path = f"tests/data/vcf/{source}"
     split_files = [f"{source_path}.{suffix}/{f}" for f in files]
     out = tmp_path / "test.zarr"
-    vcf2zarr.convert(split_files, out, worker_processes=0)
-    vcf2zarr.verify(source_path, out)
+    icf.convert(split_files, out, worker_processes=0)
+    vcz_verification.verify(source_path, out)
 
 
 def test_split_explode(tmp_path):
@@ -1093,16 +1093,16 @@ def test_split_explode(tmp_path):
         "tests/data/vcf/sample.vcf.gz.3.split/X.vcf.gz",
     ]
     out = tmp_path / "test.explode"
-    work_summary = vcf2zarr.explode_init(out, paths, target_num_partitions=15)
+    work_summary = icf.explode_init(out, paths, target_num_partitions=15)
     assert work_summary.num_partitions == 3
 
     with pytest.raises(FileNotFoundError):
-        pcvcf = vcf2zarr.IntermediateColumnarFormat(out)
+        pcvcf = icf.IntermediateColumnarFormat(out)
 
     for j in range(work_summary.num_partitions):
-        vcf2zarr.explode_partition(out, j)
-    vcf2zarr.explode_finalise(out)
-    pcvcf = vcf2zarr.IntermediateColumnarFormat(out)
+        icf.explode_partition(out, j)
+    icf.explode_finalise(out)
+    pcvcf = icf.IntermediateColumnarFormat(out)
     summary_d = pcvcf.fields["POS"].vcf_field.summary.asdict()
     # The compressed size can vary with different numcodecs versions
     assert summary_d["compressed_size"] in [571, 573, 587]
@@ -1114,15 +1114,15 @@ def test_split_explode(tmp_path):
         "max_value": 1235237,
         "min_value": 10,
     }
-    vcf2zarr.encode(out, tmp_path / "test.zarr")
-    vcf2zarr.verify("tests/data/vcf/sample.vcf.gz", tmp_path / "test.zarr")
+    icf.encode(out, tmp_path / "test.zarr")
+    vcz_verification.verify("tests/data/vcf/sample.vcf.gz", tmp_path / "test.zarr")
 
 
 def test_missing_filter(tmp_path):
     path = "tests/data/vcf/sample_missing_filter.vcf.gz"
     zarr_path = tmp_path / "zarr"
     with pytest.raises(ValueError, match="Filter 'q10' was not defined in the header"):
-        vcf2zarr.convert([path], zarr_path)
+        icf.convert([path], zarr_path)
 
 
 class TestOutOfOrderFields:
@@ -1133,7 +1133,7 @@ class TestOutOfOrderFields:
     @pytest.fixture(scope="class")
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "ooo_example.vcf.zarr"
-        vcf2zarr.convert([self.data_path1, self.data_path2], out)
+        icf.convert([self.data_path1, self.data_path2], out)
         return sg.load_dataset(out)
 
     def test_filters(self, ds):
