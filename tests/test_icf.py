@@ -52,11 +52,6 @@ class TestSmallExample:
     def test_inspect(self, icf):
         assert icf.summary_table() == icf_mod.inspect(icf.path)
 
-    def test_mapping_methods(self, icf):
-        assert len(icf) == len(self.fields)
-        assert icf["ALT"] is icf.fields["ALT"]
-        assert list(iter(icf)) == list(iter(icf))
-
     def test_num_partitions(self, icf):
         assert icf.num_partitions == 3
 
@@ -65,13 +60,13 @@ class TestSmallExample:
 
     def test_POS(self, icf):
         nt.assert_array_equal(
-            [v[0] for v in icf["POS"].values],
+            [v[0] for v in icf.fields["POS"].values],
             [111, 112, 14370, 17330, 1110696, 1230237, 1234567, 1235237, 10],
         )
 
     def test_REF(self, icf):
         ref = ["A", "A", "G", "T", "A", "T", "G", "T", "AC"]
-        assert icf["REF"].values == ref
+        assert icf.fields["REF"].values == ref
 
     def test_ALT(self, icf):
         alt = [
@@ -85,10 +80,10 @@ class TestSmallExample:
             [],
             ["A", "ATG", "C"],
         ]
-        assert [list(v) for v in icf["ALT"].values] == alt
+        assert [list(v) for v in icf.fields["ALT"].values] == alt
 
     def test_INFO_NS(self, icf):
-        assert icf["INFO/NS"].values == [None, None, 3, 3, 2, 3, 3, None, None]
+        assert icf.fields["INFO/NS"].values == [None, None, 3, 3, 2, 3, 3, None, None]
 
 
 class TestWithGtHeaderNoGenotypes:
@@ -100,7 +95,7 @@ class TestWithGtHeaderNoGenotypes:
         return icf_mod.explode(out, [self.data_path])
 
     def test_gts(self, icf):
-        values = icf["FORMAT/GT"].values
+        values = icf.fields["FORMAT/GT"].values
         assert values == [None] * icf.num_records
 
 
@@ -248,28 +243,28 @@ class TestGeneratedFieldsExample:
         assert v.dimensions == dimensions
 
     def test_info_string1(self, icf):
-        non_missing = [v for v in icf["INFO/IS1"].values if v is not None]
+        non_missing = [v for v in icf.fields["INFO/IS1"].values if v is not None]
         assert non_missing[0] == "bc"
         assert non_missing[1] == "."
 
     def test_info_char1(self, icf):
-        non_missing = [v for v in icf["INFO/IC1"].values if v is not None]
+        non_missing = [v for v in icf.fields["INFO/IC1"].values if v is not None]
         assert non_missing[0] == "f"
         assert non_missing[1] == "."
 
     def test_info_string2(self, icf):
-        non_missing = [v for v in icf["INFO/IS2"].values if v is not None]
+        non_missing = [v for v in icf.fields["INFO/IS2"].values if v is not None]
         nt.assert_array_equal(non_missing[0], ["hij", "d"])
         nt.assert_array_equal(non_missing[1], [".", "d"])
         nt.assert_array_equal(non_missing[2], ["hij", "."])
         nt.assert_array_equal(non_missing[3], [".", "."])
 
     def test_format_string1(self, icf):
-        non_missing = [v for v in icf["FORMAT/FS1"].values if v is not None]
+        non_missing = [v for v in icf.fields["FORMAT/FS1"].values if v is not None]
         nt.assert_array_equal(non_missing[0], [["bc"], ["."]])
 
     def test_format_string2(self, icf):
-        non_missing = [v for v in icf["FORMAT/FS2"].values if v is not None]
+        non_missing = [v for v in icf.fields["FORMAT/FS2"].values if v is not None]
         nt.assert_array_equal(non_missing[0], [["bc", "op"], [".", "op"]])
         nt.assert_array_equal(non_missing[1], [["bc", "."], [".", "."]])
 
@@ -344,7 +339,7 @@ class TestCorruptionDetection:
         shutil.rmtree(icf_path / "POS")
         icf = icf_mod.IntermediateColumnarFormat(icf_path)
         with pytest.raises(FileNotFoundError):
-            icf["POS"].values  # noqa B018
+            icf.fields["POS"].values  # noqa B018
 
     def test_missing_chunk_index(self, tmp_path):
         icf_path = tmp_path / "icf"
@@ -354,7 +349,7 @@ class TestCorruptionDetection:
         chunk_index_path.unlink()
         icf = icf_mod.IntermediateColumnarFormat(icf_path)
         with pytest.raises(FileNotFoundError):
-            icf["POS"].values  # noqa B018
+            icf.fields["POS"].values  # noqa B018
 
     def test_missing_chunk_file(self, tmp_path):
         icf_path = tmp_path / "icf"
@@ -364,7 +359,7 @@ class TestCorruptionDetection:
         chunk_file.unlink()
         icf = icf_mod.IntermediateColumnarFormat(icf_path)
         with pytest.raises(FileNotFoundError):
-            icf["POS"].values  # noqa B018
+            icf.fields["POS"].values  # noqa B018
 
     def test_empty_chunk_file(self, tmp_path):
         icf_path = tmp_path / "icf"
@@ -375,7 +370,7 @@ class TestCorruptionDetection:
             pass
         icf = icf_mod.IntermediateColumnarFormat(icf_path)
         with pytest.raises(RuntimeError, match="blosc"):
-            icf["POS"].values  # noqa B018
+            icf.fields["POS"].values  # noqa B018
 
     # Chunk file is 187 long
     @pytest.mark.parametrize("length", [10, 100, 185])
@@ -391,7 +386,7 @@ class TestCorruptionDetection:
         icf = icf_mod.IntermediateColumnarFormat(icf_path)
         # Either Blosc or pickling errors happen here
         with pytest.raises((RuntimeError, pickle.UnpicklingError)):
-            icf["POS"].values  # noqa B018
+            icf.fields["POS"].values  # noqa B018
 
     def test_chunk_incorrect_length(self, tmp_path):
         icf_path = tmp_path / "icf"
@@ -408,9 +403,9 @@ class TestCorruptionDetection:
             f.write(compressor.encode(pkl))
         icf = icf_mod.IntermediateColumnarFormat(icf_path)
         with pytest.raises(ValueError, match="Corruption detected"):
-            icf["POS"].values  # noqa B018
+            icf.fields["POS"].values  # noqa B018
         with pytest.raises(ValueError, match="Corruption detected"):
-            list(icf["POS"].iter_values(0, 9))
+            list(icf.fields["POS"].iter_values(0, 9))
 
 
 class TestSlicing:
@@ -429,7 +424,7 @@ class TestSlicing:
         )
 
     def test_pos_repr(self, icf):
-        assert repr(icf["POS"]).startswith(
+        assert repr(icf.fields["POS"]).startswith(
             "IntermediateColumnarFormatField(name=POS, "
             "partition_chunks=[8, 8, 8, 8, 8], path="
         )
@@ -440,14 +435,14 @@ class TestSlicing:
         )
 
     def test_pos_values(self, icf):
-        field = icf["POS"]
+        field = icf.fields["POS"]
         pos = np.array([v[0] for v in field.values])
         # Check the actual values here to make sure other tests make sense
         actual = np.hstack([1 + np.arange(933) for _ in range(5)])
         nt.assert_array_equal(pos, actual)
 
     def test_pos_chunk_records(self, icf):
-        pos = icf["POS"]
+        pos = icf.fields["POS"]
         for j in range(pos.num_partitions):
             a = pos.chunk_record_index(j)
             nt.assert_array_equal(a, [0, 118, 236, 354, 472, 590, 708, 826, 933])
@@ -478,7 +473,7 @@ class TestSlicing:
         ],
     )
     def test_slice(self, icf, start, stop):
-        field = icf["POS"]
+        field = icf.fields["POS"]
         pos = np.array(field.values)
         pos_slice = np.array(list(field.iter_values(start, stop)))
         nt.assert_array_equal(pos[start:stop], pos_slice)

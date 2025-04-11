@@ -1,3 +1,10 @@
+# 0.1.6 2025-0X-XX
+
+Breaking changes
+
+- Remove explicit sample, contig and filter lists from the schema.
+  Existing ICFs will need to be recreated. (#343)
+
 # 0.1.5 2025-03-31
 
 - Add support for merging contig IDs across multiple VCFs (#335)

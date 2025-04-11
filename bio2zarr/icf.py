@@ -877,9 +877,9 @@ def convert_local_allele_field_types(fields):
     return [*fields, la]
 
 
-class IntermediateColumnarFormat(collections.abc.Mapping):
+class IntermediateColumnarFormat(vcz.Source):
     def __init__(self, path):
-        self.path = pathlib.Path(path)
+        self._path = pathlib.Path(path)
         # TODO raise a more informative error here telling people this
         # directory is either a WIP or the wrong format.
         with open(self.path / "metadata.json") as f:
@@ -902,19 +902,10 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
 
     def __repr__(self):
         return (
-            f"IntermediateColumnarFormat(fields={len(self)}, "
+            f"IntermediateColumnarFormat(fields={len(self.fields)}, "
             f"partitions={self.num_partitions}, "
             f"records={self.num_records}, path={self.path})"
         )
-
-    def __getitem__(self, key):
-        return self.fields[key]
-
-    def __iter__(self):
-        return iter(self.fields)
-
-    def __len__(self):
-        return len(self.fields)
 
     def summary_table(self):
         data = []
@@ -935,6 +926,10 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
         return data
 
     @property
+    def path(self):
+        return self._path
+
+    @property
     def num_records(self):
         return self.metadata.num_records
 
@@ -944,7 +939,15 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
 
     @property
     def samples(self):
-        return [sample.id for sample in self.metadata.samples]
+        return self.metadata.samples
+
+    @property
+    def contigs(self):
+        return self.metadata.contigs
+
+    @property
+    def filters(self):
+        return self.metadata.filters
 
     @property
     def num_samples(self):
@@ -1037,9 +1040,6 @@ class IntermediateColumnarFormat(collections.abc.Mapping):
             samples_chunk_size=samples_chunk_size,
             variants_chunk_size=variants_chunk_size,
             fields=[],
-            samples=self.metadata.samples,
-            contigs=self.metadata.contigs,
-            filters=self.metadata.filters,
         )
 
         logger.info(
