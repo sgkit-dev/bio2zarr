@@ -891,8 +891,6 @@ class IntermediateColumnarFormat(vcz.Source):
         # directory is either a WIP or the wrong format.
         with open(self.path / "metadata.json") as f:
             self.metadata = IcfMetadata.fromdict(json.load(f))
-        with open(self.path / "header.txt") as f:
-            self.vcf_header = f.read()
         self.compressor = numcodecs.get_codec(self.metadata.compressor)
         self.fields = {}
         partition_num_records = [
@@ -970,9 +968,7 @@ class IntermediateColumnarFormat(vcz.Source):
 
     @property
     def root_attrs(self):
-        return {
-            "vcf_header": self.vcf_header,
-        }
+        return {}
 
     def iter_id(self, start, stop):
         for value in self.fields["ID"].iter_values(start, stop):
@@ -1299,10 +1295,8 @@ class IntermediateColumnarFormatWriter:
 
         self.mkdirs()
 
-        # Note: this is needed for the current version of the vcfzarr spec, but it's
-        # probably going to be dropped.
+        # Note: the header is no longer stored in vcz, but keep in icf.
         # https://github.com/pystatgen/vcf-zarr-spec/issues/15
-        # May be useful to keep lying around still though?
         logger.info("Writing VCF header")
         with open(self.path / "header.txt", "w") as f:
             f.write(header)

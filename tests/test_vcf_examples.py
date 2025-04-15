@@ -2,7 +2,6 @@ import collections
 import pathlib
 import re
 
-import cyvcf2
 import numpy as np
 import numpy.testing as nt
 import pytest
@@ -52,10 +51,6 @@ class TestSmallExample:
                 [True, False, False],
             ],
         )
-
-    def test_header(self, ds):
-        vcf = cyvcf2.VCF(self.data_path)
-        assert ds.attrs["vcf_header"] == vcf.raw_header
 
     def test_source(self, ds):
         assert ds.attrs["source"] == f"bio2zarr-{provenance.__version__}"
