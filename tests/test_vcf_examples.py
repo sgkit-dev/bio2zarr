@@ -31,6 +31,14 @@ class TestSmallExample:
     def test_filters(self, ds):
         nt.assert_array_equal(ds["filter_id"], ["PASS", "s50", "q10"])
         nt.assert_array_equal(
+            ds["filter_description"],
+            [
+                "All filters passed",
+                "Less than 50% of samples have data",
+                "Quality below 10",
+            ],
+        )
+        nt.assert_array_equal(
             ds["variant_filter"],
             [
                 [False, False, False],
@@ -957,6 +965,7 @@ class Test1000G2020AnnotationsExample:
             "contig_id",
             "contig_length",
             "filter_id",
+            "filter_description",
             "region_index",
             "sample_id",
         ]

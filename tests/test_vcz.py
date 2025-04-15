@@ -740,6 +740,7 @@ class TestInspect:
             "/sample_id",
             "/variant_id_mask",
             "/filter_id",
+            "/filter_description",
             "/contig_id",
         ]
         nt.assert_array_equal(sorted(df["name"]), sorted(fields))

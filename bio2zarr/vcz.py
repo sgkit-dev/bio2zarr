@@ -520,7 +520,7 @@ class VcfZarrWriter:
         # Doing this synchronously - this is fine surely
         self.encode_samples(root)
         if self.source.filters is not None:
-            self.encode_filter_id(root)
+            self.encode_filters(root)
         if self.source.contigs is not None:
             self.encode_contigs(root)
 
@@ -581,13 +581,19 @@ class VcfZarrWriter:
             )
             array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
 
-    def encode_filter_id(self, root):
-        # TODO need a way to store description also
-        # https://github.com/sgkit-dev/vcf-zarr-spec/issues/19
+    def encode_filters(self, root):
         filters = self.source.filters
         array = root.array(
             "filter_id",
             data=[filt.id for filt in filters],
+            shape=len(filters),
+            dtype="str",
+            compressor=DEFAULT_ZARR_COMPRESSOR,
+        )
+        array.attrs["_ARRAY_DIMENSIONS"] = ["filters"]
+        array = root.array(
+            "filter_description",
+            data=[filt.description for filt in filters],
             shape=len(filters),
             dtype="str",
             compressor=DEFAULT_ZARR_COMPRESSOR,
