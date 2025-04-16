@@ -83,7 +83,7 @@ class PlinkFormat(vcz.Source):
 
         array_specs = [
             vcz.ZarrArraySpec.new(
-                vcf_field="position",
+                source="position",
                 name="variant_position",
                 dtype="i4",
                 shape=[m],
@@ -92,7 +92,6 @@ class PlinkFormat(vcz.Source):
                 description=None,
             ),
             vcz.ZarrArraySpec.new(
-                vcf_field=None,
                 name="variant_allele",
                 dtype="O",
                 shape=[m, 2],
@@ -101,7 +100,6 @@ class PlinkFormat(vcz.Source):
                 description=None,
             ),
             vcz.ZarrArraySpec.new(
-                vcf_field=None,
                 name="call_genotype_phased",
                 dtype="bool",
                 shape=[m, n],
@@ -113,7 +111,6 @@ class PlinkFormat(vcz.Source):
                 description=None,
             ),
             vcz.ZarrArraySpec.new(
-                vcf_field=None,
                 name="call_genotype",
                 dtype="i1",
                 shape=[m, n, 2],
@@ -126,7 +123,6 @@ class PlinkFormat(vcz.Source):
                 description=None,
             ),
             vcz.ZarrArraySpec.new(
-                vcf_field=None,
                 name="call_genotype_mask",
                 dtype="bool",
                 shape=[m, n, 2],

@@ -340,7 +340,7 @@ class TestDefaultSchema:
             "dimensions": ("variants",),
             "description": "An identifier from the reference genome or an "
             "angle-bracketed ID string pointing to a contig in the assembly file",
-            "vcf_field": None,
+            "source": None,
             "compressor": {
                 "id": "blosc",
                 "cname": "zstd",
@@ -359,7 +359,7 @@ class TestDefaultSchema:
             "chunks": (1000, 10000, 2),
             "dimensions": ("variants", "samples", "ploidy"),
             "description": "",
-            "vcf_field": None,
+            "source": None,
             "compressor": {
                 "id": "blosc",
                 "cname": "zstd",
@@ -378,7 +378,7 @@ class TestDefaultSchema:
             "chunks": (1000, 10000, 2),
             "dimensions": ("variants", "samples", "ploidy"),
             "description": "",
-            "vcf_field": None,
+            "source": None,
             "compressor": {
                 "id": "blosc",
                 "cname": "zstd",
@@ -397,7 +397,7 @@ class TestDefaultSchema:
             "chunks": (1000, 10000, 2),
             "dimensions": ("variants", "samples", "ploidy"),
             "description": "",
-            "vcf_field": None,
+            "source": None,
             "compressor": {
                 "id": "blosc",
                 "cname": "zstd",
@@ -416,7 +416,7 @@ class TestDefaultSchema:
             "chunks": (1000, 10000),
             "dimensions": ("variants", "samples"),
             "description": "Genotype Quality",
-            "vcf_field": "FORMAT/GQ",
+            "source": "FORMAT/GQ",
             "compressor": {
                 "id": "blosc",
                 "cname": "zstd",
@@ -437,6 +437,7 @@ class TestLocalAllelesDefaultSchema:
     def test_call_LA(self, local_alleles_schema):
         d = get_field_dict(local_alleles_schema, "call_LA")
         assert d == {
+            "source": None,
             "name": "call_LA",
             "dtype": "i1",
             "shape": (9, 3, 2),
@@ -446,7 +447,6 @@ class TestLocalAllelesDefaultSchema:
                 "0-based indices into REF+ALT, indicating which alleles"
                 " are relevant (local) for the current sample"
             ),
-            "vcf_field": None,
             "compressor": {
                 "id": "blosc",
                 "cname": "zstd",
