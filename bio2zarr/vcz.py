@@ -93,9 +93,9 @@ class ZarrArraySpec:
     chunks: tuple
     dimensions: tuple
     description: str
-    vcf_field: str
     compressor: dict
     filters: list
+    source: str = None
 
     def __post_init__(self):
         if self.name in _fixed_field_descriptions:
@@ -151,7 +151,7 @@ class ZarrArraySpec:
             else:
                 dimensions.append(f"{vcf_field.category}_{vcf_field.name}_dim")
         return ZarrArraySpec.new(
-            vcf_field=vcf_field.full_name,
+            source=vcf_field.full_name,
             name=array_name,
             dtype=vcf_field.smallest_dtype(),
             shape=shape,
@@ -465,7 +465,7 @@ class VcfZarrWriter:
 
     def has_local_alleles(self):
         for field in self.schema.fields:
-            if field.name == "call_LA" and field.vcf_field is None:
+            if field.name == "call_LA" and field.source is None:
                 return True
         return False
 
@@ -667,7 +667,7 @@ class VcfZarrWriter:
             self.encode_contig_partition(partition_index)
         self.encode_alleles_partition(partition_index)
         for array_spec in self.schema.fields:
-            if array_spec.vcf_field is not None:
+            if array_spec.source is not None:
                 self.encode_array_partition(array_spec, partition_index)
         if self.has_genotypes():
             self.encode_genotypes_partition(partition_index)
@@ -711,7 +711,7 @@ class VcfZarrWriter:
         partition = self.metadata.partitions[partition_index]
         ba = self.init_partition_array(partition_index, array_spec.name)
         for value in self.source.iter_field(
-            array_spec.vcf_field,
+            array_spec.source,
             ba.buff.shape[1:],
             partition.start,
             partition.stop,
@@ -783,7 +783,7 @@ class VcfZarrWriter:
         for descriptor in localisable_fields:
             if descriptor.array_name not in field_map:
                 continue
-            assert field_map[descriptor.array_name].vcf_field is None
+            assert field_map[descriptor.array_name].source is None
 
             buff = self.init_partition_array(partition_index, descriptor.array_name)
             source = self.source.fields[descriptor.vcf_field].iter_values(

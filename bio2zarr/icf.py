@@ -844,7 +844,6 @@ def convert_local_allele_field_types(fields):
     dimensions = gt.dimensions[:-1]
 
     la = vcz.ZarrArraySpec.new(
-        vcf_field=None,
         name="call_LA",
         dtype="i1",
         shape=gt.shape,
@@ -859,7 +858,7 @@ def convert_local_allele_field_types(fields):
     if ad is not None:
         # TODO check if call_LAD is in the list already
         ad.name = "call_LAD"
-        ad.vcf_field = None
+        ad.source = None
         ad.shape = (*shape, 2)
         ad.chunks = (*chunks, 2)
         ad.dimensions = (*dimensions, "local_alleles")
@@ -869,7 +868,7 @@ def convert_local_allele_field_types(fields):
     if pl is not None:
         # TODO check if call_LPL is in the list already
         pl.name = "call_LPL"
-        pl.vcf_field = None
+        pl.source = None
         pl.shape = (*shape, 3)
         pl.chunks = (*chunks, 3)
         pl.description += " (local-alleles)"
@@ -1060,13 +1059,13 @@ class IntermediateColumnarFormat(vcz.Source):
         def fixed_field_spec(
             name,
             dtype,
-            vcf_field=None,
+            source=None,
             shape=(m,),
             dimensions=("variants",),
             chunks=None,
         ):
             return vcz.ZarrArraySpec.new(
-                vcf_field=vcf_field,
+                source=source,
                 name=name,
                 dtype=dtype,
                 shape=shape,
@@ -1137,7 +1136,6 @@ class IntermediateColumnarFormat(vcz.Source):
             dimensions = ["variants", "samples"]
             array_specs.append(
                 vcz.ZarrArraySpec.new(
-                    vcf_field=None,
                     name="call_genotype_phased",
                     dtype="bool",
                     shape=list(shape),
@@ -1151,7 +1149,6 @@ class IntermediateColumnarFormat(vcz.Source):
             dimensions += ["ploidy"]
             array_specs.append(
                 vcz.ZarrArraySpec.new(
-                    vcf_field=None,
                     name="call_genotype",
                     dtype=gt_field.smallest_dtype(),
                     shape=list(shape),
@@ -1162,7 +1159,6 @@ class IntermediateColumnarFormat(vcz.Source):
             )
             array_specs.append(
                 vcz.ZarrArraySpec.new(
-                    vcf_field=None,
                     name="call_genotype_mask",
                     dtype="bool",
                     shape=list(shape),
