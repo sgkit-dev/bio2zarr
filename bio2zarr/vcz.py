@@ -16,6 +16,12 @@ logger = logging.getLogger(__name__)
 
 ZARR_SCHEMA_FORMAT_VERSION = "0.5"
 DEFAULT_ZARR_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7)
+DEFAULT_ZARR_COMPRESSOR_GENOTYPES = numcodecs.Blosc(
+    cname="zstd", clevel=7, shuffle=numcodecs.Blosc.BITSHUFFLE
+)
+DEFAULT_ZARR_COMPRESSOR_BOOL = numcodecs.Blosc(
+    cname="zstd", clevel=7, shuffle=numcodecs.Blosc.BITSHUFFLE
+)
 
 _fixed_field_descriptions = {
     "variant_contig": "An identifier from the reference genome or an angle-bracketed ID"
@@ -93,8 +99,8 @@ class ZarrArraySpec:
     chunks: tuple
     dimensions: tuple
     description: str
-    compressor: dict
-    filters: list
+    compressor: dict = None
+    filters: list = None
     source: str = None
 
     def __post_init__(self):
@@ -105,15 +111,7 @@ class ZarrArraySpec:
         self.shape = tuple(self.shape)
         self.chunks = tuple(self.chunks)
         self.dimensions = tuple(self.dimensions)
-        self.filters = tuple(self.filters)
-
-    @staticmethod
-    def new(**kwargs):
-        spec = ZarrArraySpec(
-            **kwargs, compressor=DEFAULT_ZARR_COMPRESSOR.get_config(), filters=[]
-        )
-        spec._choose_compressor_settings()
-        return spec
+        self.filters = tuple(self.filters) if self.filters is not None else None
 
     @staticmethod
     def from_field(
@@ -124,6 +122,8 @@ class ZarrArraySpec:
         variants_chunk_size,
         samples_chunk_size,
         array_name=None,
+        compressor=None,
+        filters=None,
     ):
         shape = [num_variants]
         prefix = "variant_"
@@ -150,7 +150,7 @@ class ZarrArraySpec:
                 dimensions.append("genotypes")
             else:
                 dimensions.append(f"{vcf_field.category}_{vcf_field.name}_dim")
-        return ZarrArraySpec.new(
+        return ZarrArraySpec(
             source=vcf_field.full_name,
             name=array_name,
             dtype=vcf_field.smallest_dtype(),
@@ -158,30 +158,9 @@ class ZarrArraySpec:
             chunks=chunks,
             dimensions=dimensions,
             description=vcf_field.description,
+            compressor=compressor,
+            filters=filters,
         )
-
-    def _choose_compressor_settings(self):
-        """
-        Choose compressor and filter settings based on the size and
-        type of the array, plus some hueristics from observed properties
-        of VCFs.
-
-        See https://github.com/pystatgen/bio2zarr/discussions/74
-        """
-        # Default is to not shuffle, because autoshuffle isn't recognised
-        # by many Zarr implementations, and shuffling can lead to worse
-        # performance in some cases anyway. Turning on shuffle should be a
-        # deliberate choice.
-        shuffle = numcodecs.Blosc.NOSHUFFLE
-        if self.name == "call_genotype" and self.dtype == "i1":
-            # call_genotype gets BITSHUFFLE by default as it gets
-            # significantly better compression (at a cost of slower
-            # decoding)
-            shuffle = numcodecs.Blosc.BITSHUFFLE
-        elif self.dtype == "bool":
-            shuffle = numcodecs.Blosc.BITSHUFFLE
-
-        self.compressor["shuffle"] = shuffle
 
     @property
     def chunk_nbytes(self):
@@ -240,6 +219,7 @@ class VcfZarrSchema(core.JsonDataclass):
     samples_chunk_size: int
     variants_chunk_size: int
     fields: list
+    defaults: dict
 
     def __init__(
         self,
@@ -247,9 +227,16 @@ class VcfZarrSchema(core.JsonDataclass):
         fields: list,
         variants_chunk_size: int = None,
         samples_chunk_size: int = None,
+        defaults: dict = None,
     ):
         self.format_version = format_version
         self.fields = fields
+        defaults = defaults.copy() if defaults is not None else {}
+        if defaults.get("compressor", None) is None:
+            defaults["compressor"] = DEFAULT_ZARR_COMPRESSOR.get_config()
+        if defaults.get("filters", None) is None:
+            defaults["filters"] = []
+        self.defaults = defaults
         if variants_chunk_size is None:
             variants_chunk_size = 1000
         self.variants_chunk_size = variants_chunk_size
@@ -533,7 +520,7 @@ class VcfZarrWriter:
 
         total_chunks = 0
         for field in self.schema.fields:
-            a = self.init_array(root, field, partitions[-1].stop)
+            a = self.init_array(root, self.metadata.schema, field, partitions[-1].stop)
             total_chunks += a.nchunks
 
         logger.info("Writing WIP metadata")
@@ -600,9 +587,20 @@ class VcfZarrWriter:
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["filters"]
 
-    def init_array(self, root, array_spec, variants_dim_size):
+    def init_array(self, root, schema, array_spec, variants_dim_size):
         kwargs = dict(zarr_utils.ZARR_FORMAT_KWARGS)
-        filters = [numcodecs.get_codec(filt) for filt in array_spec.filters]
+        filters = (
+            array_spec.filters
+            if array_spec.filters is not None
+            else schema.defaults["filters"]
+        )
+        filters = [numcodecs.get_codec(filt) for filt in filters]
+        compressor = (
+            array_spec.compressor
+            if array_spec.compressor is not None
+            else schema.defaults["compressor"]
+        )
+        compressor = numcodecs.get_codec(compressor)
         if array_spec.dtype == "O":
             if zarr_utils.zarr_v3():
                 filters = [*list(filters), numcodecs.VLenUTF8()]
@@ -620,7 +618,7 @@ class VcfZarrWriter:
             shape=shape,
             chunks=array_spec.chunks,
             dtype=array_spec.dtype,
-            compressor=numcodecs.get_codec(array_spec.compressor),
+            compressor=compressor,
             filters=filters,
             **kwargs,
         )

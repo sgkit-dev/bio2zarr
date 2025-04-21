@@ -82,7 +82,7 @@ class PlinkFormat(vcz.Source):
         )
 
         array_specs = [
-            vcz.ZarrArraySpec.new(
+            vcz.ZarrArraySpec(
                 source="position",
                 name="variant_position",
                 dtype="i4",
@@ -91,7 +91,7 @@ class PlinkFormat(vcz.Source):
                 chunks=[schema_instance.variants_chunk_size],
                 description=None,
             ),
-            vcz.ZarrArraySpec.new(
+            vcz.ZarrArraySpec(
                 name="variant_allele",
                 dtype="O",
                 shape=[m, 2],
@@ -99,7 +99,7 @@ class PlinkFormat(vcz.Source):
                 chunks=[schema_instance.variants_chunk_size, 2],
                 description=None,
             ),
-            vcz.ZarrArraySpec.new(
+            vcz.ZarrArraySpec(
                 name="call_genotype_phased",
                 dtype="bool",
                 shape=[m, n],
@@ -109,8 +109,9 @@ class PlinkFormat(vcz.Source):
                     schema_instance.samples_chunk_size,
                 ],
                 description=None,
+                compressor=vcz.DEFAULT_ZARR_COMPRESSOR_BOOL.get_config(),
             ),
-            vcz.ZarrArraySpec.new(
+            vcz.ZarrArraySpec(
                 name="call_genotype",
                 dtype="i1",
                 shape=[m, n, 2],
@@ -121,8 +122,9 @@ class PlinkFormat(vcz.Source):
                     2,
                 ],
                 description=None,
+                compressor=vcz.DEFAULT_ZARR_COMPRESSOR_BOOL.get_config(),
             ),
-            vcz.ZarrArraySpec.new(
+            vcz.ZarrArraySpec(
                 name="call_genotype_mask",
                 dtype="bool",
                 shape=[m, n, 2],
@@ -133,6 +135,7 @@ class PlinkFormat(vcz.Source):
                     2,
                 ],
                 description=None,
+                compressor=vcz.DEFAULT_ZARR_COMPRESSOR_BOOL.get_config(),
             ),
         ]
         schema_instance.fields = array_specs

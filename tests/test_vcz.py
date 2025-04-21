@@ -226,10 +226,14 @@ class TestSchemaEncode:
         zarr_path = tmp_path / "zarr"
         icf = icf_mod.IntermediateColumnarFormat(icf_path)
         schema = icf.generate_schema()
+        field_changed = False
         for array_spec in schema.fields:
-            array_spec.compressor["cname"] = cname
-            array_spec.compressor["clevel"] = clevel
-            array_spec.compressor["shuffle"] = shuffle
+            if array_spec.compressor is not None:
+                array_spec.compressor["cname"] = cname
+                array_spec.compressor["clevel"] = clevel
+                array_spec.compressor["shuffle"] = shuffle
+                field_changed = True
+        assert field_changed
         schema_path = tmp_path / "schema"
         with open(schema_path, "w") as f:
             f.write(schema.asjson())
@@ -237,9 +241,10 @@ class TestSchemaEncode:
         root = zarr.open(zarr_path)
         for array_spec in schema.fields:
             a = root[array_spec.name]
-            assert a.compressor.cname == cname
-            assert a.compressor.clevel == clevel
-            assert a.compressor.shuffle == shuffle
+            if array_spec.compressor is not None:
+                assert a.compressor.cname == cname
+                assert a.compressor.clevel == clevel
+                assert a.compressor.shuffle == shuffle
 
     @pytest.mark.parametrize("dtype", ["i4", "i8"])
     def test_genotype_dtype(self, tmp_path, icf_path, dtype):
@@ -341,14 +346,8 @@ class TestDefaultSchema:
             "description": "An identifier from the reference genome or an "
             "angle-bracketed ID string pointing to a contig in the assembly file",
             "source": None,
-            "compressor": {
-                "id": "blosc",
-                "cname": "zstd",
-                "clevel": 7,
-                "shuffle": 0,
-                "blocksize": 0,
-            },
-            "filters": tuple(),
+            "compressor": None,
+            "filters": None,
         }
 
     def test_call_genotype(self, schema):
@@ -367,7 +366,7 @@ class TestDefaultSchema:
                 "shuffle": 2,
                 "blocksize": 0,
             },
-            "filters": tuple(),
+            "filters": None,
         }
 
     def test_call_genotype_mask(self, schema):
@@ -386,7 +385,7 @@ class TestDefaultSchema:
                 "shuffle": 2,
                 "blocksize": 0,
             },
-            "filters": tuple(),
+            "filters": None,
         }
 
     def test_call_genotype_phased(self, schema):
@@ -405,7 +404,7 @@ class TestDefaultSchema:
                 "shuffle": 2,
                 "blocksize": 0,
             },
-            "filters": tuple(),
+            "filters": None,
         }
 
     def test_call_GQ(self, schema):
@@ -417,14 +416,8 @@ class TestDefaultSchema:
             "dimensions": ("variants", "samples"),
             "description": "Genotype Quality",
             "source": "FORMAT/GQ",
-            "compressor": {
-                "id": "blosc",
-                "cname": "zstd",
-                "clevel": 7,
-                "shuffle": 0,
-                "blocksize": 0,
-            },
-            "filters": tuple(),
+            "compressor": None,
+            "filters": None,
         }
 
 
@@ -447,14 +440,8 @@ class TestLocalAllelesDefaultSchema:
                 "0-based indices into REF+ALT, indicating which alleles"
                 " are relevant (local) for the current sample"
             ),
-            "compressor": {
-                "id": "blosc",
-                "cname": "zstd",
-                "clevel": 7,
-                "shuffle": 0,
-                "blocksize": 0,
-            },
-            "filters": tuple(),
+            "compressor": None,
+            "filters": None,
         }
 
 
@@ -754,3 +741,81 @@ class TestInspect:
     def test_unknown_format(self, path):
         with pytest.raises(ValueError, match="not in ICF or VCF Zarr format"):
             icf_mod.inspect(path)
+
+
+class TestSchemaDefaults:
+    def test_default_compressor_and_filters(self, schema):
+        assert "compressor" in schema.defaults
+        assert schema.defaults["compressor"] == vcz.DEFAULT_ZARR_COMPRESSOR.get_config()
+        assert "filters" in schema.defaults
+        assert schema.defaults["filters"] == []
+
+    def test_custom_defaults(self, icf_path):
+        custom_defaults = {
+            "compressor": {"id": "blosc", "cname": "lz4", "clevel": 3, "shuffle": 1},
+            "filters": [{"id": "delta", "dtype": "<i4"}],
+        }
+
+        schema = vcz.VcfZarrSchema(
+            format_version=vcz.ZARR_SCHEMA_FORMAT_VERSION,
+            fields=[],
+            defaults=custom_defaults,
+        )
+
+        assert schema.defaults == custom_defaults
+
+    def test_partial_defaults(self, icf_path):
+        # Only specify compressor
+        schema1 = vcz.VcfZarrSchema(
+            format_version=vcz.ZARR_SCHEMA_FORMAT_VERSION,
+            fields=[],
+            defaults={"compressor": {"id": "blosc", "cname": "zlib", "clevel": 5}},
+        )
+        assert schema1.defaults["compressor"] == {
+            "id": "blosc",
+            "cname": "zlib",
+            "clevel": 5,
+        }
+        assert schema1.defaults["filters"] == []
+
+        # Only specify filters
+        schema2 = vcz.VcfZarrSchema(
+            format_version=vcz.ZARR_SCHEMA_FORMAT_VERSION,
+            fields=[],
+            defaults={"filters": [{"id": "delta"}]},
+        )
+        assert (
+            schema2.defaults["compressor"] == vcz.DEFAULT_ZARR_COMPRESSOR.get_config()
+        )
+        assert schema2.defaults["filters"] == [{"id": "delta"}]
+
+    def test_defaults_with_encode(self, icf_path, tmp_path):
+        zarr_path = tmp_path / "zarr"
+
+        # Create schema with custom defaults
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
+        schema = icf.generate_schema()
+
+        # Set custom defaults
+        schema.defaults = {
+            "compressor": {"id": "blosc", "cname": "lz4", "clevel": 3, "shuffle": 1},
+            "filters": [],
+        }
+
+        # Save schema to file for use with encode
+        schema_path = tmp_path / "custom_defaults_schema.json"
+        with open(schema_path, "w") as f:
+            f.write(schema.asjson())
+
+        # Encode using the schema with custom defaults
+        icf_mod.encode(icf_path, zarr_path, schema_path=schema_path)
+
+        # Check that arrays use the default compressor when not overridden
+        root = zarr.open(zarr_path)
+        for array_spec in schema.fields:
+            if array_spec.compressor is None:
+                # This array should use the default compressor
+                a = root[array_spec.name]
+                assert a.compressor.cname == "lz4"
+                assert a.compressor.clevel == 3
+                assert a.compressor.shuffle == 1

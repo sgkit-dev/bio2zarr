@@ -843,7 +843,7 @@ def convert_local_allele_field_types(fields):
     chunks = gt.chunks[:-1]
     dimensions = gt.dimensions[:-1]
 
-    la = vcz.ZarrArraySpec.new(
+    la = vcz.ZarrArraySpec(
         name="call_LA",
         dtype="i1",
         shape=gt.shape,
@@ -1064,7 +1064,12 @@ class IntermediateColumnarFormat(vcz.Source):
             dimensions=("variants",),
             chunks=None,
         ):
-            return vcz.ZarrArraySpec.new(
+            compressor = (
+                vcz.DEFAULT_ZARR_COMPRESSOR_BOOL.get_config()
+                if dtype == "bool"
+                else None
+            )
+            return vcz.ZarrArraySpec(
                 source=source,
                 name=name,
                 dtype=dtype,
@@ -1072,6 +1077,7 @@ class IntermediateColumnarFormat(vcz.Source):
                 description="",
                 dimensions=dimensions,
                 chunks=chunks or [schema_instance.variants_chunk_size],
+                compressor=compressor,
             )
 
         alt_field = self.fields["ALT"]
@@ -1135,7 +1141,7 @@ class IntermediateColumnarFormat(vcz.Source):
             ]
             dimensions = ["variants", "samples"]
             array_specs.append(
-                vcz.ZarrArraySpec.new(
+                vcz.ZarrArraySpec(
                     name="call_genotype_phased",
                     dtype="bool",
                     shape=list(shape),
@@ -1148,23 +1154,25 @@ class IntermediateColumnarFormat(vcz.Source):
             chunks += [ploidy]
             dimensions += ["ploidy"]
             array_specs.append(
-                vcz.ZarrArraySpec.new(
+                vcz.ZarrArraySpec(
                     name="call_genotype",
                     dtype=gt_field.smallest_dtype(),
                     shape=list(shape),
                     chunks=list(chunks),
                     dimensions=list(dimensions),
                     description="",
+                    compressor=vcz.DEFAULT_ZARR_COMPRESSOR_GENOTYPES.get_config(),
                 )
             )
             array_specs.append(
-                vcz.ZarrArraySpec.new(
+                vcz.ZarrArraySpec(
                     name="call_genotype_mask",
                     dtype="bool",
                     shape=list(shape),
                     chunks=list(chunks),
                     dimensions=list(dimensions),
                     description="",
+                    compressor=vcz.DEFAULT_ZARR_COMPRESSOR_BOOL.get_config(),
                 )
             )
 
