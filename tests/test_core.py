@@ -237,8 +237,8 @@ class TestFirstDimSliceIter:
         # It works in CI on Linux, but it'll probably break at some point.
         # It's also necessary to update these numbers each time a new data
         # file gets added
-        ("tests/data", 4983044),
-        ("tests/data/vcf", 4970907),
+        ("tests/data", 5030777),
+        ("tests/data/vcf", 5018640),
         ("tests/data/vcf/sample.vcf.gz", 1089),
     ],
 )
