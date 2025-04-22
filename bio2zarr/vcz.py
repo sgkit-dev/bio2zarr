@@ -138,7 +138,7 @@ class ZarrArraySpec:
             array_name = prefix + vcf_field.name
 
         # TODO make an option to add in the empty extra dimension
-        max_number = vcf_field.summary.max_number
+        max_number = vcf_field.max_number
         if (max_number > 0 and vcf_field.vcf_number in ("R", "A", "G")) or (
             max_number > 1 or vcf_field.full_name == "FORMAT/LAA"
         ):
