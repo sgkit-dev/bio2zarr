@@ -79,6 +79,14 @@ class VcfField:
             return self.name
         return f"{self.category}/{self.name}"
 
+    @property
+    def max_number(self):
+        if self.vcf_number in ("R", "A", "G", "."):
+            return self.summary.max_number
+        else:
+            # use declared number if larger than max found
+            return max(self.summary.max_number, int(self.vcf_number))
+
     def smallest_dtype(self):
         """
         Returns the smallest dtype suitable for this field based

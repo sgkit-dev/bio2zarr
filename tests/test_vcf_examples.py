@@ -563,6 +563,21 @@ class TestWithGtHeaderNoGenotypes:
         assert "call_genotype" not in ds
 
 
+class TestChr22Example:
+    data_path = "tests/data/vcf/chr22.vcf.gz"
+
+    @pytest.fixture(scope="class")
+    def ds(self, tmp_path_factory):
+        out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
+        icf.convert([self.data_path], out, worker_processes=0)
+        return sg.load_dataset(out)
+
+    def test_call_SB(self, ds):
+        # fixes https://github.com/sgkit-dev/bio2zarr/issues/355
+        assert ds.call_SB.dims == ("variants", "samples", "FORMAT_SB_dim")
+        assert ds.call_SB.shape == (100, 100, 4)
+
+
 class Test1000G2020Example:
     data_path = "tests/data/vcf/1kg_2020_chrM.vcf.gz"
 
