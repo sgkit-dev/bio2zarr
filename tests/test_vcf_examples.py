@@ -997,6 +997,11 @@ class Test1000G2020AnnotationsExample:
         ]
         nt.assert_array_equal(ds.variant_ANN.values, variant_ANN)
 
+    def test_variant_MLEAF(self, ds):
+        # fixes https://github.com/sgkit-dev/bio2zarr/issues/353
+        assert ds.variant_MLEAF.dims == ("variants", "alt_alleles")
+        assert ds.variant_MLEAF.shape == (21, 1)
+
 
 class TestGeneratedFieldsExample:
     data_path = "tests/data/vcf/field_type_combos.vcf.gz"
