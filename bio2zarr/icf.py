@@ -1056,6 +1056,7 @@ class IntermediateColumnarFormat(vcz.Source):
         if local_alleles is None:
             local_alleles = False
 
+        max_alleles = max(self.fields["ALT"].vcf_field.summary.max_number + 1, 2)
         dimensions = {
             "variants": vcz.VcfZarrDimension(
                 size=m, chunk_size=variants_chunk_size or vcz.DEFAULT_VARIANT_CHUNK_SIZE
@@ -1064,9 +1065,8 @@ class IntermediateColumnarFormat(vcz.Source):
                 size=n, chunk_size=samples_chunk_size or vcz.DEFAULT_SAMPLE_CHUNK_SIZE
             ),
             # ploidy added conditionally below
-            "alleles": vcz.VcfZarrDimension(
-                size=max(self.fields["ALT"].vcf_field.summary.max_number + 1, 2)
-            ),
+            "alleles": vcz.VcfZarrDimension(size=max_alleles),
+            "alt_alleles": vcz.VcfZarrDimension(size=max_alleles - 1),
             "filters": vcz.VcfZarrDimension(size=self.metadata.num_filters),
         }
 
