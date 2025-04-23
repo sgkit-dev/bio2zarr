@@ -704,8 +704,8 @@ class TestVcfEndToEnd:
         )
         assert result.exit_code == 0
         d = json.loads(result.stdout)
-        assert d["samples_chunk_size"] == 2
-        assert d["variants_chunk_size"] == 3
+        assert d["dimensions"]["samples"]["chunk_size"] == 2
+        assert d["dimensions"]["variants"]["chunk_size"] == 3
 
     @pytest.mark.parametrize("local_alleles", [False, True])
     def test_mkschema_local_alleles(self, tmp_path, local_alleles):

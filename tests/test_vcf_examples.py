@@ -762,7 +762,7 @@ class Test1000G2020ExampleLocalAlleles:
             [[446, -2], [393, -2], [486, -2]],
         ]
         nt.assert_array_equal(ds.call_LAD.values, call_LAD)
-        assert ds.call_LAD.dims == ("variants", "samples", "local_alleles")
+        assert ds.call_LAD.dims == ("variants", "samples", "local_alleles_AD")
 
     def test_call_LA(self, ds):
         # All the genotypes are 0/0

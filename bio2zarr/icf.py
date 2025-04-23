@@ -829,7 +829,7 @@ class IcfPartitionWriter(contextlib.AbstractContextManager):
         return False
 
 
-def convert_local_allele_field_types(fields):
+def convert_local_allele_field_types(fields, schema_instance):
     """
     Update the specified list of fields to include the LAA field, and to convert
     any supported localisable fields to the L* counterpart.
@@ -842,45 +842,45 @@ def convert_local_allele_field_types(fields):
     """
     fields_by_name = {field.name: field for field in fields}
     gt = fields_by_name["call_genotype"]
-    if gt.shape[-1] != 2:
+
+    if schema_instance.get_shape(["ploidy"])[0] != 2:
         raise ValueError("Local alleles only supported on diploid data")
 
-    # TODO check if LA is already in here
-
-    shape = gt.shape[:-1]
-    chunks = gt.chunks[:-1]
     dimensions = gt.dimensions[:-1]
 
     la = vcz.ZarrArraySpec(
         name="call_LA",
         dtype="i1",
-        shape=gt.shape,
-        chunks=gt.chunks,
         dimensions=(*dimensions, "local_alleles"),
         description=(
             "0-based indices into REF+ALT, indicating which alleles"
             " are relevant (local) for the current sample"
         ),
     )
+    schema_instance.dimensions["local_alleles"] = vcz.VcfZarrDimension(
+        size=schema_instance.dimensions["ploidy"].size
+    )
+
     ad = fields_by_name.get("call_AD", None)
     if ad is not None:
         # TODO check if call_LAD is in the list already
         ad.name = "call_LAD"
         ad.source = None
-        ad.shape = (*shape, 2)
-        ad.chunks = (*chunks, 2)
-        ad.dimensions = (*dimensions, "local_alleles")
+        ad.dimensions = (*dimensions, "local_alleles_AD")
         ad.description += " (local-alleles)"
+        schema_instance.dimensions["local_alleles_AD"] = vcz.VcfZarrDimension(size=2)
 
     pl = fields_by_name.get("call_PL", None)
     if pl is not None:
         # TODO check if call_LPL is in the list already
         pl.name = "call_LPL"
         pl.source = None
-        pl.shape = (*shape, 3)
-        pl.chunks = (*chunks, 3)
         pl.description += " (local-alleles)"
-        pl.dimensions = (*dimensions, "local_" + pl.dimensions[-1])
+        pl.dimensions = (*dimensions, "local_" + pl.dimensions[-1].split("_")[-1])
+        schema_instance.dimensions["local_" + pl.dimensions[-1].split("_")[-1]] = (
+            vcz.VcfZarrDimension(size=3)
+        )
+
     return [*fields, la]
 
 
@@ -1042,36 +1042,40 @@ class IntermediateColumnarFormat(vcz.Source):
         if local_alleles is None:
             local_alleles = False
 
+        dimensions = {
+            "variants": vcz.VcfZarrDimension(
+                size=m, chunk_size=variants_chunk_size or vcz.DEFAULT_VARIANT_CHUNK_SIZE
+            ),
+            "samples": vcz.VcfZarrDimension(
+                size=n, chunk_size=samples_chunk_size or vcz.DEFAULT_SAMPLE_CHUNK_SIZE
+            ),
+            # ploidy added conditionally below
+            "alleles": vcz.VcfZarrDimension(
+                size=max(self.fields["ALT"].vcf_field.summary.max_number + 1, 2)
+            ),
+            "filters": vcz.VcfZarrDimension(size=self.metadata.num_filters),
+        }
+
         schema_instance = vcz.VcfZarrSchema(
             format_version=vcz.ZARR_SCHEMA_FORMAT_VERSION,
-            samples_chunk_size=samples_chunk_size,
-            variants_chunk_size=variants_chunk_size,
+            dimensions=dimensions,
             fields=[],
         )
 
         logger.info(
             "Generating schema with chunks="
-            f"{schema_instance.variants_chunk_size, schema_instance.samples_chunk_size}"
+            f"variants={dimensions['variants'].chunk_size}, "
+            f"samples={dimensions['samples'].chunk_size}"
         )
 
         def spec_from_field(field, array_name=None):
             return vcz.ZarrArraySpec.from_field(
                 field,
-                num_samples=n,
-                num_variants=m,
-                samples_chunk_size=schema_instance.samples_chunk_size,
-                variants_chunk_size=schema_instance.variants_chunk_size,
+                schema_instance,
                 array_name=array_name,
             )
 
-        def fixed_field_spec(
-            name,
-            dtype,
-            source=None,
-            shape=(m,),
-            dimensions=("variants",),
-            chunks=None,
-        ):
+        def fixed_field_spec(name, dtype, source=None, dimensions=("variants",)):
             compressor = (
                 vcz.DEFAULT_ZARR_COMPRESSOR_BOOL.get_config()
                 if dtype == "bool"
@@ -1081,15 +1085,10 @@ class IntermediateColumnarFormat(vcz.Source):
                 source=source,
                 name=name,
                 dtype=dtype,
-                shape=shape,
                 description="",
                 dimensions=dimensions,
-                chunks=chunks or [schema_instance.variants_chunk_size],
                 compressor=compressor,
             )
-
-        alt_field = self.fields["ALT"]
-        max_alleles = alt_field.vcf_field.summary.max_number + 1
 
         array_specs = [
             fixed_field_spec(
@@ -1099,16 +1098,12 @@ class IntermediateColumnarFormat(vcz.Source):
             fixed_field_spec(
                 name="variant_filter",
                 dtype="bool",
-                shape=(m, self.metadata.num_filters),
                 dimensions=["variants", "filters"],
-                chunks=(schema_instance.variants_chunk_size, self.metadata.num_filters),
             ),
             fixed_field_spec(
                 name="variant_allele",
                 dtype="O",
-                shape=(m, max_alleles),
                 dimensions=["variants", "alleles"],
-                chunks=(schema_instance.variants_chunk_size, max_alleles),
             ),
             fixed_field_spec(
                 name="variant_id",
@@ -1142,32 +1137,23 @@ class IntermediateColumnarFormat(vcz.Source):
 
         if gt_field is not None and n > 0:
             ploidy = max(gt_field.summary.max_number - 1, 1)
-            shape = [m, n]
-            chunks = [
-                schema_instance.variants_chunk_size,
-                schema_instance.samples_chunk_size,
-            ]
-            dimensions = ["variants", "samples"]
+            # Add ploidy dimension only when needed
+            schema_instance.dimensions["ploidy"] = vcz.VcfZarrDimension(size=ploidy)
+
             array_specs.append(
                 vcz.ZarrArraySpec(
                     name="call_genotype_phased",
                     dtype="bool",
-                    shape=list(shape),
-                    chunks=list(chunks),
-                    dimensions=list(dimensions),
+                    dimensions=["variants", "samples"],
                     description="",
+                    compressor=vcz.DEFAULT_ZARR_COMPRESSOR_BOOL.get_config(),
                 )
             )
-            shape += [ploidy]
-            chunks += [ploidy]
-            dimensions += ["ploidy"]
             array_specs.append(
                 vcz.ZarrArraySpec(
                     name="call_genotype",
                     dtype=gt_field.smallest_dtype(),
-                    shape=list(shape),
-                    chunks=list(chunks),
-                    dimensions=list(dimensions),
+                    dimensions=["variants", "samples", "ploidy"],
                     description="",
                     compressor=vcz.DEFAULT_ZARR_COMPRESSOR_GENOTYPES.get_config(),
                 )
@@ -1176,16 +1162,14 @@ class IntermediateColumnarFormat(vcz.Source):
                 vcz.ZarrArraySpec(
                     name="call_genotype_mask",
                     dtype="bool",
-                    shape=list(shape),
-                    chunks=list(chunks),
-                    dimensions=list(dimensions),
+                    dimensions=["variants", "samples", "ploidy"],
                     description="",
                     compressor=vcz.DEFAULT_ZARR_COMPRESSOR_BOOL.get_config(),
                 )
             )
 
         if local_alleles:
-            array_specs = convert_local_allele_field_types(array_specs)
+            array_specs = convert_local_allele_field_types(array_specs, schema_instance)
 
         schema_instance.fields = array_specs
         return schema_instance

@@ -171,23 +171,23 @@ class TestSchemaChunkSize:
             variants_chunk_size=variants_chunk_size,
             samples_chunk_size=samples_chunk_size,
         )
-        assert schema.samples_chunk_size == samples_chunk_size
-        assert schema.variants_chunk_size == variants_chunk_size
+        assert schema.dimensions["samples"].chunk_size == samples_chunk_size
+        assert schema.dimensions["variants"].chunk_size == variants_chunk_size
         found = 0
         for field in schema.fields:
             assert field.dimensions[0] == "variants"
-            assert field.chunks[0] == variants_chunk_size
+            assert field.get_chunks(schema)[0] == variants_chunk_size
             if "samples" in field.dimensions:
                 dim = field.dimensions.index("samples")
-                assert field.chunks[dim] == samples_chunk_size
+                assert field.get_chunks(schema)[dim] == samples_chunk_size
                 found += 1
         assert found > 0
 
     def test_default_chunk_size(self, icf_path):
         icf = icf_mod.IntermediateColumnarFormat(icf_path)
         schema = icf.generate_schema()
-        assert schema.samples_chunk_size == 10_000
-        assert schema.variants_chunk_size == 1000
+        assert schema.dimensions["samples"].chunk_size == 10_000
+        assert schema.dimensions["variants"].chunk_size == 1000
 
 
 class TestSchemaJsonRoundTrip:
@@ -298,33 +298,37 @@ class TestChunkNbytes:
     )
     def test_example_schema(self, schema, field, value):
         field = schema.field_map()[field]
-        assert field.chunk_nbytes == value
+        assert field.get_chunk_nbytes(schema) == value
 
     def test_chunk_size(self, icf_path, tmp_path):
         store = icf_mod.IntermediateColumnarFormat(icf_path)
         schema = store.generate_schema(samples_chunk_size=2, variants_chunk_size=3)
         fields = schema.field_map()
-        assert fields["call_genotype"].chunk_nbytes == 3 * 2 * 2
-        assert fields["variant_position"].chunk_nbytes == 3 * 4
-        assert fields["variant_AC"].chunk_nbytes == 3 * 2
+        assert fields["call_genotype"].get_chunk_nbytes(schema) == 3 * 2 * 2
+        assert fields["variant_position"].get_chunk_nbytes(schema) == 3 * 4
+        assert fields["variant_AC"].get_chunk_nbytes(schema) == 3 * 2
 
 
 class TestValidateSchema:
     @pytest.mark.parametrize("size", [2**31, 2**31 + 1, 2**32])
     def test_chunk_too_large(self, schema, size):
         schema = vcz.VcfZarrSchema.fromdict(schema.asdict())
+        # Remove other fields as they trigger the error before
+        schema.fields = [schema.field_map()["variant_H2"]]
         field = schema.field_map()["variant_H2"]
-        field.shape = (size,)
-        field.chunks = (size,)
+        schema.dimensions[field.dimensions[-1]].size = size
+        schema.dimensions[field.dimensions[-1]].chunk_size = size
         with pytest.raises(ValueError, match="Field variant_H2 chunks are too large"):
             schema.validate()
 
     @pytest.mark.parametrize("size", [2**31 - 1, 2**30])
     def test_chunk_not_too_large(self, schema, size):
         schema = vcz.VcfZarrSchema.fromdict(schema.asdict())
+        schema.fields = [schema.field_map()["variant_H2"]]
         field = schema.field_map()["variant_H2"]
-        field.shape = (size,)
-        field.chunks = (size,)
+        schema.dimensions[field.dimensions[-1]].size = size
+        schema.dimensions[field.dimensions[-1]].chunk_size = size
+        print(schema.dimensions)
         schema.validate()
 
 
@@ -333,15 +337,13 @@ class TestDefaultSchema:
         assert schema.format_version == vcz.ZARR_SCHEMA_FORMAT_VERSION
 
     def test_chunk_size(self, schema):
-        assert schema.samples_chunk_size == 10000
-        assert schema.variants_chunk_size == 1000
+        assert schema.dimensions["samples"].chunk_size == 10000
+        assert schema.dimensions["variants"].chunk_size == 1000
 
     def test_variant_contig(self, schema):
         assert get_field_dict(schema, "variant_contig") == {
             "name": "variant_contig",
             "dtype": "i1",
-            "shape": (9,),
-            "chunks": (1000,),
             "dimensions": ("variants",),
             "description": "An identifier from the reference genome or an "
             "angle-bracketed ID string pointing to a contig in the assembly file",
@@ -354,8 +356,6 @@ class TestDefaultSchema:
         assert get_field_dict(schema, "call_genotype") == {
             "name": "call_genotype",
             "dtype": "i1",
-            "shape": (9, 3, 2),
-            "chunks": (1000, 10000, 2),
             "dimensions": ("variants", "samples", "ploidy"),
             "description": "",
             "source": None,
@@ -373,8 +373,6 @@ class TestDefaultSchema:
         assert get_field_dict(schema, "call_genotype_mask") == {
             "name": "call_genotype_mask",
             "dtype": "bool",
-            "shape": (9, 3, 2),
-            "chunks": (1000, 10000, 2),
             "dimensions": ("variants", "samples", "ploidy"),
             "description": "",
             "source": None,
@@ -392,8 +390,6 @@ class TestDefaultSchema:
         assert get_field_dict(schema, "call_genotype_mask") == {
             "name": "call_genotype_mask",
             "dtype": "bool",
-            "shape": (9, 3, 2),
-            "chunks": (1000, 10000, 2),
             "dimensions": ("variants", "samples", "ploidy"),
             "description": "",
             "source": None,
@@ -411,8 +407,6 @@ class TestDefaultSchema:
         assert get_field_dict(schema, "call_GQ") == {
             "name": "call_GQ",
             "dtype": "i1",
-            "shape": (9, 3),
-            "chunks": (1000, 10000),
             "dimensions": ("variants", "samples"),
             "description": "Genotype Quality",
             "source": "FORMAT/GQ",
@@ -433,8 +427,6 @@ class TestLocalAllelesDefaultSchema:
             "source": None,
             "name": "call_LA",
             "dtype": "i1",
-            "shape": (9, 3, 2),
-            "chunks": (1000, 10000, 2),
             "dimensions": ("variants", "samples", "local_alleles"),
             "description": (
                 "0-based indices into REF+ALT, indicating which alleles"
@@ -819,3 +811,49 @@ class TestSchemaDefaults:
                 assert a.compressor.cname == "lz4"
                 assert a.compressor.clevel == 3
                 assert a.compressor.shuffle == 1
+
+
+class TestVcfZarrDimension:
+    def test_dimension_initialization(self):
+        dim1 = vcz.VcfZarrDimension(size=100, chunk_size=20)
+        assert dim1.size == 100
+        assert dim1.chunk_size == 20
+
+        # Test with only size (chunk_size should default to size)
+        dim2 = vcz.VcfZarrDimension(size=50)
+        assert dim2.size == 50
+        assert dim2.chunk_size == 50
+
+    def test_asdict(self):
+        # When chunk_size equals size, it shouldn't be included in dict
+        dim1 = vcz.VcfZarrDimension(size=100, chunk_size=100)
+        assert dim1.asdict() == {"size": 100}
+
+        # When chunk_size differs from size, it should be included in dict
+        dim2 = vcz.VcfZarrDimension(size=100, chunk_size=20)
+        assert dim2.asdict() == {"size": 100, "chunk_size": 20}
+
+    def test_fromdict(self):
+        # With only size
+        dim1 = vcz.VcfZarrDimension.fromdict({"size": 75})
+        assert dim1.size == 75
+        assert dim1.chunk_size == 75
+
+        # With both size and chunk_size
+        dim2 = vcz.VcfZarrDimension.fromdict({"size": 75, "chunk_size": 25})
+        assert dim2.size == 75
+        assert dim2.chunk_size == 25
+
+    def test_json_serialization(self, icf_path):
+        icf = icf_mod.IntermediateColumnarFormat(icf_path)
+        schema = icf.generate_schema(variants_chunk_size=42, samples_chunk_size=24)
+
+        schema_json = schema.asjson()
+        schema2 = vcz.VcfZarrSchema.fromjson(schema_json)
+
+        assert schema2.dimensions["variants"].size == schema.dimensions["variants"].size
+        assert schema2.dimensions["variants"].chunk_size == 42
+        assert schema2.dimensions["samples"].chunk_size == 24
+
+        assert isinstance(schema2.dimensions["variants"], vcz.VcfZarrDimension)
+        assert isinstance(schema2.dimensions["samples"], vcz.VcfZarrDimension)

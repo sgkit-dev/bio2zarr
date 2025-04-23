@@ -15,6 +15,8 @@ from bio2zarr import constants, core, provenance, zarr_utils
 logger = logging.getLogger(__name__)
 
 ZARR_SCHEMA_FORMAT_VERSION = "0.5"
+DEFAULT_VARIANT_CHUNK_SIZE = 1000
+DEFAULT_SAMPLE_CHUNK_SIZE = 10_000
 DEFAULT_ZARR_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7)
 DEFAULT_ZARR_COMPRESSOR_GENOTYPES = numcodecs.Blosc(
     cname="zstd", clevel=7, shuffle=numcodecs.Blosc.BITSHUFFLE
@@ -92,11 +94,32 @@ class Source(abc.ABC):
 
 
 @dataclasses.dataclass
+class VcfZarrDimension:
+    size: int
+    chunk_size: int = None
+
+    def __post_init__(self):
+        if self.chunk_size is None:
+            self.chunk_size = self.size
+
+    def asdict(self):
+        result = {"size": self.size}
+        if self.chunk_size != self.size:
+            result["chunk_size"] = self.chunk_size
+        return result
+
+    @classmethod
+    def fromdict(cls, d):
+        return cls(
+            size=d["size"],
+            chunk_size=d.get("chunk_size", d["size"]),
+        )
+
+
+@dataclasses.dataclass
 class ZarrArraySpec:
     name: str
     dtype: str
-    shape: tuple
-    chunks: tuple
     dimensions: tuple
     description: str
     compressor: dict = None
@@ -107,43 +130,53 @@ class ZarrArraySpec:
         if self.name in _fixed_field_descriptions:
             self.description = self.description or _fixed_field_descriptions[self.name]
 
-        # Ensure these are tuples for ease of comparison and consistency
-        self.shape = tuple(self.shape)
-        self.chunks = tuple(self.chunks)
         self.dimensions = tuple(self.dimensions)
         self.filters = tuple(self.filters) if self.filters is not None else None
+
+    def get_shape(self, schema):
+        return schema.get_shape(self.dimensions)
+
+    def get_chunks(self, schema):
+        return schema.get_chunks(self.dimensions)
+
+    def get_chunk_nbytes(self, schema):
+        element_size = np.dtype(self.dtype).itemsize
+        chunks = self.get_chunks(schema)
+        shape = self.get_shape(schema)
+
+        # Calculate actual chunk size accounting for dimension limits
+        items = 1
+        for i, chunk_size in enumerate(chunks):
+            items *= min(chunk_size, shape[i])
+
+        # Include sizes for extra dimensions (if any)
+        if len(shape) > len(chunks):
+            for size in shape[len(chunks) :]:
+                items *= size
+
+        return element_size * items
 
     @staticmethod
     def from_field(
         vcf_field,
+        schema,
         *,
-        num_variants,
-        num_samples,
-        variants_chunk_size,
-        samples_chunk_size,
         array_name=None,
         compressor=None,
         filters=None,
     ):
-        shape = [num_variants]
         prefix = "variant_"
         dimensions = ["variants"]
-        chunks = [variants_chunk_size]
         if vcf_field.category == "FORMAT":
             prefix = "call_"
-            shape.append(num_samples)
-            chunks.append(samples_chunk_size)
             dimensions.append("samples")
         if array_name is None:
             array_name = prefix + vcf_field.name
 
-        # TODO make an option to add in the empty extra dimension
         max_number = vcf_field.max_number
         if (max_number > 0 and vcf_field.vcf_number in ("R", "A", "G")) or (
             max_number > 1 or vcf_field.full_name == "FORMAT/LAA"
         ):
-            shape.append(max_number)
-            chunks.append(max_number)
             # TODO we should really be checking this to see if the named dimensions
             # are actually correct.
             if vcf_field.vcf_number == "R":
@@ -154,42 +187,43 @@ class ZarrArraySpec:
                 dimensions.append("genotypes")
             else:
                 dimensions.append(f"{vcf_field.category}_{vcf_field.name}_dim")
+        if dimensions[-1] not in schema.dimensions:
+            schema.dimensions[dimensions[-1]] = VcfZarrDimension(
+                size=vcf_field.max_number
+            )
+
         return ZarrArraySpec(
             source=vcf_field.full_name,
             name=array_name,
             dtype=vcf_field.smallest_dtype(),
-            shape=shape,
-            chunks=chunks,
             dimensions=dimensions,
             description=vcf_field.description,
             compressor=compressor,
             filters=filters,
         )
 
-    @property
-    def chunk_nbytes(self):
+    def chunk_nbytes(self, schema):
         """
         Returns the nbytes for a single chunk in this array.
         """
         items = 1
         dim = 0
-        for chunk_size in self.chunks:
-            size = min(chunk_size, self.shape[dim])
+        for chunk_size in self.get_chunks(schema):
+            size = min(chunk_size, self.get_shape(schema)[dim])
             items *= size
             dim += 1
         # Include sizes for extra dimensions.
-        for size in self.shape[dim:]:
+        for size in self.get_shape(schema)[dim:]:
             items *= size
         dt = np.dtype(self.dtype)
         return items * dt.itemsize
 
-    @property
-    def variant_chunk_nbytes(self):
+    def variant_chunk_nbytes(self, schema):
         """
         Returns the nbytes for a single variant chunk of this array.
         """
-        chunk_items = self.chunks[0]
-        for size in self.shape[1:]:
+        chunk_items = self.get_chunks(schema)[0]
+        for size in self.get_shape(schema)[1:]:
             chunk_items *= size
         dt = np.dtype(self.dtype)
         if dt.kind == "O" and "samples" in self.dimensions:
@@ -220,8 +254,7 @@ class Filter:
 @dataclasses.dataclass
 class VcfZarrSchema(core.JsonDataclass):
     format_version: str
-    samples_chunk_size: int
-    variants_chunk_size: int
+    dimensions: dict
     fields: list
     defaults: dict
 
@@ -229,8 +262,7 @@ class VcfZarrSchema(core.JsonDataclass):
         self,
         format_version: str,
         fields: list,
-        variants_chunk_size: int = None,
-        samples_chunk_size: int = None,
+        dimensions: dict = None,
         defaults: dict = None,
     ):
         self.format_version = format_version
@@ -241,25 +273,41 @@ class VcfZarrSchema(core.JsonDataclass):
         if defaults.get("filters", None) is None:
             defaults["filters"] = []
         self.defaults = defaults
-        if variants_chunk_size is None:
-            variants_chunk_size = 1000
-        self.variants_chunk_size = variants_chunk_size
-        if samples_chunk_size is None:
-            samples_chunk_size = 10_000
-        self.samples_chunk_size = samples_chunk_size
+        if dimensions is None:
+            dimensions = {
+                "variants": VcfZarrDimension(
+                    size=0, chunk_size=DEFAULT_VARIANT_CHUNK_SIZE
+                ),
+                "samples": VcfZarrDimension(
+                    size=0, chunk_size=DEFAULT_SAMPLE_CHUNK_SIZE
+                ),
+            }
+        self.dimensions = dimensions
+
+    def get_shape(self, dimensions):
+        return [self.dimensions[dim].size for dim in dimensions]
+
+    def get_chunks(self, dimensions):
+        return [self.dimensions[dim].chunk_size for dim in dimensions]
 
     def validate(self):
         """
         Checks that the schema is well-formed and within required limits.
         """
         for field in self.fields:
+            for dim in field.dimensions:
+                if dim not in self.dimensions:
+                    raise ValueError(
+                        f"Dimension '{dim}' used in field '{field.name}' is "
+                        "not defined in the schema"
+                    )
+
+            chunk_nbytes = field.get_chunk_nbytes(self)
             # This is the Blosc max buffer size
-            if field.chunk_nbytes > 2147483647:
-                # TODO add some links to documentation here advising how to
-                # deal with PL values.
+            if chunk_nbytes > 2147483647:
                 raise ValueError(
                     f"Field {field.name} chunks are too large "
-                    f"({field.chunk_nbytes} > 2**31 - 1 bytes). "
+                    f"({chunk_nbytes} > 2**31 - 1 bytes). "
                     "Either generate a schema and drop this field (if you don't "
                     "need it) or reduce the variant or sample chunk sizes."
                 )
@@ -276,8 +324,11 @@ class VcfZarrSchema(core.JsonDataclass):
                 "Zarr schema format version mismatch: "
                 f"{d['format_version']} != {ZARR_SCHEMA_FORMAT_VERSION}"
             )
+
         ret = VcfZarrSchema(**d)
         ret.fields = [ZarrArraySpec(**sd) for sd in d["fields"]]
+        ret.dimensions = {k: VcfZarrDimension(**v) for k, v in d["dimensions"].items()}
+
         return ret
 
     @staticmethod
@@ -479,7 +530,7 @@ class VcfZarrWriter:
         schema.validate()
         partitions = VcfZarrPartition.generate_partitions(
             self.source.num_records,
-            schema.variants_chunk_size,
+            schema.get_chunks(["variants"])[0],
             target_num_partitions,
             max_chunks=max_variant_chunks,
         )
@@ -547,7 +598,7 @@ class VcfZarrWriter:
             shape=len(samples),
             dtype="str",
             compressor=DEFAULT_ZARR_COMPRESSOR,
-            chunks=(self.schema.samples_chunk_size,),
+            chunks=(self.schema.get_chunks(["samples"])[0],),
         )
         array.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
         logger.debug("Samples done")
@@ -614,13 +665,13 @@ class VcfZarrWriter:
         if not zarr_utils.zarr_v3():
             kwargs["dimension_separator"] = self.metadata.dimension_separator
 
-        shape = list(array_spec.shape)
-        # Truncate the variants dimension is max_variant_chunks was specified
+        shape = schema.get_shape(array_spec.dimensions)
+        # Truncate the variants dimension if max_variant_chunks was specified
         shape[0] = variants_dim_size
         a = root.empty(
             name=array_spec.name,
             shape=shape,
-            chunks=array_spec.chunks,
+            chunks=schema.get_chunks(array_spec.dimensions),
             dtype=array_spec.dtype,
             compressor=compressor,
             filters=filters,
@@ -945,11 +996,13 @@ class VcfZarrWriter:
         """
         max_encoding_mem = 0
         for array_spec in self.schema.fields:
-            max_encoding_mem = max(max_encoding_mem, array_spec.variant_chunk_nbytes)
+            max_encoding_mem = max(
+                max_encoding_mem, array_spec.variant_chunk_nbytes(self.schema)
+            )
         gt_mem = 0
         if self.has_genotypes:
             gt_mem = sum(
-                field.variant_chunk_nbytes
+                field.variant_chunk_nbytes(self.schema)
                 for field in self.schema.fields
                 if field.name.startswith("call_genotype")
             )
