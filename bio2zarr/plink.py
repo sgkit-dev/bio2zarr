@@ -69,16 +69,28 @@ class PlinkFormat(vcz.Source):
         m = self.bed.sid_count
         logging.info(f"Scanned plink with {n} samples and {m} variants")
 
+        # Define dimensions with sizes and chunk sizes
+        dimensions = {
+            "variants": vcz.VcfZarrDimension(
+                size=m, chunk_size=variants_chunk_size or vcz.DEFAULT_VARIANT_CHUNK_SIZE
+            ),
+            "samples": vcz.VcfZarrDimension(
+                size=n, chunk_size=samples_chunk_size or vcz.DEFAULT_SAMPLE_CHUNK_SIZE
+            ),
+            "ploidy": vcz.VcfZarrDimension(size=2),
+            "alleles": vcz.VcfZarrDimension(size=2),
+        }
+
         schema_instance = vcz.VcfZarrSchema(
             format_version=vcz.ZARR_SCHEMA_FORMAT_VERSION,
-            samples_chunk_size=samples_chunk_size,
-            variants_chunk_size=variants_chunk_size,
+            dimensions=dimensions,
             fields=[],
         )
 
         logger.info(
             "Generating schema with chunks="
-            f"{schema_instance.variants_chunk_size, schema_instance.samples_chunk_size}"
+            f"variants={dimensions['variants'].chunk_size}, "
+            f"samples={dimensions['samples'].chunk_size}"
         )
 
         array_specs = [
@@ -86,54 +98,33 @@ class PlinkFormat(vcz.Source):
                 source="position",
                 name="variant_position",
                 dtype="i4",
-                shape=[m],
                 dimensions=["variants"],
-                chunks=[schema_instance.variants_chunk_size],
                 description=None,
             ),
             vcz.ZarrArraySpec(
                 name="variant_allele",
                 dtype="O",
-                shape=[m, 2],
                 dimensions=["variants", "alleles"],
-                chunks=[schema_instance.variants_chunk_size, 2],
                 description=None,
             ),
             vcz.ZarrArraySpec(
                 name="call_genotype_phased",
                 dtype="bool",
-                shape=[m, n],
                 dimensions=["variants", "samples"],
-                chunks=[
-                    schema_instance.variants_chunk_size,
-                    schema_instance.samples_chunk_size,
-                ],
                 description=None,
                 compressor=vcz.DEFAULT_ZARR_COMPRESSOR_BOOL.get_config(),
             ),
             vcz.ZarrArraySpec(
                 name="call_genotype",
                 dtype="i1",
-                shape=[m, n, 2],
                 dimensions=["variants", "samples", "ploidy"],
-                chunks=[
-                    schema_instance.variants_chunk_size,
-                    schema_instance.samples_chunk_size,
-                    2,
-                ],
                 description=None,
                 compressor=vcz.DEFAULT_ZARR_COMPRESSOR_BOOL.get_config(),
             ),
             vcz.ZarrArraySpec(
                 name="call_genotype_mask",
                 dtype="bool",
-                shape=[m, n, 2],
                 dimensions=["variants", "samples", "ploidy"],
-                chunks=[
-                    schema_instance.variants_chunk_size,
-                    schema_instance.samples_chunk_size,
-                    2,
-                ],
                 description=None,
                 compressor=vcz.DEFAULT_ZARR_COMPRESSOR_BOOL.get_config(),
             ),

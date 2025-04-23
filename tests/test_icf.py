@@ -239,8 +239,8 @@ class TestGeneratedFieldsExample:
     def test_info_schemas(self, schema, name, dtype, shape, dimensions):
         v = schema.field_map()[name]
         assert v.dtype == dtype
-        assert tuple(v.shape) == shape
         assert v.dimensions == dimensions
+        assert tuple(schema.get_shape(dimensions)) == shape
 
     def test_info_string1(self, icf):
         non_missing = [v for v in icf.fields["INFO/IS1"].values if v is not None]

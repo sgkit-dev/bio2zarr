@@ -5,6 +5,9 @@ Breaking changes
 - Remove explicit sample, contig and filter lists from the schema.
   Existing ICFs will need to be recreated. (#343)
 
+- Add dimensions and default compressor and filter settings to the schema.
+  (#361)
+
 # 0.1.5 2025-03-31
 
 - Add support for merging contig IDs across multiple VCFs (#335)
