@@ -71,11 +71,7 @@ class Source(abc.ABC):
         return {}
 
     @abc.abstractmethod
-    def iter_alleles(self, start, stop, num_alleles):
-        pass
-
-    @abc.abstractmethod
-    def iter_genotypes(self, start, stop, num_alleles):
+    def iter_alleles_and_genotypes(self, start, stop, shape, num_alleles):
         pass
 
     def iter_id(self, start, stop):
@@ -724,12 +720,11 @@ class VcfZarrWriter:
             self.encode_filters_partition(partition_index)
         if "variant_contig" in all_field_names:
             self.encode_contig_partition(partition_index)
-        self.encode_alleles_partition(partition_index)
+        self.encode_alleles_and_genotypes_partition(partition_index)
         for array_spec in self.schema.fields:
             if array_spec.source is not None:
                 self.encode_array_partition(array_spec, partition_index)
         if self.has_genotypes():
-            self.encode_genotypes_partition(partition_index)
             self.encode_genotype_mask_partition(partition_index)
         if self.has_local_alleles():
             self.encode_local_alleles_partition(partition_index)
@@ -780,22 +775,32 @@ class VcfZarrWriter:
 
         self.finalise_partition_array(partition_index, ba)
 
-    def encode_genotypes_partition(self, partition_index):
+    def encode_alleles_and_genotypes_partition(self, partition_index):
         partition = self.metadata.partitions[partition_index]
-        gt = self.init_partition_array(partition_index, "call_genotype")
-        gt_phased = self.init_partition_array(partition_index, "call_genotype_phased")
-
-        for genotype, phased in self.source.iter_genotypes(
-            gt.buff.shape[1:], partition.start, partition.stop
+        alleles = self.init_partition_array(partition_index, "variant_allele")
+        has_gt = self.has_genotypes()
+        shape = None
+        if has_gt:
+            gt = self.init_partition_array(partition_index, "call_genotype")
+            gt_phased = self.init_partition_array(
+                partition_index, "call_genotype_phased"
+            )
+            shape = gt.buff.shape[1:]
+        for alleles_value, (genotype, phased) in self.source.iter_alleles_and_genotypes(
+            partition.start, partition.stop, shape, alleles.array.shape[1]
         ):
-            j = gt.next_buffer_row()
-            gt.buff[j] = genotype
+            j_alleles = alleles.next_buffer_row()
+            alleles.buff[j_alleles] = alleles_value
+            if has_gt:
+                j = gt.next_buffer_row()
+                gt.buff[j] = genotype
+                j_phased = gt_phased.next_buffer_row()
+                gt_phased.buff[j_phased] = phased
 
-            j_phased = gt_phased.next_buffer_row()
-            gt_phased.buff[j_phased] = phased
-
-        self.finalise_partition_array(partition_index, gt)
-        self.finalise_partition_array(partition_index, gt_phased)
+        self.finalise_partition_array(partition_index, alleles)
+        if has_gt:
+            self.finalise_partition_array(partition_index, gt)
+            self.finalise_partition_array(partition_index, gt_phased)
 
     def encode_genotype_mask_partition(self, partition_index):
         partition = self.metadata.partitions[partition_index]
@@ -856,18 +861,6 @@ class VcfZarrWriter:
                 j = buff.next_buffer_row()
                 buff.buff[j] = descriptor.convert(value, la)
             self.finalise_partition_array(partition_index, buff)
-
-    def encode_alleles_partition(self, partition_index):
-        alleles = self.init_partition_array(partition_index, "variant_allele")
-        partition = self.metadata.partitions[partition_index]
-
-        for value in self.source.iter_alleles(
-            partition.start, partition.stop, alleles.array.shape[1]
-        ):
-            j = alleles.next_buffer_row()
-            alleles.buff[j] = value
-
-        self.finalise_partition_array(partition_index, alleles)
 
     def encode_id_partition(self, partition_index):
         vid = self.init_partition_array(partition_index, "variant_id")

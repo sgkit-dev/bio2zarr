@@ -900,8 +900,12 @@ class IntermediateColumnarFormat(vcz.Source):
         ]
         # Allow us to find which partition a given record is in
         self.partition_record_index = np.cumsum([0, *partition_num_records])
+        self.gt_field = None
         for field in self.metadata.fields:
             self.fields[field.full_name] = IntermediateColumnarFormatField(self, field)
+            if field.name == "GT":
+                self.gt_field = field
+
         logger.info(
             f"Loaded IntermediateColumnarFormat(partitions={self.num_partitions}, "
             f"records={self.num_records}, fields={self.num_fields})"
@@ -970,19 +974,6 @@ class IntermediateColumnarFormat(vcz.Source):
             "vcf_header": self.vcf_header,
         }
 
-    def iter_alleles(self, start, stop, num_alleles):
-        ref_field = self.fields["REF"]
-        alt_field = self.fields["ALT"]
-
-        for ref, alt in zip(
-            ref_field.iter_values(start, stop),
-            alt_field.iter_values(start, stop),
-        ):
-            alleles = np.full(num_alleles, constants.STR_FILL, dtype="O")
-            alleles[0] = ref[0]
-            alleles[1 : 1 + len(alt)] = alt
-            yield alleles
-
     def iter_id(self, start, stop):
         for value in self.fields["ID"].iter_values(start, stop):
             if value is not None:
@@ -1025,6 +1016,19 @@ class IntermediateColumnarFormat(vcz.Source):
         for value in source_field.iter_values(start, stop):
             yield sanitiser(value)
 
+    def iter_alleles(self, start, stop, num_alleles):
+        ref_field = self.fields["REF"]
+        alt_field = self.fields["ALT"]
+
+        for ref, alt in zip(
+            ref_field.iter_values(start, stop),
+            alt_field.iter_values(start, stop),
+        ):
+            alleles = np.full(num_alleles, constants.STR_FILL, dtype="O")
+            alleles[0] = ref[0]
+            alleles[1 : 1 + len(alt)] = alt
+            yield alleles
+
     def iter_genotypes(self, shape, start, stop):
         source_field = self.fields["FORMAT/GT"]
         for value in source_field.iter_values(start, stop):
@@ -1033,6 +1037,16 @@ class IntermediateColumnarFormat(vcz.Source):
             sanitised_genotypes = sanitise_value_int_2d(shape, genotypes)
             sanitised_phased = sanitise_value_int_1d(shape[:-1], phased)
             yield sanitised_genotypes, sanitised_phased
+
+    def iter_alleles_and_genotypes(self, start, stop, shape, num_alleles):
+        if self.gt_field is None or shape is None:
+            for alleles in self.iter_alleles(start, stop, num_alleles):
+                yield alleles, (None, None)
+        else:
+            yield from zip(
+                self.iter_alleles(start, stop, num_alleles),
+                self.iter_genotypes(shape, start, stop),
+            )
 
     def generate_schema(
         self, variants_chunk_size=None, samples_chunk_size=None, local_alleles=None
@@ -1128,15 +1142,13 @@ class IntermediateColumnarFormat(vcz.Source):
             [spec_from_field(field) for field in self.metadata.info_fields]
         )
 
-        gt_field = None
         for field in self.metadata.format_fields:
             if field.name == "GT":
-                gt_field = field
                 continue
             array_specs.append(spec_from_field(field))
 
-        if gt_field is not None and n > 0:
-            ploidy = max(gt_field.summary.max_number - 1, 1)
+        if self.gt_field is not None and n > 0:
+            ploidy = max(self.gt_field.summary.max_number - 1, 1)
             # Add ploidy dimension only when needed
             schema_instance.dimensions["ploidy"] = vcz.VcfZarrDimension(size=ploidy)
 
@@ -1152,7 +1164,7 @@ class IntermediateColumnarFormat(vcz.Source):
             array_specs.append(
                 vcz.ZarrArraySpec(
                     name="call_genotype",
-                    dtype=gt_field.smallest_dtype(),
+                    dtype=self.gt_field.smallest_dtype(),
                     dimensions=["variants", "samples", "ploidy"],
                     description="",
                     compressor=vcz.DEFAULT_ZARR_COMPRESSOR_GENOTYPES.get_config(),

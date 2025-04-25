@@ -31,34 +31,28 @@ class PlinkFormat(vcz.Source):
     def num_samples(self):
         return len(self.samples)
 
-    def iter_alleles(self, start, stop, num_alleles):
-        ref_field = self.bed.allele_1
-        alt_field = self.bed.allele_2
-
-        for ref, alt in zip(
-            ref_field[start:stop],
-            alt_field[start:stop],
-        ):
-            alleles = np.full(num_alleles, constants.STR_FILL, dtype="O")
-            alleles[0] = ref
-            alleles[1 : 1 + len(alt)] = alt
-            yield alleles
-
     def iter_field(self, field_name, shape, start, stop):
         assert field_name == "position"  # Only position field is supported from plink
         yield from self.bed.bp_position[start:stop]
 
-    def iter_genotypes(self, shape, start, stop):
+    def iter_alleles_and_genotypes(self, start, stop, shape, num_alleles):
+        ref_field = self.bed.allele_1
+        alt_field = self.bed.allele_2
         bed_chunk = self.bed.read(slice(start, stop), dtype=np.int8).T
         gt = np.zeros(shape, dtype=np.int8)
         phased = np.zeros(shape[:-1], dtype=bool)
-        for values in bed_chunk:
+        for i, (ref, alt) in enumerate(
+            zip(ref_field[start:stop], alt_field[start:stop])
+        ):
+            alleles = np.full(num_alleles, constants.STR_FILL, dtype="O")
+            alleles[0] = ref
+            alleles[1 : 1 + len(alt)] = alt
             gt[:] = 0
-            gt[values == -127] = -1
-            gt[values == 2] = 1
-            gt[values == 1, 0] = 1
+            gt[bed_chunk[i] == -127] = -1
+            gt[bed_chunk[i] == 2] = 1
+            gt[bed_chunk[i] == 1, 0] = 1
 
-            yield gt, phased
+            yield alleles, (gt, phased)
 
     def generate_schema(
         self,
