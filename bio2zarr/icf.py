@@ -1064,11 +1064,27 @@ class IntermediateColumnarFormat(vcz.Source):
             "samples": vcz.VcfZarrDimension(
                 size=n, chunk_size=samples_chunk_size or vcz.DEFAULT_SAMPLE_CHUNK_SIZE
             ),
-            # ploidy added conditionally below
+            # ploidy and genotypes added conditionally below
             "alleles": vcz.VcfZarrDimension(size=max_alleles),
             "alt_alleles": vcz.VcfZarrDimension(size=max_alleles - 1),
             "filters": vcz.VcfZarrDimension(size=self.metadata.num_filters),
         }
+
+        # Add ploidy and genotypes dimensions only when needed
+        max_genotypes = 0
+        for field in self.metadata.format_fields:
+            if field.vcf_number == "G":
+                max_genotypes = max(max_genotypes, field.summary.max_number)
+        if self.gt_field is not None:
+            ploidy = max(self.gt_field.summary.max_number - 1, 1)
+            dimensions["ploidy"] = vcz.VcfZarrDimension(size=ploidy)
+            max_genotypes = math.comb(max_alleles + ploidy - 1, ploidy)
+            dimensions["genotypes"] = vcz.VcfZarrDimension(size=max_genotypes)
+        else:
+            if max_genotypes > 0:
+                # there is no GT field, but there is at least one Number=G field,
+                # so need to define genotypes dimension
+                dimensions["genotypes"] = vcz.VcfZarrDimension(size=max_genotypes)
 
         schema_instance = vcz.VcfZarrSchema(
             format_version=vcz.ZARR_SCHEMA_FORMAT_VERSION,
@@ -1148,10 +1164,6 @@ class IntermediateColumnarFormat(vcz.Source):
             array_specs.append(spec_from_field(field))
 
         if self.gt_field is not None and n > 0:
-            ploidy = max(self.gt_field.summary.max_number - 1, 1)
-            # Add ploidy dimension only when needed
-            schema_instance.dimensions["ploidy"] = vcz.VcfZarrDimension(size=ploidy)
-
             array_specs.append(
                 vcz.ZarrArraySpec(
                     name="call_genotype_phased",
