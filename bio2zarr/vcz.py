@@ -188,9 +188,15 @@ class ZarrArraySpec:
                 )
             if max_alt_alleles > 0:
                 dimensions.append("alt_alleles")
-        elif max_number > 0 and vcf_field.vcf_number == "G":
-            # TODO: need max_genotypes
-            dimensions.append("genotypes")
+        elif vcf_field.vcf_number == "G":
+            max_genotypes = schema.dimensions["genotypes"].size
+            if max_number > max_genotypes:
+                raise ValueError(
+                    f"Max number of values {max_number} exceeds max genotypes "
+                    f"{max_genotypes} for {vcf_field.full_name}"
+                )
+            if max_genotypes > 0:
+                dimensions.append("genotypes")
         elif max_number > 1 or vcf_field.full_name == "FORMAT/LAA":
             dimensions.append(f"{vcf_field.category}_{vcf_field.name}_dim")
         if dimensions[-1] not in schema.dimensions:
