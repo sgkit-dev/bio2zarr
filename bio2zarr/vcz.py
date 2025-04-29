@@ -14,7 +14,7 @@ from bio2zarr import constants, core, provenance, zarr_utils
 
 logger = logging.getLogger(__name__)
 
-ZARR_SCHEMA_FORMAT_VERSION = "0.5"
+ZARR_SCHEMA_FORMAT_VERSION = "0.6"
 DEFAULT_VARIANT_CHUNK_SIZE = 1000
 DEFAULT_SAMPLE_CHUNK_SIZE = 10_000
 DEFAULT_ZARR_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7)
