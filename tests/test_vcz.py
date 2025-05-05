@@ -857,3 +857,42 @@ class TestVcfZarrDimension:
 
         assert isinstance(schema2.dimensions["variants"], vcz.VcfZarrDimension)
         assert isinstance(schema2.dimensions["samples"], vcz.VcfZarrDimension)
+
+
+class TestDimensionSizes:
+    data_path = "tests/data/vcf/field_type_combos.vcf.gz"
+
+    @pytest.fixture(scope="class")
+    def icf(self, tmp_path_factory):
+        out = tmp_path_factory.mktemp("data") / "example.exploded"
+        return icf_mod.explode(out, [self.data_path])
+
+    @pytest.fixture(scope="class")
+    def schema(self, icf):
+        return icf.generate_schema()
+
+    @pytest.mark.parametrize(
+        ("vcf_number", "dimensions", "field"),
+        [
+            ("A", "alt_alleles", "FORMAT/FIA"),
+            ("R", "alleles", "FORMAT/FIR"),
+            ("G", "genotypes", "FORMAT/FIG"),
+        ],
+    )
+    def test_max_number_exceeds_dimension_size(
+        self, icf, schema, vcf_number, dimensions, field
+    ):
+        vcf_field = icf.fields[field].vcf_field
+        assert vcf_field.vcf_number == vcf_number
+        # this should not fail
+        vcz.ZarrArraySpec.from_field(vcf_field, schema)
+
+        # change max number to be bigger than that allowed by vcf number
+        max_number = schema.dimensions[dimensions].size + 1
+        vcf_field.summary.max_number = max_number
+
+        # creating an array spec should now fail
+        with pytest.raises(
+            ValueError, match=f"Max number of values {max_number} exceeds max"
+        ):
+            vcz.ZarrArraySpec.from_field(vcf_field, schema)
