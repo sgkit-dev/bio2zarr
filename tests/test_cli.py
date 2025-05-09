@@ -61,6 +61,15 @@ DEFAULT_CONVERT_ARGS = dict(
     local_alleles=False,
 )
 
+DEFAULT_TSKIT_CONVERT_ARGS = dict(
+    contig_id=None,
+    isolated_as_missing=False,
+    variants_chunk_size=None,
+    samples_chunk_size=None,
+    show_progress=True,
+    worker_processes=1,
+)
+
 DEFAULT_PLINK_CONVERT_ARGS = dict(
     variants_chunk_size=None,
     samples_chunk_size=None,
@@ -635,6 +644,116 @@ class TestWithMocks:
             (self.vcf_path,), str(zarr_path), **DEFAULT_CONVERT_ARGS
         )
 
+    @pytest.mark.parametrize(("progress", "flag"), [(True, "-P"), (False, "-Q")])
+    @mock.patch("bio2zarr.tskit.convert")
+    def test_convert_tskit(self, mocked, tmp_path, progress, flag):
+        ts_path = "tests/data/ts/example.trees"
+        zarr_path = tmp_path / "zarr"
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.tskit2zarr,
+            f"convert {ts_path} {zarr_path} {flag}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert len(result.stdout) == 0
+        assert len(result.stderr) == 0
+        args = dict(DEFAULT_TSKIT_CONVERT_ARGS)
+        args["show_progress"] = progress
+        mocked.assert_called_once_with(
+            ts_path,
+            str(zarr_path),
+            **args,
+        )
+
+    @pytest.mark.parametrize("response", ["y", "Y", "yes"])
+    @mock.patch("bio2zarr.tskit.convert")
+    def test_tskit_convert_overwrite_zarr_confirm_yes(self, mocked, tmp_path, response):
+        ts_path = "tests/data/ts/example.trees"
+        zarr_path = tmp_path / "zarr"
+        zarr_path.mkdir()
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.tskit2zarr,
+            f"convert {ts_path} {zarr_path}",
+            catch_exceptions=False,
+            input=response,
+        )
+        assert result.exit_code == 0
+        assert f"Do you want to overwrite {zarr_path}" in result.stdout
+        assert len(result.stderr) == 0
+        mocked.assert_called_once_with(
+            ts_path,
+            str(zarr_path),
+            **DEFAULT_TSKIT_CONVERT_ARGS,
+        )
+
+    @pytest.mark.parametrize("response", ["n", "N", "No"])
+    @mock.patch("bio2zarr.tskit.convert")
+    def test_tskit_convert_overwrite_zarr_confirm_no(self, mocked, tmp_path, response):
+        ts_path = "tests/data/ts/example.trees"
+        zarr_path = tmp_path / "zarr"
+        zarr_path.mkdir()
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.tskit2zarr,
+            f"convert {ts_path} {zarr_path}",
+            catch_exceptions=False,
+            input=response,
+        )
+        assert result.exit_code == 1
+        assert "Aborted" in result.stderr
+        mocked.assert_not_called()
+
+    @pytest.mark.parametrize("force_arg", ["-f", "--force"])
+    @mock.patch("bio2zarr.tskit.convert")
+    def test_tskit_convert_overwrite_zarr_force(self, mocked, tmp_path, force_arg):
+        ts_path = "tests/data/ts/example.trees"
+        zarr_path = tmp_path / "zarr"
+        zarr_path.mkdir()
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.tskit2zarr,
+            f"convert {ts_path} {zarr_path} {force_arg}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert len(result.stdout) == 0
+        assert len(result.stderr) == 0
+        mocked.assert_called_once_with(
+            ts_path,
+            str(zarr_path),
+            **DEFAULT_TSKIT_CONVERT_ARGS,
+        )
+
+    @mock.patch("bio2zarr.tskit.convert")
+    def test_tskit_convert_with_options(self, mocked, tmp_path):
+        ts_path = "tests/data/ts/example.trees"
+        zarr_path = tmp_path / "zarr"
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.tskit2zarr,
+            f"convert {ts_path} {zarr_path} --contig-id chr1 "
+            "--isolated-as-missing -l 100 -w 50 -p 4",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert len(result.stdout) == 0
+        assert len(result.stderr) == 0
+
+        expected_args = dict(DEFAULT_TSKIT_CONVERT_ARGS)
+        expected_args["contig_id"] = "chr1"
+        expected_args["isolated_as_missing"] = True
+        expected_args["variants_chunk_size"] = 100
+        expected_args["samples_chunk_size"] = 50
+        expected_args["worker_processes"] = 4
+
+        mocked.assert_called_once_with(
+            ts_path,
+            str(zarr_path),
+            **expected_args,
+        )
+
 
 class TestVcfEndToEnd:
     vcf_path = "tests/data/vcf/sample.vcf.gz"
@@ -908,10 +1027,36 @@ class TestVcfPartition:
 
 
 @pytest.mark.parametrize(
-    "cmd", [main.bio2zarr, cli.vcf2zarr_main, cli.plink2zarr, cli.vcfpartition]
+    "cmd",
+    [
+        main.bio2zarr,
+        cli.vcf2zarr_main,
+        cli.plink2zarr,
+        cli.vcfpartition,
+        cli.tskit2zarr,
+    ],
 )
 def test_version(cmd):
     runner = ct.CliRunner()
     result = runner.invoke(cmd, ["--version"], catch_exceptions=False)
     s = f"version {provenance.__version__}\n"
     assert result.stdout.endswith(s)
+
+
+class TestTskitEndToEnd:
+    def test_convert(self, tmp_path):
+        ts_path = "tests/data/ts/example.trees"
+        zarr_path = tmp_path / "zarr"
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.tskit2zarr,
+            f"convert {ts_path} {zarr_path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        result = runner.invoke(
+            cli.vcf2zarr_main, f"inspect {zarr_path}", catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        # Arbitrary check
+        assert "variant_position" in result.stdout

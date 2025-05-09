@@ -9,6 +9,7 @@ import numcodecs
 import tabulate
 
 from . import plink, provenance, vcf_utils
+from . import tskit as tskit_mod
 from . import vcf as vcf_mod
 
 logger = logging.getLogger(__name__)
@@ -630,3 +631,52 @@ def vcfpartition(vcfs, verbose, num_partitions, partition_size):
         )
         for region in regions:
             click.echo(f"{region}\t{vcf_path}")
+
+
+@click.command(name="convert")
+@click.argument("ts_path", type=click.Path(exists=True))
+@click.argument("zarr_path", type=click.Path())
+@click.option("--contig-id", type=str, help="Contig/chromosome ID (default: '1')")
+@click.option(
+    "--isolated-as-missing", is_flag=True, help="Treat isolated nodes as missing"
+)
+@variants_chunk_size
+@samples_chunk_size
+@verbose
+@progress
+@worker_processes
+@force
+def convert_tskit(
+    ts_path,
+    zarr_path,
+    contig_id,
+    isolated_as_missing,
+    variants_chunk_size,
+    samples_chunk_size,
+    verbose,
+    progress,
+    worker_processes,
+    force,
+):
+    setup_logging(verbose)
+    check_overwrite_dir(zarr_path, force)
+
+    tskit_mod.convert(
+        ts_path,
+        zarr_path,
+        contig_id=contig_id,
+        isolated_as_missing=isolated_as_missing,
+        variants_chunk_size=variants_chunk_size,
+        samples_chunk_size=samples_chunk_size,
+        worker_processes=worker_processes,
+        show_progress=progress,
+    )
+
+
+@version
+@click.group()
+def tskit2zarr():
+    pass
+
+
+tskit2zarr.add_command(convert_tskit)
