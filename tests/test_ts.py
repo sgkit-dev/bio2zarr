@@ -32,12 +32,17 @@ class TestTskit:
         tree_sequence = tables.tree_sequence()
         tree_sequence.dump(tmp_path / "test.trees")
 
+        # Manually specify the individuals_nodes, other tests use
+        # ts individuals.
         ind_nodes = np.array([[0, 1], [2, 3]])
 
         with tempfile.TemporaryDirectory() as tempdir:
             zarr_path = os.path.join(tempdir, "test_output.zarr")
             ts.convert(
-                tmp_path / "test.trees", zarr_path, ind_nodes, show_progress=False
+                tmp_path / "test.trees",
+                zarr_path,
+                individuals_nodes=ind_nodes,
+                show_progress=False,
             )
             zroot = zarr.open(zarr_path, mode="r")
             assert zroot["variant_position"].shape == (3,)
@@ -70,10 +75,12 @@ class TestTskitFormat:
     @pytest.fixture()
     def simple_ts(self, tmp_path):
         tables = tskit.TableCollection(sequence_length=100)
-        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
-        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
-        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
-        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+        tables.individuals.add_row()
+        tables.individuals.add_row()
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0, individual=0)
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0, individual=0)
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0, individual=1)
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0, individual=1)
         tables.nodes.add_row(flags=0, time=1)  # MRCA for 0,1
         tables.nodes.add_row(flags=0, time=1)  # MRCA for 2,3
         tables.edges.add_row(left=0, right=100, parent=4, child=0)
@@ -89,29 +96,6 @@ class TestTskitFormat:
         tables.sort()
         tree_sequence = tables.tree_sequence()
         ts_path = tmp_path / "test.trees"
-        tree_sequence.dump(ts_path)
-        return ts_path, tree_sequence
-
-    @pytest.fixture()
-    def no_individuals_ts(self, tmp_path):
-        tables = tskit.TableCollection(sequence_length=100)
-        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
-        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
-        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
-        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
-        tables.nodes.add_row(flags=0, time=1)  # MRCA for 0,1
-        tables.nodes.add_row(flags=0, time=1)  # MRCA for 2,3
-        tables.edges.add_row(left=0, right=100, parent=4, child=0)
-        tables.edges.add_row(left=0, right=100, parent=4, child=1)
-        tables.edges.add_row(left=0, right=100, parent=5, child=2)
-        tables.edges.add_row(left=0, right=100, parent=5, child=3)
-        site_id = tables.sites.add_row(position=10, ancestral_state="A")
-        tables.mutations.add_row(site=site_id, node=4, derived_state="T")
-        site_id = tables.sites.add_row(position=20, ancestral_state="C")
-        tables.mutations.add_row(site=site_id, node=5, derived_state="G")
-        tables.sort()
-        tree_sequence = tables.tree_sequence()
-        ts_path = tmp_path / "no_individuals.trees"
         tree_sequence.dump(ts_path)
         return ts_path, tree_sequence
 
@@ -133,7 +117,7 @@ class TestTskitFormat:
         ts_large.dump(ts_path_large)
 
         ind_nodes = np.array([[0], [1]])
-        format_obj_small = ts.TskitFormat(ts_path_small, ind_nodes)
+        format_obj_small = ts.TskitFormat(ts_path_small, individuals_nodes=ind_nodes)
         schema_small = format_obj_small.generate_schema()
 
         position_field = next(
@@ -141,7 +125,7 @@ class TestTskitFormat:
         )
         assert position_field.dtype == "i1"
 
-        format_obj_large = ts.TskitFormat(ts_path_large, ind_nodes)
+        format_obj_large = ts.TskitFormat(ts_path_large, individuals_nodes=ind_nodes)
         schema_large = format_obj_large.generate_schema()
 
         position_field = next(
@@ -151,10 +135,9 @@ class TestTskitFormat:
 
     def test_initialization(self, simple_ts):
         ts_path, tree_sequence = simple_ts
-        ind_nodes = np.array([[0, 1], [2, 3]])
 
         # Test with default parameters
-        format_obj = ts.TskitFormat(ts_path, ind_nodes)
+        format_obj = ts.TskitFormat(ts_path)
         assert format_obj.path == ts_path
         assert format_obj.ts.num_sites == tree_sequence.num_sites
         assert format_obj.contig_id == "1"
@@ -163,7 +146,6 @@ class TestTskitFormat:
         # Test with custom parameters
         format_obj = ts.TskitFormat(
             ts_path,
-            ind_nodes,
             sample_ids=["ind1", "ind2"],
             contig_id="chr1",
             isolated_as_missing=True,
@@ -176,8 +158,7 @@ class TestTskitFormat:
 
     def test_basic_properties(self, simple_ts):
         ts_path, _ = simple_ts
-        ind_nodes = np.array([[0, 1], [2, 3]])
-        format_obj = ts.TskitFormat(ts_path, ind_nodes)
+        format_obj = ts.TskitFormat(ts_path)
 
         assert format_obj.num_records == format_obj.ts.num_sites
         assert format_obj.num_samples == 2  # Two individuals
@@ -193,9 +174,8 @@ class TestTskitFormat:
 
     def test_custom_sample_ids(self, simple_ts):
         ts_path, _ = simple_ts
-        ind_nodes = np.array([[0, 1], [2, 3]])
         custom_ids = ["sample_X", "sample_Y"]
-        format_obj = ts.TskitFormat(ts_path, ind_nodes, sample_ids=custom_ids)
+        format_obj = ts.TskitFormat(ts_path, sample_ids=custom_ids)
 
         assert format_obj.num_samples == 2
         assert len(format_obj.samples) == 2
@@ -204,15 +184,38 @@ class TestTskitFormat:
 
     def test_sample_id_length_mismatch(self, simple_ts):
         ts_path, _ = simple_ts
-        ind_nodes = np.array([[0, 1], [2, 3]])
-        # Wrong number of sample IDs
         with pytest.raises(ValueError, match="Length of sample_ids.*does not match"):
-            ts.TskitFormat(ts_path, ind_nodes, sample_ids=["only_one_id"])
+            ts.TskitFormat(ts_path, sample_ids=["only_one_id"])
+
+    def test_no_individuals_ts(self, tmp_path):
+        tables = tskit.TableCollection(sequence_length=100)
+        # tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+        # tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+        # tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+        # tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+        # tables.nodes.add_row(flags=0, time=1)  # MRCA for 0,1
+        # tables.nodes.add_row(flags=0, time=1)  # MRCA for 2,3
+        # tables.edges.add_row(left=0, right=100, parent=4, child=0)
+        # tables.edges.add_row(left=0, right=100, parent=4, child=1)
+        # tables.edges.add_row(left=0, right=100, parent=5, child=2)
+        # tables.edges.add_row(left=0, right=100, parent=5, child=3)
+        # site_id = tables.sites.add_row(position=10, ancestral_state="A")
+        # tables.mutations.add_row(site=site_id, node=4, derived_state="T")
+        # site_id = tables.sites.add_row(position=20, ancestral_state="C")
+        # tables.mutations.add_row(site=site_id, node=5, derived_state="G")
+        # tables.sort()
+        tree_sequence = tables.tree_sequence()
+        ts_path = tmp_path / "no_individuals.trees"
+        tree_sequence.dump(ts_path)
+
+        with pytest.raises(
+            ValueError, match="No individuals found in the tree sequence"
+        ):
+            ts.TskitFormat(ts_path)
 
     def test_schema_generation(self, simple_ts):
         ts_path, _ = simple_ts
-        ind_nodes = np.array([[0, 1], [2, 3]])
-        format_obj = ts.TskitFormat(ts_path, ind_nodes)
+        format_obj = ts.TskitFormat(ts_path)
 
         schema = format_obj.generate_schema()
         assert schema.dimensions["variants"].size == 3
@@ -234,15 +237,13 @@ class TestTskitFormat:
 
     def test_iter_contig(self, simple_ts):
         ts_path, _ = simple_ts
-        ind_nodes = np.array([[0, 1], [2, 3]])
-        format_obj = ts.TskitFormat(ts_path, ind_nodes)
+        format_obj = ts.TskitFormat(ts_path)
         contig_indices = list(format_obj.iter_contig(1, 3))
         assert contig_indices == [0, 0]
 
     def test_iter_field(self, simple_ts):
         ts_path, _ = simple_ts
-        ind_nodes = np.array([[0, 1], [2, 3]])
-        format_obj = ts.TskitFormat(ts_path, ind_nodes)
+        format_obj = ts.TskitFormat(ts_path)
         positions = list(format_obj.iter_field("position", None, 0, 3))
         assert positions == [10, 20, 30]
         positions = list(format_obj.iter_field("position", None, 1, 3))
@@ -288,7 +289,7 @@ class TestTskitFormat:
     def test_iter_alleles_and_genotypes(self, simple_ts, ind_nodes, expected_gts):
         ts_path, _ = simple_ts
 
-        format_obj = ts.TskitFormat(ts_path, ind_nodes)
+        format_obj = ts.TskitFormat(ts_path, individuals_nodes=ind_nodes)
 
         shape = (2, 2)  # (num_samples, max_ploidy)
         results = list(format_obj.iter_alleles_and_genotypes(0, 3, shape, 2))
@@ -411,7 +412,7 @@ class TestTskitFormat:
         tree_sequence.dump(ts_path)
 
         ind_nodes = np.array([[0, 1], [2, 3]])
-        format_obj = ts.TskitFormat(ts_path, ind_nodes)
+        format_obj = ts.TskitFormat(ts_path, individuals_nodes=ind_nodes)
         schema = format_obj.generate_schema()
         call_genotype_spec = next(s for s in schema.fields if s.name == "call_genotype")
         assert call_genotype_spec.dtype == "i1"
@@ -431,7 +432,7 @@ class TestTskitFormat:
         ts_path = tmp_path / "large_alleles.trees"
         tree_sequence.dump(ts_path)
 
-        format_obj = ts.TskitFormat(ts_path, ind_nodes)
+        format_obj = ts.TskitFormat(ts_path, individuals_nodes=ind_nodes)
         schema = format_obj.generate_schema()
         call_genotype_spec = next(s for s in schema.fields if s.name == "call_genotype")
         assert call_genotype_spec.dtype == "i4"
