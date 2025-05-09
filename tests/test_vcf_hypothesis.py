@@ -4,7 +4,7 @@ import pysam
 from hypothesis import HealthCheck, given, note, settings
 from hypothesis_vcf import vcf
 
-from bio2zarr import icf
+from bio2zarr import vcf as vcf_mod
 
 
 # Make sure POS starts at 1, since CSI indexing doesn't seem to support zero-based
@@ -31,4 +31,9 @@ def test_hypothesis_generated_vcf(tmp_path, vcf_string):
     pysam.tabix_index(str(path), preset="vcf", force=True, csi=True)
 
     # test that we can convert VCFs to Zarr without error
-    icf.convert([str(path) + ".gz"], zarr_path, icf_path=icf_path, worker_processes=0)
+    vcf_mod.convert(
+        [str(path) + ".gz"],
+        zarr_path,
+        icf_path=icf_path,
+        worker_processes=0,
+    )
