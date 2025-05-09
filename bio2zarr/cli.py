@@ -8,8 +8,8 @@ import coloredlogs
 import numcodecs
 import tabulate
 
-from . import icf as icf_mod
 from . import plink, provenance, vcf_utils
+from . import vcf as vcf_mod
 
 logger = logging.getLogger(__name__)
 
@@ -197,7 +197,7 @@ def check_partitions(num_partitions):
 def get_compressor(cname):
     if cname is None:
         return None
-    config = icf_mod.ICF_DEFAULT_COMPRESSOR.get_config()
+    config = vcf_mod.ICF_DEFAULT_COMPRESSOR.get_config()
     config["cname"] = cname
     return numcodecs.get_codec(config)
 
@@ -236,7 +236,7 @@ def explode(
     """
     setup_logging(verbose)
     check_overwrite_dir(icf_path, force)
-    icf_mod.explode(
+    vcf_mod.explode(
         icf_path,
         vcfs,
         worker_processes=worker_processes,
@@ -276,7 +276,7 @@ def dexplode_init(
     setup_logging(verbose)
     check_overwrite_dir(icf_path, force)
     check_partitions(num_partitions)
-    work_summary = icf_mod.explode_init(
+    work_summary = vcf_mod.explode_init(
         icf_path,
         vcfs,
         target_num_partitions=num_partitions,
@@ -304,7 +304,7 @@ def dexplode_partition(icf_path, partition, verbose, one_based):
     setup_logging(verbose)
     if one_based:
         partition -= 1
-    icf_mod.explode_partition(icf_path, partition)
+    vcf_mod.explode_partition(icf_path, partition)
 
 
 @click.command
@@ -315,7 +315,7 @@ def dexplode_finalise(icf_path, verbose):
     Final step for distributed conversion of VCF(s) to intermediate columnar format.
     """
     setup_logging(verbose)
-    icf_mod.explode_finalise(icf_path)
+    vcf_mod.explode_finalise(icf_path)
 
 
 @click.command
@@ -326,7 +326,7 @@ def inspect(path, verbose):
     Inspect an intermediate columnar format or Zarr path.
     """
     setup_logging(verbose)
-    data = icf_mod.inspect(path)
+    data = vcf_mod.inspect(path)
     click.echo(tabulate.tabulate(data, headers="keys"))
 
 
@@ -345,7 +345,7 @@ def mkschema(icf_path, variants_chunk_size, samples_chunk_size, local_alleles):
             err=True,
         )
     stream = click.get_text_stream("stdout")
-    icf_mod.mkschema(
+    vcf_mod.mkschema(
         icf_path,
         stream,
         variants_chunk_size=variants_chunk_size,
@@ -384,7 +384,7 @@ def encode(
     """
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)
-    icf_mod.encode(
+    vcf_mod.encode(
         icf_path,
         zarr_path,
         schema_path=schema,
@@ -438,7 +438,7 @@ def dencode_init(
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)
     check_partitions(num_partitions)
-    work_summary = icf_mod.encode_init(
+    work_summary = vcf_mod.encode_init(
         icf_path,
         zarr_path,
         target_num_partitions=num_partitions,
@@ -466,7 +466,7 @@ def dencode_partition(zarr_path, partition, verbose, one_based):
     setup_logging(verbose)
     if one_based:
         partition -= 1
-    icf_mod.encode_partition(zarr_path, partition)
+    vcf_mod.encode_partition(zarr_path, partition)
 
 
 @click.command
@@ -478,7 +478,7 @@ def dencode_finalise(zarr_path, verbose, progress):
     Final step for distributed conversion of ICF to VCF Zarr.
     """
     setup_logging(verbose)
-    icf_mod.encode_finalise(zarr_path, show_progress=progress)
+    vcf_mod.encode_finalise(zarr_path, show_progress=progress)
 
 
 @click.command(name="convert")
@@ -507,7 +507,7 @@ def convert_vcf(
     """
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)
-    icf_mod.convert(
+    vcf_mod.convert(
         vcfs,
         zarr_path,
         variants_chunk_size=variants_chunk_size,
