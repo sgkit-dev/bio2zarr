@@ -25,6 +25,8 @@ dependencies = [
   # colouredlogs pulls in humanfriendly",
   "cyvcf2",
   "bed_reader",
+  # TODO Using dev version of tskit for CI, FIXME before release
+  "tskit @ git+https://github.com/tskit-dev/tskit.git@main#subdirectory=python",
 ]
 requires-python = ">=3.10"
 classifiers = [
@@ -51,6 +53,7 @@ documentation = "https://sgkit-dev.github.io/bio2zarr/"
 [project.scripts]
 vcf2zarr = "bio2zarr.cli:vcf2zarr_main"
 vcfpartition = "bio2zarr.cli:vcfpartition"
+tskit2zarr = "bio2zarr.cli:tskit2zarr_main"
 
 [project.optional-dependencies]
 dev = [

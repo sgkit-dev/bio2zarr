@@ -17,6 +17,7 @@ def bio2zarr():
 bio2zarr.add_command(cli.vcf2zarr_main)
 bio2zarr.add_command(cli.plink2zarr)
 bio2zarr.add_command(cli.vcfpartition)
+bio2zarr.add_command(cli.tskit2zarr)
 
 if __name__ == "__main__":
     bio2zarr()

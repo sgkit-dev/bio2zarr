@@ -13,7 +13,7 @@ class TskitFormat(vcz.Source):
     def __init__(
         self,
         ts_path,
-        individuals_nodes,
+        individuals_nodes=None,
         sample_ids=None,
         contig_id=None,
         isolated_as_missing=False,
@@ -24,6 +24,9 @@ class TskitFormat(vcz.Source):
         self.isolated_as_missing = isolated_as_missing
 
         self.positions = self.ts.sites_position
+
+        if individuals_nodes is None:
+            individuals_nodes = self.ts.individuals_nodes
 
         self._num_samples = individuals_nodes.shape[0]
         if self._num_samples < 1:
@@ -213,8 +216,8 @@ class TskitFormat(vcz.Source):
 def convert(
     ts_path,
     zarr_path,
-    individuals_nodes,
     *,
+    individuals_nodes=None,
     sample_ids=None,
     contig_id=None,
     isolated_as_missing=False,
@@ -225,7 +228,7 @@ def convert(
 ):
     tskit_format = TskitFormat(
         ts_path,
-        individuals_nodes,
+        individuals_nodes=individuals_nodes,
         sample_ids=sample_ids,
         contig_id=contig_id,
         isolated_as_missing=isolated_as_missing,
