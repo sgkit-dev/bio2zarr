@@ -7,10 +7,8 @@ import math
 import multiprocessing
 import os
 import os.path
-import sys
 import threading
 import time
-import warnings
 
 import humanfriendly
 import numcodecs
@@ -256,22 +254,6 @@ def setup_progress_counter(counter):
     _progress_counter = counter
 
 
-def warn_py39_mac():
-    if sys.platform == "darwin" and sys.version_info[:2] == (3, 9):
-        warnings.warn(
-            "There is a known issue with bio2zarr on MacOS Python 3.9 "
-            "in which OS-level named semaphores are leaked. "
-            "You will also probably see warnings like 'There appear to be N "
-            "leaked semaphore objects at shutdown'. "
-            "While this is likely harmless for a few runs, it could lead to "
-            "issues if you do a lot of conversion. To get prevent this issue "
-            "either: (1) use --worker-processes=0 or (2) upgrade to a newer "
-            "Python version. See https://github.com/sgkit-dev/bio2zarr/issues/209 "
-            "for more details.",
-            stacklevel=2,
-        )
-
-
 class ParallelWorkManager(contextlib.AbstractContextManager):
     def __init__(self, worker_processes=1, progress_config=None):
         # Need to specify this explicitly to suppport Macs and
@@ -284,7 +266,6 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
             # production. See note on the SynchronousExecutor class.
             self.executor = SynchronousExecutor()
         else:
-            warn_py39_mac()
             self.executor = cf.ProcessPoolExecutor(
                 max_workers=worker_processes,
                 mp_context=ctx,

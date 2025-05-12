@@ -7,7 +7,7 @@ import struct
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import IO, Any, Optional, Union
+from typing import IO, Any
 
 import cyvcf2
 import humanfriendly
@@ -33,7 +33,7 @@ def get_file_offset(vfp: int) -> int:
     return vfp >> 16 & address_mask
 
 
-def read_bytes_as_value(f: IO[Any], fmt: str, nodata: Optional[Any] = None) -> Any:
+def read_bytes_as_value(f: IO[Any], fmt: str, nodata: Any | None = None) -> Any:
     """Read bytes using a `struct` format string and return the unpacked data value.
 
     Parameters
@@ -85,8 +85,8 @@ class Region:
     """
 
     contig: str
-    start: Optional[int] = None
-    end: Optional[int] = None
+    start: int | None = None
+    end: int | None = None
 
     def __post_init__(self):
         assert self.contig is not None
@@ -197,9 +197,7 @@ def get_first_locus_in_bin(csi: CSIIndex, bin: int) -> int:
     return (bin - first_bin_on_level) * (max_span // level_size) + 1
 
 
-def read_csi(
-    file: PathType, storage_options: Optional[dict[str, str]] = None
-) -> CSIIndex:
+def read_csi(file: PathType, storage_options: dict[str, str] | None = None) -> CSIIndex:
     """Parse a CSI file into a `CSIIndex` object.
 
     Parameters
@@ -314,7 +312,7 @@ class TabixIndex:
 
 
 def read_tabix(
-    file: PathType, storage_options: Optional[dict[str, str]] = None
+    file: PathType, storage_options: dict[str, str] | None = None
 ) -> TabixIndex:
     """Parse a tabix file into a `TabixIndex` object.
 
@@ -512,8 +510,8 @@ class VcfFile(contextlib.AbstractContextManager):
 
     def partition_into_regions(
         self,
-        num_parts: Optional[int] = None,
-        target_part_size: Union[None, int, str] = None,
+        num_parts: int | None = None,
+        target_part_size: None | int | str = None,
     ):
         if num_parts is None and target_part_size is None:
             raise ValueError("One of num_parts or target_part_size must be specified")
