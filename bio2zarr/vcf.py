@@ -6,6 +6,7 @@ import logging
 import math
 import pathlib
 import pickle
+import re
 import shutil
 import sys
 import tempfile
@@ -973,8 +974,19 @@ class IntermediateColumnarFormat(vcz.Source):
 
     @property
     def root_attrs(self):
+        meta_information_pattern = re.compile("##([^=]+)=(.*)")
+        vcf_meta_information = []
+        for line in self.vcf_header.split("\n"):
+            match = re.fullmatch(meta_information_pattern, line)
+            if match:
+                key = match.group(1)
+                if key in ("contig", "FILTER", "INFO", "FORMAT"):
+                    # these fields are stored in Zarr arrays
+                    continue
+                value = match.group(2)
+                vcf_meta_information.append((key, value))
         return {
-            "vcf_header": self.vcf_header,
+            "vcf_meta_information": vcf_meta_information,
         }
 
     def iter_id(self, start, stop):
