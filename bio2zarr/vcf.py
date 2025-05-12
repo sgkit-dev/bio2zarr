@@ -638,7 +638,8 @@ class IntermediateColumnarFormatField:
         chunk_cumulative_records = self.chunk_record_index(partition_id)
         chunk_num_records = np.diff(chunk_cumulative_records)
         for count, cumulative in zip(
-            chunk_num_records[start_chunk:], chunk_cumulative_records[start_chunk + 1 :]
+            chunk_num_records[start_chunk:],
+            chunk_cumulative_records[start_chunk + 1 :],
         ):
             path = partition_path / f"{cumulative}"
             chunk = self.read_chunk(path)
