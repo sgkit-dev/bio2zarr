@@ -40,28 +40,53 @@ class TestTskit:
                 tmp_path / "test.trees", zarr_path, ind_nodes, show_progress=False
             )
             zroot = zarr.open(zarr_path, mode="r")
-            assert zroot["variant_position"].shape == (3,)
-            assert list(zroot["variant_position"][:]) == [10, 20, 30]
+            pos = zroot["variant_position"][:]
+            assert pos.shape == (3,)
+            assert pos.dtype == np.int8
+            assert np.array_equal(pos, [10, 20, 30])
 
             alleles = zroot["variant_allele"][:]
+            assert alleles.shape == (3, 2)
+            assert alleles.dtype == "O"
             assert np.array_equal(alleles, [["A", "T"], ["C", "G"], ["G", "A"]])
 
             genotypes = zroot["call_genotype"][:]
+            assert genotypes.shape == (3, 2, 2)
+            assert genotypes.dtype == np.int8
             assert np.array_equal(
                 genotypes, [[[1, 1], [0, 0]], [[0, 0], [1, 1]], [[1, 0], [0, 0]]]
             )
 
             phased = zroot["call_genotype_phased"][:]
+            assert phased.shape == (3, 2)
+            assert phased.dtype == np.bool
             assert np.all(phased)
 
             contigs = zroot["contig_id"][:]
+            assert contigs.shape == (1,)
+            assert contigs.dtype == "O"
             assert np.array_equal(contigs, ["1"])
 
             contig = zroot["variant_contig"][:]
+            assert contig.shape == (3,)
+            assert contig.dtype == np.int8
             assert np.array_equal(contig, [0, 0, 0])
 
             samples = zroot["sample_id"][:]
+            assert samples.shape == (2,)
+            assert samples.dtype == "O"
             assert np.array_equal(samples, ["tsk_0", "tsk_1"])
+
+            assert set(zroot.array_keys()) == {
+                "variant_position",
+                "variant_allele",
+                "call_genotype",
+                "call_genotype_phased",
+                "call_genotype_mask",
+                "contig_id",
+                "variant_contig",
+                "sample_id",
+            }
 
 
 class TestTskitFormat:
