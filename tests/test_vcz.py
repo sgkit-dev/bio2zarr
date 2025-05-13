@@ -1,5 +1,6 @@
 import json
 
+import numpy as np
 import numpy.testing as nt
 import pandas as pd
 import pysam
@@ -896,3 +897,14 @@ class TestDimensionSizes:
             ValueError, match=f"Max number of values {max_number} exceeds max"
         ):
             vcz.ZarrArraySpec.from_field(vcf_field, schema)
+
+
+def test_create_index_errors(tmp_path):
+    root = zarr.open(tmp_path)
+    root["foobar"] = np.array([1, 2, 3])
+    vzw = vcz.VcfZarrWriter(
+        None,
+        tmp_path,
+    )
+    with pytest.raises(ValueError, match="Cannot create index"):
+        vzw.create_index()

@@ -97,21 +97,23 @@ class TskitFormat(vcz.Source):
             left=self.positions[start],
             right=self.positions[stop] if stop < self.num_records else None,
             samples=self.tskit_samples,
+            copy=False,
         ):
             gt = np.full(shape, constants.INT_FILL, dtype=np.int8)
             alleles = np.full(num_alleles, constants.STR_FILL, dtype="O")
+            variant_length = 0
             for i, allele in enumerate(variant.alleles):
                 # None is returned by tskit in the case of a missing allele
                 if allele is None:
                     continue
                 assert i < num_alleles
                 alleles[i] = allele
-
+                variant_length = max(variant_length, len(allele))
             gt[self.sample_indices, self.ploidy_indices] = variant.genotypes[
                 self.genotype_indices
             ]
 
-            yield alleles, (gt, phased)
+            yield vcz.VariantData(variant_length, alleles, gt, phased)
 
     def generate_schema(
         self,
@@ -164,6 +166,16 @@ class TskitFormat(vcz.Source):
             min_position = np.min(self.ts.sites_position)
             max_position = np.max(self.ts.sites_position)
 
+        tables = self.ts.tables
+        ancestral_state_offsets = tables.sites.ancestral_state_offset
+        derived_state_offsets = tables.mutations.derived_state_offset
+        ancestral_lengths = ancestral_state_offsets[1:] - ancestral_state_offsets[:-1]
+        derived_lengths = derived_state_offsets[1:] - derived_state_offsets[:-1]
+        max_variant_length = max(
+            np.max(ancestral_lengths) if len(ancestral_lengths) > 0 else 0,
+            np.max(derived_lengths) if len(derived_lengths) > 0 else 0,
+        )
+
         array_specs = [
             vcz.ZarrArraySpec(
                 source="position",
@@ -178,6 +190,13 @@ class TskitFormat(vcz.Source):
                 dtype="O",
                 dimensions=["variants", "alleles"],
                 description="Alleles for each variant",
+            ),
+            vcz.ZarrArraySpec(
+                source=None,
+                name="variant_length",
+                dtype=core.min_int_dtype(0, max_variant_length),
+                dimensions=["variants"],
+                description="Length of each variant",
             ),
             vcz.ZarrArraySpec(
                 source=None,

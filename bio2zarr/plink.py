@@ -63,7 +63,7 @@ class PlinkFormat(vcz.Source):
             gt[bed_chunk[i] == 2] = 1
             gt[bed_chunk[i] == 1, 0] = 1
 
-            yield alleles, (gt, phased)
+            yield vcz.VariantData(max(len(a) for a in alleles), alleles, gt, phased)
 
     def generate_schema(
         self,
@@ -111,6 +111,13 @@ class PlinkFormat(vcz.Source):
                 dtype="O",
                 dimensions=["variants", "alleles"],
                 description=None,
+            ),
+            vcz.ZarrArraySpec(
+                source=None,
+                name="variant_length",
+                dtype="i4",
+                dimensions=["variants"],
+                description="Length of each variant",
             ),
             vcz.ZarrArraySpec(
                 name="variant_contig",

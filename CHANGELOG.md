@@ -4,6 +4,8 @@
 
 - Add contigs to plink output (#344)
 
+- Add variant_length and indexing to plink output (#382)
+
 Breaking changes
 
 - Remove explicit sample, contig and filter lists from the schema.

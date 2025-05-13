@@ -37,6 +37,16 @@ _fixed_field_descriptions = {
 }
 
 
+@dataclasses.dataclass
+class VariantData:
+    """Represents variant data returned by iter_alleles_and_genotypes."""
+
+    variant_length: int
+    alleles: np.ndarray
+    genotypes: np.ndarray
+    phased: np.ndarray
+
+
 class Source(abc.ABC):
     @property
     @abc.abstractmethod
@@ -794,6 +804,7 @@ class VcfZarrWriter:
     def encode_alleles_and_genotypes_partition(self, partition_index):
         partition = self.metadata.partitions[partition_index]
         alleles = self.init_partition_array(partition_index, "variant_allele")
+        variant_lengths = self.init_partition_array(partition_index, "variant_length")
         has_gt = self.has_genotypes()
         shape = None
         if has_gt:
@@ -802,18 +813,21 @@ class VcfZarrWriter:
                 partition_index, "call_genotype_phased"
             )
             shape = gt.buff.shape[1:]
-        for alleles_value, (genotype, phased) in self.source.iter_alleles_and_genotypes(
+        for variant_data in self.source.iter_alleles_and_genotypes(
             partition.start, partition.stop, shape, alleles.array.shape[1]
         ):
             j_alleles = alleles.next_buffer_row()
-            alleles.buff[j_alleles] = alleles_value
+            alleles.buff[j_alleles] = variant_data.alleles
+            j_variant_length = variant_lengths.next_buffer_row()
+            variant_lengths.buff[j_variant_length] = variant_data.variant_length
             if has_gt:
                 j = gt.next_buffer_row()
-                gt.buff[j] = genotype
+                gt.buff[j] = variant_data.genotypes
                 j_phased = gt_phased.next_buffer_row()
-                gt_phased.buff[j_phased] = phased
+                gt_phased.buff[j_phased] = variant_data.phased
 
         self.finalise_partition_array(partition_index, alleles)
+        self.finalise_partition_array(partition_index, variant_lengths)
         if has_gt:
             self.finalise_partition_array(partition_index, gt)
             self.finalise_partition_array(partition_index, gt_phased)
@@ -1103,14 +1117,16 @@ class VcfZarrIndexer:
     def create_index(self):
         """Create an index to support efficient region queries."""
         root = zarr.open_group(store=self.path, mode="r+")
-
+        print(list(root.keys()))
         if (
             "variant_contig" not in root
             or "variant_position" not in root
             or "variant_length" not in root
         ):
-            logger.warning("Cannot create index: required arrays not found")
-            return
+            raise ValueError(
+                "Cannot create index: variant_contig, "
+                "variant_position and variant_length arrays are required"
+            )
 
         contig = root["variant_contig"]
         pos = root["variant_position"]

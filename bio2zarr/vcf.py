@@ -1040,14 +1040,19 @@ class IntermediateColumnarFormat(vcz.Source):
             yield sanitised_genotypes, sanitised_phased
 
     def iter_alleles_and_genotypes(self, start, stop, shape, num_alleles):
+        variant_lengths = self.fields["rlen"].iter_values(start, stop)
         if self.gt_field is None or shape is None:
-            for alleles in self.iter_alleles(start, stop, num_alleles):
-                yield alleles, (None, None)
+            for variant_length, alleles in zip(
+                variant_lengths, self.iter_alleles(start, stop, num_alleles)
+            ):
+                yield vcz.VariantData(variant_length, alleles, None, None)
         else:
-            yield from zip(
+            for variant_length, alleles, (gt, phased) in zip(
+                variant_lengths,
                 self.iter_alleles(start, stop, num_alleles),
                 self.iter_genotypes(shape, start, stop),
-            )
+            ):
+                yield vcz.VariantData(variant_length, alleles, gt, phased)
 
     def generate_schema(
         self, variants_chunk_size=None, samples_chunk_size=None, local_alleles=None
@@ -1121,6 +1126,7 @@ class IntermediateColumnarFormat(vcz.Source):
                 compressor=compressor,
             )
 
+        name_map = {field.full_name: field for field in self.metadata.fields}
         array_specs = [
             fixed_field_spec(
                 name="variant_contig",
@@ -1137,6 +1143,11 @@ class IntermediateColumnarFormat(vcz.Source):
                 dimensions=["variants", "alleles"],
             ),
             fixed_field_spec(
+                name="variant_length",
+                dtype=name_map["rlen"].smallest_dtype(),
+                dimensions=["variants"],
+            ),
+            fixed_field_spec(
                 name="variant_id",
                 dtype="O",
             ),
@@ -1145,14 +1156,12 @@ class IntermediateColumnarFormat(vcz.Source):
                 dtype="bool",
             ),
         ]
-        name_map = {field.full_name: field for field in self.metadata.fields}
 
-        # Only three of the fixed fields have a direct one-to-one mapping.
+        # Only two of the fixed fields have a direct one-to-one mapping.
         array_specs.extend(
             [
                 spec_from_field(name_map["QUAL"], array_name="variant_quality"),
                 spec_from_field(name_map["POS"], array_name="variant_position"),
-                spec_from_field(name_map["rlen"], array_name="variant_length"),
             ]
         )
         array_specs.extend(
