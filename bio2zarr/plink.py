@@ -1,7 +1,6 @@
 import logging
 import pathlib
 
-import bed_reader
 import numpy as np
 import zarr
 
@@ -11,7 +10,10 @@ logger = logging.getLogger(__name__)
 
 
 class PlinkFormat(vcz.Source):
+    @core.requires_optional_dependency("bed_reader", "plink")
     def __init__(self, path):
+        import bed_reader
+
         self._path = pathlib.Path(path)
         self.bed = bed_reader.open_bed(path, num_threads=1, count_A1=False)
 
@@ -175,7 +177,10 @@ def convert(
 
 # FIXME do this more efficiently - currently reading the whole thing
 # in for convenience, and also comparing call-by-call
+@core.requires_optional_dependency("bed_reader", "plink")
 def validate(bed_path, zarr_path):
+    import bed_reader
+
     root = zarr.open(store=zarr_path, mode="r")
     call_genotype = root["call_genotype"][:]
 

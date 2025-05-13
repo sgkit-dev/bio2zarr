@@ -81,6 +81,46 @@ jobs:
           # https://github.com/coverallsapp/github-action
           fail-on-error: false
 
+  optional_dependencies:
+    name: Optional dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test optional dependencies
+        run: |
+          python -m venv env-tskit
+          source env-tskit/bin/activate
+          python -m pip install .
+          python -m bio2zarr tskit2zarr convert tests/data/ts/example.trees ts.vcz > ts.txt 2>&1 || echo $? > ts_exit.txt
+          test "$(cat ts_exit.txt)" = "1"
+            grep -q "This process requires the optional tskit module. Install it with: pip install bio2zarr\[tskit\]" ts.txt
+          python -m pip install '.[tskit]'
+          python -m bio2zarr tskit2zarr convert tests/data/ts/example.trees ts.vcz
+          deactivate
+
+          python -m venv env-plink
+          source env-plink/bin/activate
+          python -m pip install .
+          python -m bio2zarr plink2zarr convert tests/data/plink/example.bed plink.vcz > plink.txt 2>&1 || echo $? > plink_exit.txt
+          test "$(cat plink_exit.txt)" = "1"
+          grep -q "This process requires the optional bed_reader module. Install it with: pip install bio2zarr\[plink\]" plink.txt
+          python -m pip install '.[plink]'
+          python -m bio2zarr plink2zarr convert tests/data/plink/example.bed plink.vcz
+          deactivate
+
+          python -m venv env-vcf
+          source env-vcf/bin/activate
+          python -m pip install .
+          python -m bio2zarr vcf2zarr convert tests/data/vcf/sample.vcf.gz sample.vcz > vcf.txt 2>&1 || echo $? > vcf_exit.txt
+          test "$(cat vcf_exit.txt)" = "1"
+          grep -q "This process requires the optional cyvcf2 module. Install it with: pip install bio2zarr\[vcf\]" vcf.txt
+          python -m pip install '.[vcf]'
+          python -m bio2zarr vcf2zarr convert tests/data/vcf/sample.vcf.gz sample.vcz
+          deactivate
+
   packaging:
     name: Packaging
     runs-on: ubuntu-latest

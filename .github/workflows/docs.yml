@@ -38,7 +38,7 @@ jobs:
 
       - name: Install package
         run: |
-          python3 -m pip install .
+          python3 -m pip install '.[all]'
 
       - name: Build Docs
         run: |
