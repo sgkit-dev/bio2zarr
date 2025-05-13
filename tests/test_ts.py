@@ -24,11 +24,11 @@ class TestTskit:
         tables.edges.add_row(left=0, right=100, parent=5, child=2)
         tables.edges.add_row(left=0, right=100, parent=5, child=3)
         site_id = tables.sites.add_row(position=10, ancestral_state="A")
-        tables.mutations.add_row(site=site_id, node=4, derived_state="T")
-        site_id = tables.sites.add_row(position=20, ancestral_state="C")
+        tables.mutations.add_row(site=site_id, node=4, derived_state="TTTT")
+        site_id = tables.sites.add_row(position=20, ancestral_state="CCC")
         tables.mutations.add_row(site=site_id, node=5, derived_state="G")
         site_id = tables.sites.add_row(position=30, ancestral_state="G")
-        tables.mutations.add_row(site=site_id, node=0, derived_state="A")
+        tables.mutations.add_row(site=site_id, node=0, derived_state="AA")
         tables.sort()
         tree_sequence = tables.tree_sequence()
         tree_sequence.dump(tmp_path / "test.trees")
@@ -54,7 +54,12 @@ class TestTskit:
             alleles = zroot["variant_allele"][:]
             assert alleles.shape == (3, 2)
             assert alleles.dtype == "O"
-            assert np.array_equal(alleles, [["A", "T"], ["C", "G"], ["G", "A"]])
+            assert np.array_equal(alleles, [["A", "TTTT"], ["CCC", "G"], ["G", "AA"]])
+
+            lengths = zroot["variant_length"][:]
+            assert lengths.shape == (3,)
+            assert lengths.dtype == np.int8
+            assert np.array_equal(lengths, [4, 3, 2])
 
             genotypes = zroot["call_genotype"][:]
             assert genotypes.shape == (3, 2, 2)
@@ -65,7 +70,7 @@ class TestTskit:
 
             phased = zroot["call_genotype_phased"][:]
             assert phased.shape == (3, 2)
-            assert phased.dtype == np.bool
+            assert phased.dtype == "bool"
             assert np.all(phased)
 
             contigs = zroot["contig_id"][:]
@@ -83,15 +88,22 @@ class TestTskit:
             assert samples.dtype == "O"
             assert np.array_equal(samples, ["tsk_0", "tsk_1"])
 
+            region_index = zroot["region_index"][:]
+            assert region_index.shape == (1, 6)
+            assert region_index.dtype == np.int8
+            assert np.array_equal(region_index, [[0, 0, 10, 30, 31, 3]])
+
             assert set(zroot.array_keys()) == {
                 "variant_position",
                 "variant_allele",
+                "variant_length",
                 "call_genotype",
                 "call_genotype_phased",
                 "call_genotype_mask",
                 "contig_id",
                 "variant_contig",
                 "sample_id",
+                "region_index",
             }
 
     def test_missing_dependency(self):
@@ -129,8 +141,8 @@ class TestTskitFormat:
         tables.edges.add_row(left=0, right=100, parent=5, child=2)
         tables.edges.add_row(left=0, right=100, parent=5, child=3)
         site_id = tables.sites.add_row(position=10, ancestral_state="A")
-        tables.mutations.add_row(site=site_id, node=4, derived_state="T")
-        site_id = tables.sites.add_row(position=20, ancestral_state="C")
+        tables.mutations.add_row(site=site_id, node=4, derived_state="TT")
+        site_id = tables.sites.add_row(position=20, ancestral_state="CCC")
         tables.mutations.add_row(site=site_id, node=5, derived_state="G")
         site_id = tables.sites.add_row(position=30, ancestral_state="G")
         tables.mutations.add_row(site=site_id, node=0, derived_state="A")
@@ -264,6 +276,7 @@ class TestTskitFormat:
         field_names = [field.name for field in schema.fields]
         assert "variant_position" in field_names
         assert "variant_allele" in field_names
+        assert "variant_length" in field_names
         assert "variant_contig" in field_names
         assert "call_genotype" in field_names
         assert "call_genotype_phased" in field_names
@@ -335,18 +348,22 @@ class TestTskitFormat:
 
         assert len(results) == 3
 
-        for i, (alleles, (gt, phased)) in enumerate(results):
+        for i, variant_data in enumerate(results):
             if i == 0:
-                assert tuple(alleles) == ("A", "T")
+                assert variant_data.variant_length == 2
+                assert np.array_equal(variant_data.alleles, ("A", "TT"))
             elif i == 1:
-                assert tuple(alleles) == ("C", "G")
+                assert variant_data.variant_length == 3
+                assert np.array_equal(variant_data.alleles, ("CCC", "G"))
             elif i == 2:
-                assert tuple(alleles) == ("G", "A")
+                assert variant_data.variant_length == 1
+                assert np.array_equal(variant_data.alleles, ("G", "A"))
 
             assert np.array_equal(
-                gt, expected_gts[i]
-            ), f"Mismatch at variant {i}, expected {expected_gts[i]}, got {gt}"
-            assert np.all(phased)
+                variant_data.genotypes, expected_gts[i]
+            ), f"Mismatch at variant {i}, expected {expected_gts[i]}, "
+            f"got {variant_data.genotypes}"
+            assert np.all(variant_data.phased)
 
     def test_iter_alleles_and_genotypes_errors(self, simple_ts):
         """Test error cases for iter_alleles_and_genotypes with invalid inputs."""
@@ -414,12 +431,12 @@ class TestTskitFormat:
         )
 
         assert len(results_default) == 1
-        alleles, (gt_default, phased) = results_default[0]
-        assert tuple(alleles) == ("0", "1")
+        variant_data_default = results_default[0]
+        assert np.array_equal(variant_data_default.alleles, ("0", "1"))
 
         # Sample 2 should have the ancestral state (0) when isolated_as_missing=False
         expected_gt_default = np.array([[1], [0], [0]])
-        assert np.array_equal(gt_default, expected_gt_default)
+        assert np.array_equal(variant_data_default.genotypes, expected_gt_default)
 
         format_obj_missing = ts.TskitFormat(
             ts_path, individuals_nodes=ind_nodes, isolated_as_missing=True
@@ -429,12 +446,13 @@ class TestTskitFormat:
         )
 
         assert len(results_missing) == 1
-        alleles, (gt_missing, phased) = results_missing[0]
-        assert tuple(alleles) == ("0", "1")
+        variant_data_missing = results_missing[0]
+        assert variant_data_missing.variant_length == 1
+        assert np.array_equal(variant_data_missing.alleles, ("0", "1"))
 
         # Individual 2 should have missing values (-1) when isolated_as_missing=True
         expected_gt_missing = np.array([[1], [0], [-1]])
-        assert np.array_equal(gt_missing, expected_gt_missing)
+        assert np.array_equal(variant_data_missing.genotypes, expected_gt_missing)
 
     def test_genotype_dtype_selection(self, tmp_path):
         tables = tskit.TableCollection(sequence_length=100)

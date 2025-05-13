@@ -94,8 +94,8 @@ class TestExample:
     """
     .bim file looks like this:
 
-    1       1_10    0       10      A       G
-    1       1_20    0       20      T       C
+    1       1_10    0       10      A       GG
+    1       1_20    0       20      TTT       C
 
     Definition: https://www.cog-genomics.org/plink/1.9/formats#bim
     Chromosome code (either an integer, or 'X'/'Y'/'XY'/'MT'; '0'
@@ -121,7 +121,10 @@ class TestExample:
         nt.assert_array_equal(ds.variant_position, [10, 20])
 
     def test_variant_allele(self, ds):
-        nt.assert_array_equal(ds.variant_allele, [["A", "G"], ["T", "C"]])
+        nt.assert_array_equal(ds.variant_allele, [["A", "GG"], ["TTT", "C"]])
+
+    def test_variant_length(self, ds):
+        nt.assert_array_equal(ds.variant_length, [2, 3])
 
     def test_contig_id(self, ds):
         """Test that contig identifiers are correctly extracted and stored."""
@@ -266,6 +269,9 @@ class TestSimulatedExample:
             worker_processes=worker_processes,
         )
         ds2 = sg.load_dataset(out)
+        # Drop the region_index as it is chunk dependent
+        ds = ds.drop_vars("region_index")
+        ds2 = ds2.drop_vars("region_index")
         xt.assert_equal(ds, ds2)
         # TODO check array chunks
 
@@ -372,3 +378,9 @@ class TestMultipleContigs:
 
     def test_variant_position(self, ds):
         nt.assert_array_equal(ds.variant_position, [10, 20, 10, 10, 20, 10])
+
+    def test_variant_length(self, ds):
+        nt.assert_array_equal(
+            ds.variant_length,
+            [1, 1, 1, 1, 1, 1],
+        )
