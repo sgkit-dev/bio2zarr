@@ -17,16 +17,12 @@ dependencies = [
   "zarr >= 2.17,< 3",
   # Pinning numcodecs due to https://github.com/zarr-developers/zarr-python/issues/2963
   "numcodecs[msgpack]!=0.14.0,!=0.14.1,<0.16",
-  "click",
   "tabulate",
   "tqdm",
   "humanfriendly",
-  # cyvcf2 also pulls in coloredlogs and click",
-  # colouredlogs pulls in humanfriendly",
-  "cyvcf2",
-  "bed_reader",
-  # TODO Using dev version of tskit for CI, FIXME before release
-  "tskit @ git+https://github.com/tskit-dev/tskit.git@main#subdirectory=python",
+  # cyvcf2 also pulls in coloredlogs and click
+  "coloredlogs",
+  "click",
 ]
 requires-python = ">=3.10"
 classifiers = [
@@ -65,8 +61,21 @@ dev = [
   "pytest-coverage",
   "pytest-xdist",
   "sgkit>=0.8.0",
-  "tqdm"
+  "tqdm",
+  "tskit @ git+https://github.com/tskit-dev/tskit.git@main#subdirectory=python",
+  "bed_reader",
+  "cyvcf2"
 ]
+# TODO Using dev version of tskit for CI, FIXME before release
+tskit = ["tskit @ git+https://github.com/tskit-dev/tskit.git@main#subdirectory=python"]
+plink = ["bed_reader"]
+vcf = ["cyvcf2"]
+all = [
+  "tskit @ git+https://github.com/tskit-dev/tskit.git@main#subdirectory=python", 
+  "bed_reader", 
+  "cyvcf2"
+  ]
+
 
 [tool.setuptools]
 packages = ["bio2zarr"]

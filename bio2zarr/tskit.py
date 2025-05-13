@@ -2,7 +2,6 @@ import logging
 import pathlib
 
 import numpy as np
-import tskit
 
 from bio2zarr import constants, core, vcz
 
@@ -10,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class TskitFormat(vcz.Source):
+    @core.requires_optional_dependency("tskit", "tskit")
     def __init__(
         self,
         ts_path,
@@ -18,6 +18,8 @@ class TskitFormat(vcz.Source):
         contig_id=None,
         isolated_as_missing=False,
     ):
+        import tskit
+
         self._path = ts_path
         self.ts = tskit.load(ts_path)
         self.contig_id = contig_id if contig_id is not None else "1"

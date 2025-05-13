@@ -244,3 +244,14 @@ class TestFirstDimSliceIter:
 )
 def test_du(path, expected):
     assert core.du(path) == expected
+
+
+def test_decorator_missing_dependency():
+    @core.requires_optional_dependency("non_existent_module", "extras")
+    def test_function():
+        return "success"
+
+    with pytest.raises(ImportError) as exc_info:
+        test_function()
+
+    assert "pip install bio2zarr[extras]" in str(exc_info.value)

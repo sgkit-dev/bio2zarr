@@ -1,5 +1,7 @@
 # 0.1.6 2025-0X-XX
 
+- Make format-specific dependencies optional (#385)
+
 - Add contigs to plink output (#344)
 
 Breaking changes

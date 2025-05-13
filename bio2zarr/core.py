@@ -1,6 +1,8 @@
 import concurrent.futures as cf
 import contextlib
 import dataclasses
+import functools
+import importlib
 import json
 import logging
 import math
@@ -19,6 +21,26 @@ import zarr
 logger = logging.getLogger(__name__)
 
 numcodecs.blosc.use_threads = False
+
+
+def requires_optional_dependency(module_name, extras_name):
+    """Decorator to check for optional dependencies"""
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                importlib.import_module(module_name)
+            except ImportError:
+                raise ImportError(
+                    f"This process requires the optional {module_name} module. "
+                    f"Install it with: pip install bio2zarr[{extras_name}]"
+                ) from None
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
 
 
 def display_number(x):

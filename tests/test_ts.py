@@ -1,5 +1,6 @@
 import os
 import tempfile
+from unittest import mock
 
 import numpy as np
 import pytest
@@ -92,6 +93,21 @@ class TestTskit:
                 "variant_contig",
                 "sample_id",
             }
+
+    def test_missing_dependency(self):
+        with mock.patch(
+            "importlib.import_module",
+            side_effect=ImportError("No module named 'tskit'"),
+        ):
+            with pytest.raises(ImportError) as exc_info:
+                ts.convert(
+                    "UNUSED_PATH",
+                    "UNUSED_PATH",
+                )
+            assert (
+                "This process requires the optional tskit module. Install "
+                "it with: pip install bio2zarr[tskit]" in str(exc_info.value)
+            )
 
 
 class TestTskitFormat:

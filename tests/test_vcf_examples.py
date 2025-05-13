@@ -1,6 +1,7 @@
 import collections
 import pathlib
 import re
+from unittest import mock
 
 import cyvcf2
 import numpy as np
@@ -480,6 +481,22 @@ class TestSmallExample:
         # to keep a record that this is what we're doing
         p1[1] = True
         nt.assert_array_equal(p1, ds2["call_genotype_phased"].values)
+
+    def test_missing_dependency(self, tmp_path):
+        with mock.patch(
+            "importlib.import_module",
+            side_effect=ImportError("No module named 'cyvcf2'"),
+        ):
+            with pytest.raises(ImportError) as exc_info:
+                vcf_mod.convert(
+                    ["tests/data/vcf/sample.vcf.gz"],
+                    tmp_path / "example.vcf.zarr",
+                    worker_processes=0,  # Synchronous mode so the mock works
+                )
+            assert (
+                "This process requires the optional cyvcf2 module. Install "
+                "it with: pip install bio2zarr[vcf]" in str(exc_info.value)
+            )
 
 
 class TestSmallExampleLocalAlleles:

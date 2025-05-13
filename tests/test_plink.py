@@ -1,3 +1,5 @@
+from unittest import mock
+
 import bed_reader
 import numpy as np
 import numpy.testing as nt
@@ -54,6 +56,21 @@ class TestSmallExample:
                 [[0, 0], [0, 0], [0, 0]],
             ],
         )
+
+    def test_missing_dependency(self):
+        with mock.patch(
+            "importlib.import_module",
+            side_effect=ImportError("No module named 'bed_reader'"),
+        ):
+            with pytest.raises(ImportError) as exc_info:
+                plink.convert(
+                    "UNUSED_PATH",
+                    "UNUSED_PATH",
+                )
+            assert (
+                "This process requires the optional bed_reader module. "
+                "Install it with: pip install bio2zarr[plink]" in str(exc_info.value)
+            )
 
 
 class TestEqualSgkit:

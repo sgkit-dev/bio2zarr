@@ -9,10 +9,10 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import IO, Any
 
-import cyvcf2
 import humanfriendly
 import numpy as np
 
+from bio2zarr import core
 from bio2zarr.typing import PathType
 
 logger = logging.getLogger(__name__)
@@ -395,7 +395,10 @@ class VcfIndexType(Enum):
 
 
 class VcfFile(contextlib.AbstractContextManager):
+    @core.requires_optional_dependency("cyvcf2", "vcf")
     def __init__(self, vcf_path, index_path=None):
+        import cyvcf2
+
         self.vcf = None
         self.file_type = None
         self.index_type = None

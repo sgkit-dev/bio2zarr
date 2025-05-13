@@ -1,9 +1,9 @@
-import cyvcf2
 import numpy as np
 import numpy.testing as nt
 import tqdm
 import zarr
 
+from bio2zarr import core
 from bio2zarr.zarr_utils import first_dim_iter
 
 from . import constants
@@ -146,7 +146,10 @@ def assert_format_val_equal(vcf_val, zarr_val, vcf_type, vcf_number):
         nt.assert_equal(vcf_val, zarr_val)
 
 
+@core.requires_optional_dependency("cyvcf2", "vcf")
 def verify(vcf_path, zarr_path, show_progress=False):
+    import cyvcf2
+
     root = zarr.open(store=zarr_path, mode="r")
     pos = root["variant_position"][:]
     allele = root["variant_allele"][:]
