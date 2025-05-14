@@ -187,8 +187,8 @@ class TestSchemaChunkSize:
     def test_default_chunk_size(self, icf_path):
         icf = vcf_mod.IntermediateColumnarFormat(icf_path)
         schema = icf.generate_schema()
-        assert schema.dimensions["samples"].chunk_size == 10_000
-        assert schema.dimensions["variants"].chunk_size == 1000
+        assert schema.dimensions["samples"].chunk_size == 3
+        assert schema.dimensions["variants"].chunk_size == 9
 
 
 class TestSchemaJsonRoundTrip:
@@ -329,7 +329,6 @@ class TestValidateSchema:
         field = schema.field_map()["variant_H2"]
         schema.dimensions[field.dimensions[-1]].size = size
         schema.dimensions[field.dimensions[-1]].chunk_size = size
-        print(schema.dimensions)
         schema.validate()
 
 
@@ -338,8 +337,8 @@ class TestDefaultSchema:
         assert schema.format_version == vcz.ZARR_SCHEMA_FORMAT_VERSION
 
     def test_chunk_size(self, schema):
-        assert schema.dimensions["samples"].chunk_size == 10000
-        assert schema.dimensions["variants"].chunk_size == 1000
+        assert schema.dimensions["samples"].chunk_size == 3
+        assert schema.dimensions["variants"].chunk_size == 9
 
     def test_variant_contig(self, schema):
         assert get_field_dict(schema, "variant_contig") == {

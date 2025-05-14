@@ -121,6 +121,51 @@ class VcfZarrDimension:
             chunk_size=d.get("chunk_size", d["size"]),
         )
 
+    @classmethod
+    def unchunked(cls, size):
+        return cls(size, size)
+
+
+def standard_dimensions(
+    *,
+    variants_size,
+    samples_size,
+    variants_chunk_size=None,
+    samples_chunk_size=None,
+    alleles_size=None,
+    filters_size=None,
+    ploidy_size=None,
+    genotypes_size=None,
+):
+    """
+    Returns a dictionary mapping dimension names to definition for the standard
+    fields in a VCF.
+    """
+    if variants_chunk_size is None:
+        variants_chunk_size = max(1, min(variants_size, DEFAULT_VARIANT_CHUNK_SIZE))
+    if samples_chunk_size is None:
+        samples_chunk_size = max(1, min(samples_size, DEFAULT_SAMPLE_CHUNK_SIZE))
+
+    dimensions = {
+        "variants": VcfZarrDimension(variants_size, variants_chunk_size),
+        "samples": VcfZarrDimension(samples_size, samples_chunk_size),
+    }
+
+    if alleles_size is not None:
+        dimensions["alleles"] = VcfZarrDimension.unchunked(alleles_size)
+        dimensions["alt_alleles"] = VcfZarrDimension.unchunked(alleles_size - 1)
+
+    if filters_size is not None:
+        dimensions["filters"] = VcfZarrDimension.unchunked(filters_size)
+
+    if ploidy_size is not None:
+        dimensions["ploidy"] = VcfZarrDimension.unchunked(ploidy_size)
+
+    if genotypes_size is not None:
+        dimensions["genotypes"] = VcfZarrDimension.unchunked(genotypes_size)
+
+    return dimensions
+
 
 @dataclasses.dataclass
 class ZarrArraySpec:
@@ -1117,7 +1162,6 @@ class VcfZarrIndexer:
     def create_index(self):
         """Create an index to support efficient region queries."""
         root = zarr.open_group(store=self.path, mode="r+")
-        print(list(root.keys()))
         if (
             "variant_contig" not in root
             or "variant_position" not in root
