@@ -135,18 +135,14 @@ class TskitFormat(vcz.Source):
         logging.info(
             f"Maximum ploidy: {self.max_ploidy}, maximum alleles: {max_alleles}"
         )
-
-        dimensions = {
-            "variants": vcz.VcfZarrDimension(
-                size=m, chunk_size=variants_chunk_size or vcz.DEFAULT_VARIANT_CHUNK_SIZE
-            ),
-            "samples": vcz.VcfZarrDimension(
-                size=n, chunk_size=samples_chunk_size or vcz.DEFAULT_SAMPLE_CHUNK_SIZE
-            ),
-            "ploidy": vcz.VcfZarrDimension(size=self.max_ploidy),
-            "alleles": vcz.VcfZarrDimension(size=max_alleles),
-        }
-
+        dimensions = vcz.standard_dimensions(
+            variants_size=m,
+            variants_chunk_size=variants_chunk_size,
+            samples_size=n,
+            samples_chunk_size=samples_chunk_size,
+            ploidy_size=self.max_ploidy,
+            alleles_size=max_alleles,
+        )
         schema_instance = vcz.VcfZarrSchema(
             format_version=vcz.ZARR_SCHEMA_FORMAT_VERSION,
             dimensions=dimensions,

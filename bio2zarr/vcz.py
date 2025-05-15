@@ -102,28 +102,18 @@ class Source(abc.ABC):
 @dataclasses.dataclass
 class VcfZarrDimension:
     size: int
-    chunk_size: int = None
-
-    def __post_init__(self):
-        if self.chunk_size is None:
-            self.chunk_size = self.size
+    chunk_size: int
 
     def asdict(self):
-        result = {"size": self.size}
-        if self.chunk_size != self.size:
-            result["chunk_size"] = self.chunk_size
-        return result
+        return dataclasses.asdict(self)
 
     @classmethod
     def fromdict(cls, d):
-        return cls(
-            size=d["size"],
-            chunk_size=d.get("chunk_size", d["size"]),
-        )
+        return cls(**d)
 
     @classmethod
     def unchunked(cls, size):
-        return cls(size, size)
+        return cls(size, max(size, 1))
 
 
 def standard_dimensions(
@@ -153,7 +143,8 @@ def standard_dimensions(
 
     if alleles_size is not None:
         dimensions["alleles"] = VcfZarrDimension.unchunked(alleles_size)
-        dimensions["alt_alleles"] = VcfZarrDimension.unchunked(alleles_size - 1)
+        if alleles_size > 1:
+            dimensions["alt_alleles"] = VcfZarrDimension.unchunked(alleles_size - 1)
 
     if filters_size is not None:
         dimensions["filters"] = VcfZarrDimension.unchunked(filters_size)
@@ -255,8 +246,8 @@ class ZarrArraySpec:
         elif max_number > 1 or vcf_field.full_name == "FORMAT/LAA":
             dimensions.append(f"{vcf_field.category}_{vcf_field.name}_dim")
         if dimensions[-1] not in schema.dimensions:
-            schema.dimensions[dimensions[-1]] = VcfZarrDimension(
-                size=vcf_field.max_number
+            schema.dimensions[dimensions[-1]] = VcfZarrDimension.unchunked(
+                vcf_field.max_number
             )
 
         return ZarrArraySpec(
@@ -329,7 +320,7 @@ class VcfZarrSchema(core.JsonDataclass):
         self,
         format_version: str,
         fields: list,
-        dimensions: dict = None,
+        dimensions: dict,
         defaults: dict = None,
     ):
         self.format_version = format_version
@@ -340,15 +331,6 @@ class VcfZarrSchema(core.JsonDataclass):
         if defaults.get("filters", None) is None:
             defaults["filters"] = []
         self.defaults = defaults
-        if dimensions is None:
-            dimensions = {
-                "variants": VcfZarrDimension(
-                    size=0, chunk_size=DEFAULT_VARIANT_CHUNK_SIZE
-                ),
-                "samples": VcfZarrDimension(
-                    size=0, chunk_size=DEFAULT_SAMPLE_CHUNK_SIZE
-                ),
-            }
         self.dimensions = dimensions
 
     def get_shape(self, dimensions):
@@ -394,7 +376,9 @@ class VcfZarrSchema(core.JsonDataclass):
 
         ret = VcfZarrSchema(**d)
         ret.fields = [ZarrArraySpec(**sd) for sd in d["fields"]]
-        ret.dimensions = {k: VcfZarrDimension(**v) for k, v in d["dimensions"].items()}
+        ret.dimensions = {
+            k: VcfZarrDimension.fromdict(v) for k, v in d["dimensions"].items()
+        }
 
         return ret
 

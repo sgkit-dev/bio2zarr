@@ -73,19 +73,14 @@ class PlinkFormat(vcz.Source):
         n = self.bed.iid_count
         m = self.bed.sid_count
         logging.info(f"Scanned plink with {n} samples and {m} variants")
-
-        # Define dimensions with sizes and chunk sizes
-        dimensions = {
-            "variants": vcz.VcfZarrDimension(
-                size=m, chunk_size=variants_chunk_size or vcz.DEFAULT_VARIANT_CHUNK_SIZE
-            ),
-            "samples": vcz.VcfZarrDimension(
-                size=n, chunk_size=samples_chunk_size or vcz.DEFAULT_SAMPLE_CHUNK_SIZE
-            ),
-            "ploidy": vcz.VcfZarrDimension(size=2),
-            "alleles": vcz.VcfZarrDimension(size=2),
-        }
-
+        dimensions = vcz.standard_dimensions(
+            variants_size=m,
+            variants_chunk_size=variants_chunk_size,
+            samples_size=n,
+            samples_chunk_size=samples_chunk_size,
+            ploidy_size=2,
+            alleles_size=2,
+        )
         schema_instance = vcz.VcfZarrSchema(
             format_version=vcz.ZARR_SCHEMA_FORMAT_VERSION,
             dimensions=dimensions,
