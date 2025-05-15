@@ -3,7 +3,6 @@ import pathlib
 import re
 from unittest import mock
 
-import cyvcf2
 import numpy as np
 import numpy.testing as nt
 import pytest
@@ -55,9 +54,22 @@ class TestSmallExample:
             ],
         )
 
-    def test_header(self, ds):
-        vcf = cyvcf2.VCF(self.data_path)
-        assert ds.attrs["vcf_header"] == vcf.raw_header
+    def test_vcf_meta_information(self, ds):
+        assert ds.attrs["vcf_meta_information"] == [
+            ["fileformat", "VCFv4.0"],
+            ["fileDate", "20090805"],
+            ["source", "myImputationProgramV3.1"],
+            ["reference", "1000GenomesPilot-NCBI36"],
+            ["phasing", "partial"],
+            ["ALT", '<ID=DEL:ME:ALU,Description="Deletion of ALU element">'],
+            ["ALT", '<ID=CNV,Description="Copy number variable region">'],
+            ["bcftools_viewVersion", "1.11+htslib-1.11-4"],
+            [
+                "bcftools_viewCommand",
+                "view -O b sample.vcf.gz; Date=Tue Feb 27 14:41:07 2024",
+            ],
+            ["bcftools_viewCommand", "view sample.bcf; Date=Wed Mar 27 11:42:16 2024"],
+        ]
 
     def test_source(self, ds):
         assert ds.attrs["source"] == f"bio2zarr-{provenance.__version__}"
