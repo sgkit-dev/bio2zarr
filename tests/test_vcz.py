@@ -751,6 +751,7 @@ class TestSchemaDefaults:
         schema = vcz.VcfZarrSchema(
             format_version=vcz.ZARR_SCHEMA_FORMAT_VERSION,
             fields=[],
+            dimensions={},
             defaults=custom_defaults,
         )
 
@@ -761,6 +762,7 @@ class TestSchemaDefaults:
         schema1 = vcz.VcfZarrSchema(
             format_version=vcz.ZARR_SCHEMA_FORMAT_VERSION,
             fields=[],
+            dimensions={},
             defaults={"compressor": {"id": "blosc", "cname": "zlib", "clevel": 5}},
         )
         assert schema1.defaults["compressor"] == {
@@ -774,6 +776,7 @@ class TestSchemaDefaults:
         schema2 = vcz.VcfZarrSchema(
             format_version=vcz.ZARR_SCHEMA_FORMAT_VERSION,
             fields=[],
+            dimensions={},
             defaults={"filters": [{"id": "delta"}]},
         )
         assert (
@@ -819,27 +822,21 @@ class TestVcfZarrDimension:
         assert dim1.size == 100
         assert dim1.chunk_size == 20
 
-        # Test with only size (chunk_size should default to size)
-        dim2 = vcz.VcfZarrDimension(size=50)
-        assert dim2.size == 50
-        assert dim2.chunk_size == 50
+    def test_unchunked(self):
+        dim = vcz.VcfZarrDimension.unchunked(50)
+        assert dim.size == 50
+        assert dim.chunk_size == 50
+
+    def test_unchunked_zero_size(self):
+        dim = vcz.VcfZarrDimension.unchunked(0)
+        assert dim.size == 0
+        assert dim.chunk_size == 1
 
     def test_asdict(self):
-        # When chunk_size equals size, it shouldn't be included in dict
-        dim1 = vcz.VcfZarrDimension(size=100, chunk_size=100)
-        assert dim1.asdict() == {"size": 100}
-
-        # When chunk_size differs from size, it should be included in dict
-        dim2 = vcz.VcfZarrDimension(size=100, chunk_size=20)
-        assert dim2.asdict() == {"size": 100, "chunk_size": 20}
+        dim1 = vcz.VcfZarrDimension(size=100, chunk_size=101)
+        assert dim1.asdict() == {"size": 100, "chunk_size": 101}
 
     def test_fromdict(self):
-        # With only size
-        dim1 = vcz.VcfZarrDimension.fromdict({"size": 75})
-        assert dim1.size == 75
-        assert dim1.chunk_size == 75
-
-        # With both size and chunk_size
         dim2 = vcz.VcfZarrDimension.fromdict({"size": 75, "chunk_size": 25})
         assert dim2.size == 75
         assert dim2.chunk_size == 25
@@ -896,6 +893,98 @@ class TestDimensionSizes:
             ValueError, match=f"Max number of values {max_number} exceeds max"
         ):
             vcz.ZarrArraySpec.from_field(vcf_field, schema)
+
+
+class TestStandardDimensions:
+    @pytest.mark.parametrize(
+        ("size", "chunk_size", "expected_chunk_size"),
+        [
+            (0, None, 1),
+            (0, 100, 100),
+            (1, 1, 1),
+            (1, None, 1),
+            (1, 10, 10),
+            (1_001, None, 1_000),
+            (10**9, None, 1_000),
+            (999, None, 999),
+            (1, 100_000, 100_000),
+        ],
+    )
+    def test_variants(self, size, chunk_size, expected_chunk_size):
+        dims = vcz.standard_dimensions(
+            variants_size=size, variants_chunk_size=chunk_size, samples_size=0
+        )
+        assert dims["variants"] == vcz.VcfZarrDimension(size, expected_chunk_size)
+
+    @pytest.mark.parametrize(
+        ("size", "chunk_size", "expected_chunk_size"),
+        [
+            (0, None, 1),
+            (0, 100, 100),
+            (1, 1, 1),
+            (1, None, 1),
+            (1, 10, 10),
+            (10_001, None, 10_000),
+            (10**9, None, 10_000),
+            (9_999, None, 9_999),
+            (1, 100_000, 100_000),
+        ],
+    )
+    def test_samples(self, size, chunk_size, expected_chunk_size):
+        dims = vcz.standard_dimensions(
+            variants_size=0, samples_size=size, samples_chunk_size=chunk_size
+        )
+        assert dims["samples"] == vcz.VcfZarrDimension(size, expected_chunk_size)
+
+    @pytest.mark.parametrize(
+        ("kwargs", "expected"),
+        [
+            (
+                {"variants_size": 1, "samples_size": 1, "alleles_size": 2},
+                {
+                    "variants": {"size": 1, "chunk_size": 1},
+                    "samples": {"size": 1, "chunk_size": 1},
+                    "alleles": {"size": 2, "chunk_size": 2},
+                    "alt_alleles": {"size": 1, "chunk_size": 1},
+                },
+            ),
+            (
+                {"variants_size": 0, "samples_size": 1, "alleles_size": 1},
+                {
+                    "variants": {"size": 0, "chunk_size": 1},
+                    "samples": {"size": 1, "chunk_size": 1},
+                    "alleles": {"size": 1, "chunk_size": 1},
+                },
+            ),
+            (
+                {"variants_size": 0, "samples_size": 1, "alleles_size": 0},
+                {
+                    "variants": {"size": 0, "chunk_size": 1},
+                    "samples": {"size": 1, "chunk_size": 1},
+                    "alleles": {"size": 0, "chunk_size": 1},
+                },
+            ),
+            (
+                {"variants_size": 0, "samples_size": 1, "filters_size": 2},
+                {
+                    "variants": {"size": 0, "chunk_size": 1},
+                    "samples": {"size": 1, "chunk_size": 1},
+                    "filters": {"size": 2, "chunk_size": 2},
+                },
+            ),
+        ],
+    )
+    def test_examples(self, kwargs, expected):
+        dims = {k: v.asdict() for k, v in vcz.standard_dimensions(**kwargs).items()}
+        assert dims == expected
+
+    @pytest.mark.parametrize("field", ["ploidy", "genotypes"])
+    @pytest.mark.parametrize("size", [0, 1, 2])
+    def test_simple_fields(self, field, size):
+        dims = vcz.standard_dimensions(
+            samples_size=1, variants_size=1, **{f"{field}_size": size}
+        )
+        assert dims[field].asdict() == {"size": size, "chunk_size": max(1, size)}
 
 
 def test_create_index_errors(tmp_path):

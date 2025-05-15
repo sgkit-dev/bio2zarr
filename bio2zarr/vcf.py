@@ -858,8 +858,8 @@ def convert_local_allele_field_types(fields, schema_instance):
             " are relevant (local) for the current sample"
         ),
     )
-    schema_instance.dimensions["local_alleles"] = vcz.VcfZarrDimension(
-        size=schema_instance.dimensions["ploidy"].size
+    schema_instance.dimensions["local_alleles"] = vcz.VcfZarrDimension.unchunked(
+        schema_instance.dimensions["ploidy"].size
     )
 
     ad = fields_by_name.get("call_AD", None)
@@ -869,7 +869,9 @@ def convert_local_allele_field_types(fields, schema_instance):
         ad.source = None
         ad.dimensions = (*dimensions, "local_alleles_AD")
         ad.description += " (local-alleles)"
-        schema_instance.dimensions["local_alleles_AD"] = vcz.VcfZarrDimension(size=2)
+        schema_instance.dimensions["local_alleles_AD"] = vcz.VcfZarrDimension.unchunked(
+            2
+        )
 
     pl = fields_by_name.get("call_PL", None)
     if pl is not None:
@@ -879,7 +881,7 @@ def convert_local_allele_field_types(fields, schema_instance):
         pl.description += " (local-alleles)"
         pl.dimensions = (*dimensions, "local_" + pl.dimensions[-1].split("_")[-1])
         schema_instance.dimensions["local_" + pl.dimensions[-1].split("_")[-1]] = (
-            vcz.VcfZarrDimension(size=3)
+            vcz.VcfZarrDimension.unchunked(3)
         )
 
     return [*fields, la]
