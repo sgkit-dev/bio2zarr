@@ -5,10 +5,25 @@ import numpy as np
 import numpy.testing as nt
 import pytest
 import sgkit as sg
-import sgkit.io.plink
 import xarray.testing as xt
 
 from bio2zarr import plink
+
+
+def test_missing_dependency():
+    with mock.patch(
+        "importlib.import_module",
+        side_effect=ImportError("No module named 'bed_reader'"),
+    ):
+        with pytest.raises(ImportError) as exc_info:
+            plink.convert(
+                "UNUSED_PATH",
+                "UNUSED_PATH",
+            )
+        assert (
+            "This process requires the optional bed_reader module. "
+            "Install it with: pip install bio2zarr[plink]" in str(exc_info.value)
+        )
 
 
 class TestSmallExample:
@@ -17,8 +32,6 @@ class TestSmallExample:
         tmp_path = tmp_path_factory.mktemp("data")
         path = tmp_path / "example.bed"
         # 7 sites x 3 samples
-        # These are counts of allele 1, so we have to flip them
-        # to get the values we expect
         dosages = np.array(
             [
                 [0, 1, 2],
@@ -56,13 +69,13 @@ class TestSmallExample:
         nt.assert_array_equal(
             call_genotype,
             [
-                [[1, 1], [1, 0], [0, 0]],
-                [[1, 0], [1, 1], [0, 0]],
-                [[1, 1], [1, 1], [1, 1]],
-                [[-1, -1], [1, 1], [1, 1]],
-                [[0, 0], [1, 1], [1, 1]],
-                [[-1, -1], [-1, -1], [-1, -1]],
+                [[0, 0], [1, 0], [1, 1]],
+                [[1, 0], [0, 0], [1, 1]],
                 [[0, 0], [0, 0], [0, 0]],
+                [[-1, -1], [0, 0], [0, 0]],
+                [[1, 1], [0, 0], [0, 0]],
+                [[-1, -1], [-1, -1], [-1, -1]],
+                [[1, 1], [1, 1], [1, 1]],
             ],
         )
 
@@ -82,63 +95,6 @@ class TestSmallExample:
     def test_sample_id(self, ds):
         nt.assert_array_equal(ds["sample_id"], ["s0", "s1", "s2"])
 
-    def test_missing_dependency(self):
-        with mock.patch(
-            "importlib.import_module",
-            side_effect=ImportError("No module named 'bed_reader'"),
-        ):
-            with pytest.raises(ImportError) as exc_info:
-                plink.convert(
-                    "UNUSED_PATH",
-                    "UNUSED_PATH",
-                )
-            assert (
-                "This process requires the optional bed_reader module. "
-                "Install it with: pip install bio2zarr[plink]" in str(exc_info.value)
-            )
-
-
-class TestEqualSgkit:
-    def test_simulated_example(self, tmp_path):
-        prefix = "tests/data/plink/plink_sim_10s_100v_10pmiss"
-        sg_ds = sgkit.io.plink.read_plink(
-            bed_path=prefix + ".bed", fam_path=prefix + ".fam", bim_path=prefix + ".bim"
-        )
-        out = tmp_path / "example.plink.zarr"
-        plink.convert(prefix=prefix, out=out)
-        ds = sg.load_dataset(out)
-        nt.assert_array_equal(ds.call_genotype.values, sg_ds.call_genotype.values)
-        nt.assert_array_equal(
-            ds.call_genotype_mask.values, sg_ds.call_genotype_mask.values
-        )
-        # sgkit doesn't have phased
-        nt.assert_array_equal(ds.variant_position.values, sg_ds.variant_position.values)
-        # nt.assert_array_equal(
-        #     ds.variant_allele.values, sg_ds.variant_allele.values.astype("U")
-        # )
-        nt.assert_array_equal(ds.variant_contig.values, sg_ds.variant_contig.values)
-        nt.assert_array_equal(ds.variant_id.values, sg_ds.variant_id.values)
-        # print(sg_ds.variant_id.values)
-
-        # Can't compare to sgkit because of
-        # https://github.com/sgkit-dev/sgkit/issues/1314
-        nt.assert_array_equal(
-            ds.sample_id.values,
-            [
-                "000",
-                "001",
-                "002",
-                "003",
-                "004",
-                "005",
-                "006",
-                "007",
-                "008",
-                "009",
-            ],
-        )
-        # We don't do the additional sample_ fields yet
-
 
 class TestExample:
     """
@@ -155,6 +111,10 @@ class TestExample:
     Base-pair coordinate (1-based; limited to 231-2)
     Allele 1 (corresponding to clear bits in .bed; usually minor)
     Allele 2 (corresponding to set bits in .bed; usually major)
+
+
+    Note, the VCF interpretation here can be derived by running
+    plink1.9 --bfile tests/data/plink/example --export vcf
     """
 
     @pytest.fixture(scope="class")
@@ -171,7 +131,7 @@ class TestExample:
         nt.assert_array_equal(ds.variant_position, [10, 20])
 
     def test_variant_allele(self, ds):
-        nt.assert_array_equal(ds.variant_allele, [["A", "GG"], ["TTT", "C"]])
+        nt.assert_array_equal(ds.variant_allele, [["GG", "A"], ["C", "TTT"]])
 
     def test_variant_length(self, ds):
         nt.assert_array_equal(ds.variant_length, [2, 3])
@@ -193,41 +153,31 @@ class TestExample:
             call_genotype,
             [
                 [
+                    [1, 1],
+                    [1, 1],
+                    [1, 1],
                     [0, 0],
                     [0, 0],
                     [0, 0],
-                    [1, 1],
-                    [1, 1],
-                    [1, 1],
-                    [1, 1],
-                    [1, 1],
-                    [1, 1],
-                    [1, 1],
+                    [0, 0],
+                    [0, 0],
+                    [0, 0],
+                    [0, 0],
                 ],
                 [
+                    [1, 1],
+                    [1, 1],
+                    [1, 1],
+                    [1, 1],
                     [0, 0],
                     [0, 0],
                     [0, 0],
                     [0, 0],
-                    [1, 1],
-                    [1, 1],
-                    [1, 1],
-                    [1, 1],
-                    [1, 1],
-                    [1, 1],
+                    [0, 0],
+                    [0, 0],
                 ],
             ],
         )
-
-    def test_sgkit(self, ds):
-        path = "tests/data/plink/example"
-        sg_ds = sgkit.io.plink.read_plink(path=path)
-        # Can't compare the full dataset yet
-        nt.assert_array_equal(ds.call_genotype.values, sg_ds.call_genotype.values)
-        # https://github.com/pystatgen/sgkit/issues/1209
-        nt.assert_array_equal(ds.variant_allele, sg_ds.variant_allele.astype(str))
-        nt.assert_array_equal(ds.variant_position, sg_ds.variant_position)
-        nt.assert_array_equal(ds.sample_id, sg_ds.sample_id)
 
 
 class TestSimulatedExample:
@@ -259,14 +209,14 @@ class TestSimulatedExample:
             [
                 [1, 0],
                 [1, 0],
-                [0, 0],
-                [0, 0],
+                [1, 1],
+                [1, 1],
                 [-1, -1],
-                [1, 1],
-                [1, 1],
+                [0, 0],
                 [0, 0],
                 [1, 1],
-                [1, 1],
+                [0, 0],
+                [0, 0],
             ]
         )
         gt = ds["call_genotype"].values
@@ -364,7 +314,6 @@ class TestMultipleContigs:
         # - 1 variant on chromosome 2
         # - 2 variants on chromosome X
         # - 1 variant on chromosome Y
-        # values are counts of allele 1, will be flipped by the converter
         dosages = np.array(
             [
                 [0, 1, 2, 0],  # chr1
@@ -406,6 +355,19 @@ class TestMultipleContigs:
     def test_contig_ids(self, ds):
         nt.assert_array_equal(ds.contig_id, ["1", "2", "X", "Y"])
 
+    def test_variant_allele(self, ds):
+        nt.assert_array_equal(
+            ds.variant_allele,
+            [
+                ["G", "A"],
+                ["C", "T"],
+                ["G", "A"],
+                ["T", "C"],
+                ["A", "G"],
+                ["C", "T"],
+            ],
+        )
+
     def test_variant_contig(self, ds):
         nt.assert_array_equal(
             ds.variant_contig, [0, 0, 1, 2, 2, 3]
@@ -417,12 +379,12 @@ class TestMultipleContigs:
         nt.assert_array_equal(
             call_genotype,
             [
-                [[1, 1], [1, 0], [0, 0], [1, 1]],  # chr1
-                [[1, 0], [1, 1], [0, 0], [1, 0]],  # chr1
-                [[1, 1], [1, 1], [1, 1], [0, 0]],  # chr2
-                [[0, 0], [1, 1], [1, 0], [1, 1]],  # chrX
+                [[0, 0], [1, 0], [1, 1], [0, 0]],  # chr1
+                [[1, 0], [0, 0], [1, 1], [1, 0]],  # chr1
+                [[0, 0], [0, 0], [0, 0], [1, 1]],  # chr2
+                [[1, 1], [0, 0], [1, 0], [0, 0]],  # chrX
                 [[1, 0], [1, 0], [1, 0], [1, 0]],  # chrX
-                [[1, 1], [0, 0], [1, 1], [0, 0]],  # chrY
+                [[0, 0], [1, 1], [0, 0], [1, 1]],  # chrY
             ],
         )
 
