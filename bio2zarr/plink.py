@@ -36,7 +36,7 @@ class PlinkFormat(vcz.Source):
             bim_location=paths.bim_path,
             fam_location=paths.fam_path,
             num_threads=1,
-            count_A1=False,
+            count_A1=True,
         )
 
     @property
@@ -216,6 +216,8 @@ def convert(
 
 # FIXME do this more efficiently - currently reading the whole thing
 # in for convenience, and also comparing call-by-call
+# TODO we should remove this function from the API - it's a test function
+# and should be moved into the suite
 @core.requires_optional_dependency("bed_reader", "plink")
 def validate(bed_path, zarr_path):
     import bed_reader
@@ -223,7 +225,7 @@ def validate(bed_path, zarr_path):
     root = zarr.open(store=zarr_path, mode="r")
     call_genotype = root["call_genotype"][:]
 
-    bed = bed_reader.open_bed(bed_path + ".bed", count_A1=False, num_threads=1)
+    bed = bed_reader.open_bed(bed_path + ".bed", count_A1=True, num_threads=1)
 
     assert call_genotype.shape[0] == bed.sid_count
     assert call_genotype.shape[1] == bed.iid_count
