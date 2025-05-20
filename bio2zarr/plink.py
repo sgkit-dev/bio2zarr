@@ -12,9 +12,9 @@ logger = logging.getLogger(__name__)
 
 @dataclasses.dataclass
 class PlinkPaths:
-    bed_path: pathlib.Path
-    bim_path: pathlib.Path
-    fam_path: pathlib.Path
+    bed_path: str
+    bim_path: str
+    fam_path: str
 
 
 class PlinkFormat(vcz.Source):
@@ -25,13 +25,12 @@ class PlinkFormat(vcz.Source):
         # TODO we will need support multiple chromosomes here to join
         # plinks into on big zarr. So, these will require multiple
         # bed and bim files, but should share a .fam
-        self.prefix = pathlib.Path(prefix)
+        self.prefix = str(prefix)
         paths = PlinkPaths(
-            self.prefix.with_suffix(".bed"),
-            self.prefix.with_suffix(".bim"),
-            self.prefix.with_suffix(".fam"),
+            self.prefix + ".bed",
+            self.prefix + ".bim",
+            self.prefix + ".fam",
         )
-
         self.bed = bed_reader.open_bed(
             paths.bed_path,
             bim_location=paths.bim_path,
@@ -73,8 +72,8 @@ class PlinkFormat(vcz.Source):
         yield from self.bed.sid[start:stop]
 
     def iter_alleles_and_genotypes(self, start, stop, shape, num_alleles):
-        ref_field = self.bed.allele_1
-        alt_field = self.bed.allele_2
+        alt_field = self.bed.allele_1
+        ref_field = self.bed.allele_2
         bed_chunk = self.bed.read(slice(start, stop), dtype=np.int8).T
         gt = np.zeros(shape, dtype=np.int8)
         phased = np.zeros(shape[:-1], dtype=bool)
@@ -224,7 +223,7 @@ def validate(bed_path, zarr_path):
     root = zarr.open(store=zarr_path, mode="r")
     call_genotype = root["call_genotype"][:]
 
-    bed = bed_reader.open_bed(bed_path, count_A1=False, num_threads=1)
+    bed = bed_reader.open_bed(bed_path + ".bed", count_A1=False, num_threads=1)
 
     assert call_genotype.shape[0] == bed.sid_count
     assert call_genotype.shape[1] == bed.iid_count
