@@ -604,7 +604,7 @@ class VcfZarrWriter:
         root = zarr.open(store=self.path, mode="a", **zarr_utils.ZARR_FORMAT_KWARGS)
         root.attrs.update(
             {
-                "vcf_zarr_version": "0.2",
+                "vcf_zarr_version": "0.4",
                 "source": f"bio2zarr-{provenance.__version__}",
             }
         )
