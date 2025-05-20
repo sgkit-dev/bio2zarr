@@ -1,3 +1,4 @@
+import dataclasses
 import logging
 import pathlib
 
@@ -9,17 +10,39 @@ from bio2zarr import constants, core, vcz
 logger = logging.getLogger(__name__)
 
 
+@dataclasses.dataclass
+class PlinkPaths:
+    bed_path: pathlib.Path
+    bim_path: pathlib.Path
+    fam_path: pathlib.Path
+
+
 class PlinkFormat(vcz.Source):
     @core.requires_optional_dependency("bed_reader", "plink")
-    def __init__(self, path):
+    def __init__(self, prefix):
         import bed_reader
 
-        self._path = pathlib.Path(path)
-        self.bed = bed_reader.open_bed(path, num_threads=1, count_A1=False)
+        # TODO we will need support multiple chromosomes here to join
+        # plinks into on big zarr. So, these will require multiple
+        # bed and bim files, but should share a .fam
+        self.prefix = pathlib.Path(prefix)
+        paths = PlinkPaths(
+            self.prefix.with_suffix(".bed"),
+            self.prefix.with_suffix(".bim"),
+            self.prefix.with_suffix(".fam"),
+        )
+
+        self.bed = bed_reader.open_bed(
+            paths.bed_path,
+            bim_location=paths.bim_path,
+            fam_location=paths.fam_path,
+            num_threads=1,
+            count_A1=False,
+        )
 
     @property
     def path(self):
-        return self._path
+        return self.prefix
 
     @property
     def num_records(self):
@@ -45,6 +68,9 @@ class PlinkFormat(vcz.Source):
     def iter_field(self, field_name, shape, start, stop):
         assert field_name == "position"  # Only position field is supported from plink
         yield from self.bed.bp_position[start:stop]
+
+    def iter_id(self, start, stop):
+        yield from self.bed.sid[start:stop]
 
     def iter_alleles_and_genotypes(self, start, stop, shape, num_alleles):
         ref_field = self.bed.allele_1
@@ -108,6 +134,18 @@ class PlinkFormat(vcz.Source):
                 description=None,
             ),
             vcz.ZarrArraySpec(
+                name="variant_id",
+                dtype="O",
+                dimensions=["variants"],
+                description=None,
+            ),
+            vcz.ZarrArraySpec(
+                name="variant_id_mask",
+                dtype="bool",
+                dimensions=["variants"],
+                description=None,
+            ),
+            vcz.ZarrArraySpec(
                 source=None,
                 name="variant_length",
                 dtype="i4",
@@ -147,20 +185,20 @@ class PlinkFormat(vcz.Source):
 
 
 def convert(
-    bed_path,
-    zarr_path,
+    prefix,
+    out,
     *,
     variants_chunk_size=None,
     samples_chunk_size=None,
     worker_processes=1,
     show_progress=False,
 ):
-    plink_format = PlinkFormat(bed_path)
+    plink_format = PlinkFormat(prefix)
     schema_instance = plink_format.generate_schema(
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
     )
-    zarr_path = pathlib.Path(zarr_path)
+    zarr_path = pathlib.Path(out)
     vzw = vcz.VcfZarrWriter(PlinkFormat, zarr_path)
     # Rough heuristic to split work up enough to keep utilisation high
     target_num_partitions = max(1, worker_processes * 4)

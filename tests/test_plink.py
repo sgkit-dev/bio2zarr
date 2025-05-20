@@ -79,15 +79,43 @@ class TestEqualSgkit:
         bed_path = data_path + "plink_sim_10s_100v_10pmiss.bed"
         fam_path = data_path + "plink_sim_10s_100v_10pmiss.fam"
         bim_path = data_path + "plink_sim_10s_100v_10pmiss.bim"
-        # print(bed_path)
-        # print(fam_path)
         sg_ds = sgkit.io.plink.read_plink(
             bed_path=bed_path, fam_path=fam_path, bim_path=bim_path
         )
         out = tmp_path / "example.plink.zarr"
-        plink.convert(bed_path, out)
+        plink.convert(prefix=data_path + "/plink_sim_10s_100v_10pmiss", out=out)
         ds = sg.load_dataset(out)
         nt.assert_array_equal(ds.call_genotype.values, sg_ds.call_genotype.values)
+        nt.assert_array_equal(
+            ds.call_genotype_mask.values, sg_ds.call_genotype_mask.values
+        )
+        # sgkit doesn't have phased
+        nt.assert_array_equal(ds.variant_position.values, sg_ds.variant_position.values)
+        nt.assert_array_equal(
+            ds.variant_allele.values, sg_ds.variant_allele.values.astype("U")
+        )
+        nt.assert_array_equal(ds.variant_contig.values, sg_ds.variant_contig.values)
+        nt.assert_array_equal(ds.variant_id.values, sg_ds.variant_id.values)
+        # print(sg_ds.variant_id.values)
+
+        # Can't compare to sgkit because of
+        # https://github.com/sgkit-dev/sgkit/issues/1314
+        nt.assert_array_equal(
+            ds.sample_id.values,
+            [
+                "000",
+                "001",
+                "002",
+                "003",
+                "004",
+                "005",
+                "006",
+                "007",
+                "008",
+                "009",
+            ],
+        )
+        # We don't do the additional sample_ fields yet
 
 
 class TestExample:
