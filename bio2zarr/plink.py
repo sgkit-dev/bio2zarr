@@ -3,7 +3,6 @@ import logging
 import pathlib
 
 import numpy as np
-import zarr
 
 from bio2zarr import constants, core, vcz
 
@@ -86,7 +85,7 @@ class PlinkFormat(vcz.Source):
             gt[:] = 0
             gt[bed_chunk[i] == -127] = -1
             gt[bed_chunk[i] == 2] = 1
-            gt[bed_chunk[i] == 1, 0] = 1
+            gt[bed_chunk[i] == 1, 1] = 1
 
             # rlen is the length of the REF in PLINK as there's no END annotations
             yield vcz.VariantData(len(alleles[0]), alleles, gt, phased)
@@ -216,41 +215,3 @@ def convert(
     )
     vzw.finalise(show_progress)
     vzw.create_index()
-
-
-# FIXME do this more efficiently - currently reading the whole thing
-# in for convenience, and also comparing call-by-call
-# TODO we should remove this function from the API - it's a test function
-# and should be moved into the suite
-@core.requires_optional_dependency("bed_reader", "plink")
-def validate(bed_path, zarr_path):
-    import bed_reader
-
-    root = zarr.open(store=zarr_path, mode="r")
-    call_genotype = root["call_genotype"][:]
-
-    bed = bed_reader.open_bed(bed_path + ".bed", count_A1=True, num_threads=1)
-
-    assert call_genotype.shape[0] == bed.sid_count
-    assert call_genotype.shape[1] == bed.iid_count
-    bed_genotypes = bed.read(dtype="int8").T
-    assert call_genotype.shape[0] == bed_genotypes.shape[0]
-    assert call_genotype.shape[1] == bed_genotypes.shape[1]
-    assert call_genotype.shape[2] == 2
-
-    row_id = 0
-    for bed_row, zarr_row in zip(bed_genotypes, call_genotype):
-        # print("ROW", row_id)
-        # print(bed_row, zarr_row)
-        row_id += 1
-        for bed_call, zarr_call in zip(bed_row, zarr_row):
-            if bed_call == -127:
-                assert list(zarr_call) == [-1, -1]
-            elif bed_call == 0:
-                assert list(zarr_call) == [0, 0]
-            elif bed_call == 1:
-                assert list(zarr_call) == [1, 0]
-            elif bed_call == 2:
-                assert list(zarr_call) == [1, 1]
-            else:  # pragma no cover
-                raise AssertionError(f"Unexpected bed call {bed_call}")
