@@ -8,6 +8,9 @@
 - {ref}`sec-vcf2zarr` converts VCF data to
   [VCF Zarr](https://github.com/sgkit-dev/vcf-zarr-spec/) format.
 
+- {ref}`sec-plink2zarr` converts PLINK 1.0 data to
+  [VCF Zarr](https://github.com/sgkit-dev/vcf-zarr-spec/) format.
+
 - {ref}`sec-vcfpartition` is a utility to split an input
   VCF into a given number of partitions. This is useful for
   parallel processing of VCF data.
@@ -17,10 +20,8 @@
 `bio2zarr` is in development, contributions, feedback and issues are welcome
 at the [GitHub repository](https://github.com/sgkit-dev/bio2zarr).
 
-Support for converting PLINK data to VCF Zarr is partially implemented,
-and adding BGEN and [tskit](https://tskit.dev/) support is also planned.
 If you would like to see
-support for other formats (or an interested in helping with implementing),
+support for other formats such as BGEN (or an interested in helping with implementing),
 please open an [issue on Github](https://github.com/sgkit-dev/bio2zarr/issues)
 to discuss!
 
