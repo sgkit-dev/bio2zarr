@@ -1,5 +1,3 @@
-import os
-import tempfile
 from unittest import mock
 
 import numpy as np
@@ -11,6 +9,22 @@ import zarr
 
 from bio2zarr import tskit as tsk
 from bio2zarr import vcf
+
+
+def test_missing_dependency():
+    with mock.patch(
+        "importlib.import_module",
+        side_effect=ImportError("No module named 'tskit'"),
+    ):
+        with pytest.raises(ImportError) as exc_info:
+            tsk.convert(
+                "UNUSED_PATH",
+                "UNUSED_PATH",
+            )
+        assert (
+            "This process requires the optional tskit module. Install "
+            "it with: pip install bio2zarr[tskit]" in str(exc_info.value)
+        )
 
 
 def simple_ts(add_individuals=False):
@@ -37,98 +51,96 @@ def simple_ts(add_individuals=False):
     return tables.tree_sequence()
 
 
-class TestTskit:
-    def test_simple_tree_sequence(self, tmp_path):
-        tree_sequence = simple_ts()
-        tree_sequence.dump(tmp_path / "test.trees")
+class TestSimpleTs:
+    @pytest.fixture()
+    def conversion(self, tmp_path):
+        ts = simple_ts()
+        zarr_path = tmp_path / "test_output.vcz"
+        tsk.convert(ts, zarr_path)
+        zroot = zarr.open(zarr_path, mode="r")
+        return ts, zroot
 
-        # Manually specify the individuals_nodes, other tests use
-        # tsk individuals.
-        ind_nodes = np.array([[0, 1], [2, 3]])
+    def test_position(self, conversion):
+        ts, zroot = conversion
 
-        with tempfile.TemporaryDirectory() as tempdir:
-            zarr_path = os.path.join(tempdir, "test_output.zarr")
-            tsk.convert(
-                tmp_path / "test.trees",
-                zarr_path,
-                individuals_nodes=ind_nodes,
-                show_progress=False,
-            )
-            zroot = zarr.open(zarr_path, mode="r")
-            pos = zroot["variant_position"][:]
-            assert pos.shape == (3,)
-            assert pos.dtype == np.int8
-            assert np.array_equal(pos, [10, 20, 30])
+        pos = zroot["variant_position"][:]
+        assert pos.shape == (3,)
+        assert pos.dtype == np.int8
+        assert np.array_equal(pos, [10, 20, 30])
 
-            alleles = zroot["variant_allele"][:]
-            assert alleles.shape == (3, 2)
-            assert alleles.dtype == "O"
-            assert np.array_equal(alleles, [["A", "TTTT"], ["CCC", "G"], ["G", "AA"]])
+    def test_alleles(self, conversion):
+        ts, zroot = conversion
+        alleles = zroot["variant_allele"][:]
+        assert alleles.shape == (3, 2)
+        assert alleles.dtype == "O"
+        assert np.array_equal(alleles, [["A", "TTTT"], ["CCC", "G"], ["G", "AA"]])
 
-            lengths = zroot["variant_length"][:]
-            assert lengths.shape == (3,)
-            assert lengths.dtype == np.int8
-            assert np.array_equal(lengths, [1, 3, 1])
+    def test_variant_length(self, conversion):
+        ts, zroot = conversion
+        lengths = zroot["variant_length"][:]
+        assert lengths.shape == (3,)
+        assert lengths.dtype == np.int8
+        assert np.array_equal(lengths, [1, 3, 1])
 
-            genotypes = zroot["call_genotype"][:]
-            assert genotypes.shape == (3, 2, 2)
-            assert genotypes.dtype == np.int8
-            assert np.array_equal(
-                genotypes, [[[1, 1], [0, 0]], [[0, 0], [1, 1]], [[1, 0], [0, 0]]]
-            )
+    def test_genotypes(self, conversion):
+        ts, zroot = conversion
+        genotypes = zroot["call_genotype"][:]
+        assert genotypes.shape == (3, 4, 1)
+        assert genotypes.dtype == np.int8
+        assert np.array_equal(
+            genotypes,
+            [[[1], [1], [0], [0]], [[0], [0], [1], [1]], [[1], [0], [0], [0]]],
+        )
 
-            phased = zroot["call_genotype_phased"][:]
-            assert phased.shape == (3, 2)
-            assert phased.dtype == "bool"
-            assert np.all(phased)
+    def test_phased(self, conversion):
+        ts, zroot = conversion
+        phased = zroot["call_genotype_phased"][:]
+        assert phased.shape == (3, 4)
+        assert phased.dtype == "bool"
+        assert np.all(~phased)
 
-            contigs = zroot["contig_id"][:]
-            assert contigs.shape == (1,)
-            assert contigs.dtype == "O"
-            assert np.array_equal(contigs, ["1"])
+    def test_contig_id(self, conversion):
+        ts, zroot = conversion
+        contigs = zroot["contig_id"][:]
+        assert contigs.shape == (1,)
+        assert contigs.dtype == "O"
+        assert np.array_equal(contigs, ["1"])
 
-            contig = zroot["variant_contig"][:]
-            assert contig.shape == (3,)
-            assert contig.dtype == np.int8
-            assert np.array_equal(contig, [0, 0, 0])
+    def test_variant_contig(self, conversion):
+        ts, zroot = conversion
+        contig = zroot["variant_contig"][:]
+        assert contig.shape == (3,)
+        assert contig.dtype == np.int8
+        assert np.array_equal(contig, [0, 0, 0])
 
-            samples = zroot["sample_id"][:]
-            assert samples.shape == (2,)
-            assert samples.dtype == "O"
-            assert np.array_equal(samples, ["tsk_0", "tsk_1"])
+    def test_sample_id(self, conversion):
+        ts, zroot = conversion
+        samples = zroot["sample_id"][:]
+        assert samples.shape == (4,)
+        assert samples.dtype == "O"
+        assert np.array_equal(samples, ["tsk_0", "tsk_1", "tsk_2", "tsk_3"])
 
-            region_index = zroot["region_index"][:]
-            assert region_index.shape == (1, 6)
-            assert region_index.dtype == np.int8
-            assert np.array_equal(region_index, [[0, 0, 10, 30, 30, 3]])
+    def test_region_index(self, conversion):
+        ts, zroot = conversion
+        region_index = zroot["region_index"][:]
+        assert region_index.shape == (1, 6)
+        assert region_index.dtype == np.int8
+        assert np.array_equal(region_index, [[0, 0, 10, 30, 30, 3]])
 
-            assert set(zroot.array_keys()) == {
-                "variant_position",
-                "variant_allele",
-                "variant_length",
-                "call_genotype",
-                "call_genotype_phased",
-                "call_genotype_mask",
-                "contig_id",
-                "variant_contig",
-                "sample_id",
-                "region_index",
-            }
-
-    def test_missing_dependency(self):
-        with mock.patch(
-            "importlib.import_module",
-            side_effect=ImportError("No module named 'tskit'"),
-        ):
-            with pytest.raises(ImportError) as exc_info:
-                tsk.convert(
-                    "UNUSED_PATH",
-                    "UNUSED_PATH",
-                )
-            assert (
-                "This process requires the optional tskit module. Install "
-                "it with: pip install bio2zarr[tskit]" in str(exc_info.value)
-            )
+    def test_fields(self, conversion):
+        ts, zroot = conversion
+        assert set(zroot.array_keys()) == {
+            "variant_position",
+            "variant_allele",
+            "variant_length",
+            "call_genotype",
+            "call_genotype_phased",
+            "call_genotype_mask",
+            "contig_id",
+            "variant_contig",
+            "sample_id",
+            "region_index",
+        }
 
 
 class TestTskitFormat:
@@ -463,7 +475,7 @@ class TestTskitFormat:
         expected_gt_missing = np.array([[1], [0], [-1]])
         assert np.array_equal(variant_data_missing.genotypes, expected_gt_missing)
 
-    def test_genotype_dtype_selection(self, tmp_path):
+    def test_genotype_dtype_i1(self, tmp_path):
         tables = tskit.TableCollection(sequence_length=100)
         for _ in range(4):
             tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
@@ -477,12 +489,12 @@ class TestTskitFormat:
         ts_path = tmp_path / "small_alleles.trees"
         tree_sequence.dump(ts_path)
 
-        ind_nodes = np.array([[0, 1], [2, 3]])
-        format_obj = tsk.TskitFormat(ts_path, individuals_nodes=ind_nodes)
+        format_obj = tsk.TskitFormat(ts_path)
         schema = format_obj.generate_schema()
         call_genotype_spec = next(s for s in schema.fields if s.name == "call_genotype")
         assert call_genotype_spec.dtype == "i1"
 
+    def test_genotype_dtype_i4(self, tmp_path):
         tables = tskit.TableCollection(sequence_length=100)
         for _ in range(4):
             tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
@@ -498,7 +510,7 @@ class TestTskitFormat:
         ts_path = tmp_path / "large_alleles.trees"
         tree_sequence.dump(ts_path)
 
-        format_obj = tsk.TskitFormat(ts_path, individuals_nodes=ind_nodes)
+        format_obj = tsk.TskitFormat(ts_path)
         schema = format_obj.generate_schema()
         call_genotype_spec = next(s for s in schema.fields if s.name == "call_genotype")
         assert call_genotype_spec.dtype == "i4"
@@ -508,6 +520,7 @@ class TestTskitFormat:
     "ts",
     [
         simple_ts(add_individuals=True),
+        simple_ts(add_individuals=False),
     ],
 )
 def test_against_tskit_vcf_output(ts, tmp_path):

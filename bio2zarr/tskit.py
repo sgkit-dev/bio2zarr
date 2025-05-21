@@ -12,23 +12,34 @@ class TskitFormat(vcz.Source):
     @core.requires_optional_dependency("tskit", "tskit")
     def __init__(
         self,
-        ts_path,
-        individuals_nodes=None,
-        sample_ids=None,
+        ts,
+        *,
+        model_mapping=None,
         contig_id=None,
         isolated_as_missing=False,
     ):
         import tskit
 
-        self._path = ts_path
-        self.ts = tskit.load(ts_path)
+        self._path = None  # Not sure what we're using this for?
+        # Future versions here will need to deal with the complexities of
+        # having lists of tree sequences for multiple chromosomes.
+        if isinstance(ts, tskit.TreeSequence):
+            self.ts = ts
+        else:
+            # input 'ts' is a path.
+            self._path = ts
+            self.ts = tskit.load(ts)
+
         self.contig_id = contig_id if contig_id is not None else "1"
         self.isolated_as_missing = isolated_as_missing
 
         self.positions = self.ts.sites_position
 
-        if individuals_nodes is None:
-            individuals_nodes = self.ts.individuals_nodes
+        if model_mapping is None:
+            model_mapping = self.ts.map_to_vcf_model()
+
+        individuals_nodes = model_mapping.individuals_nodes
+        sample_ids = model_mapping.individuals_name
 
         self.is_phased = True
         if individuals_nodes.shape[1] == 1:
@@ -241,8 +252,7 @@ def convert(
     ts_path,
     zarr_path,
     *,
-    individuals_nodes=None,
-    sample_ids=None,
+    model_mapping=None,
     contig_id=None,
     isolated_as_missing=False,
     variants_chunk_size=None,
@@ -252,8 +262,7 @@ def convert(
 ):
     tskit_format = TskitFormat(
         ts_path,
-        individuals_nodes=individuals_nodes,
-        sample_ids=sample_ids,
+        model_mapping=model_mapping,
         contig_id=contig_id,
         isolated_as_missing=isolated_as_missing,
     )
