@@ -6,6 +6,7 @@ import numpy.testing as nt
 import pytest
 import sgkit as sg
 import xarray.testing as xt
+import zarr
 
 from bio2zarr import plink, vcf
 
@@ -69,8 +70,8 @@ class TestSmallExample:
         nt.assert_array_equal(
             call_genotype,
             [
-                [[0, 0], [1, 0], [1, 1]],
-                [[1, 0], [0, 0], [1, 1]],
+                [[0, 0], [0, 1], [1, 1]],
+                [[0, 1], [0, 0], [1, 1]],
                 [[0, 0], [0, 0], [0, 0]],
                 [[-1, -1], [0, 0], [0, 0]],
                 [[1, 1], [0, 0], [0, 0]],
@@ -134,7 +135,7 @@ class TestExample:
         nt.assert_array_equal(ds.variant_allele, [["GG", "A"], ["C", "TTT"]])
 
     def test_variant_length(self, ds):
-        nt.assert_array_equal(ds.variant_length, [2, 3])
+        nt.assert_array_equal(ds.variant_length, [2, 1])
 
     def test_contig_id(self, ds):
         """Test that contig identifiers are correctly extracted and stored."""
@@ -207,8 +208,8 @@ class TestSimulatedExample:
         )
         expected = np.array(
             [
-                [1, 0],
-                [1, 0],
+                [0, 1],
+                [0, 1],
                 [1, 1],
                 [1, 1],
                 [-1, -1],
@@ -276,6 +277,37 @@ class TestSimulatedExample:
         # TODO check array chunks
 
 
+def validate(bed_path, zarr_path):
+    root = zarr.open(store=zarr_path, mode="r")
+    call_genotype = root["call_genotype"][:]
+
+    bed = bed_reader.open_bed(bed_path + ".bed", count_A1=True, num_threads=1)
+
+    assert call_genotype.shape[0] == bed.sid_count
+    assert call_genotype.shape[1] == bed.iid_count
+    bed_genotypes = bed.read(dtype="int8").T
+    assert call_genotype.shape[0] == bed_genotypes.shape[0]
+    assert call_genotype.shape[1] == bed_genotypes.shape[1]
+    assert call_genotype.shape[2] == 2
+
+    row_id = 0
+    for bed_row, zarr_row in zip(bed_genotypes, call_genotype):
+        # print("ROW", row_id)
+        # print(bed_row, zarr_row)
+        row_id += 1
+        for bed_call, zarr_call in zip(bed_row, zarr_row):
+            if bed_call == -127:
+                assert list(zarr_call) == [-1, -1]
+            elif bed_call == 0:
+                assert list(zarr_call) == [0, 0]
+            elif bed_call == 1:
+                assert list(zarr_call) == [0, 1]
+            elif bed_call == 2:
+                assert list(zarr_call) == [1, 1]
+            else:  # pragma no cover
+                raise AssertionError(f"Unexpected bed call {bed_call}")
+
+
 @pytest.mark.parametrize(
     ("variants_chunk_size", "samples_chunk_size"),
     [
@@ -299,7 +331,7 @@ def test_by_validating(
         samples_chunk_size=samples_chunk_size,
         worker_processes=worker_processes,
     )
-    plink.validate(path, out)
+    validate(path, out)
 
 
 class TestMultipleContigs:
@@ -379,11 +411,11 @@ class TestMultipleContigs:
         nt.assert_array_equal(
             call_genotype,
             [
-                [[0, 0], [1, 0], [1, 1], [0, 0]],  # chr1
-                [[1, 0], [0, 0], [1, 1], [1, 0]],  # chr1
+                [[0, 0], [0, 1], [1, 1], [0, 0]],  # chr1
+                [[0, 1], [0, 0], [1, 1], [0, 1]],  # chr1
                 [[0, 0], [0, 0], [0, 0], [1, 1]],  # chr2
-                [[1, 1], [0, 0], [1, 0], [0, 0]],  # chrX
-                [[1, 0], [1, 0], [1, 0], [1, 0]],  # chrX
+                [[1, 1], [0, 0], [0, 1], [0, 0]],  # chrX
+                [[0, 1], [0, 1], [0, 1], [0, 1]],  # chrX
                 [[0, 0], [1, 1], [0, 0], [1, 1]],  # chrY
             ],
         )
@@ -403,7 +435,7 @@ class TestMultipleContigs:
     [
         "tests/data/plink/example",
         "tests/data/plink/example_with_fam",
-        # "tests/data/plink/plink_sim_10s_100v_10pmiss",
+        "tests/data/plink/plink_sim_10s_100v_10pmiss",
     ],
 )
 def test_against_plinks_vcf_output(prefix, tmp_path):

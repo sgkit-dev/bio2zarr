@@ -562,8 +562,8 @@ def convert_plink(
 ):
     """
     Convert plink fileset to VCF Zarr. Results are equivalent to
-    `plink1.9 --bfile prefix --recode vcf-iid --out tmp` then running
-    `vcf2zarr convert tmp.vcf zarr_path`
+    `plink1.9 --bfile prefix --keep-allele-order --recode vcf-iid --out tmp`
+    then running `vcf2zarr convert tmp.vcf zarr_path`
     """
     setup_logging(verbose)
     plink.convert(
