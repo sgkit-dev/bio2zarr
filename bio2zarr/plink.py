@@ -88,7 +88,8 @@ class PlinkFormat(vcz.Source):
             gt[bed_chunk[i] == 2] = 1
             gt[bed_chunk[i] == 1, 0] = 1
 
-            yield vcz.VariantData(max(len(a) for a in alleles), alleles, gt, phased)
+            # rlen is the length of the REF in PLINK as there's no END annotations
+            yield vcz.VariantData(len(alleles[0]), alleles, gt, phased)
 
     def generate_schema(
         self,
@@ -117,6 +118,9 @@ class PlinkFormat(vcz.Source):
             f"variants={dimensions['variants'].chunk_size}, "
             f"samples={dimensions['samples'].chunk_size}"
         )
+        # If we don't have SVLEN or END annotations, the rlen field is defined
+        # as the length of the REF
+        max_len = self.bed.allele_2.itemsize
 
         array_specs = [
             vcz.ZarrArraySpec(
@@ -147,7 +151,7 @@ class PlinkFormat(vcz.Source):
             vcz.ZarrArraySpec(
                 source=None,
                 name="variant_length",
-                dtype="i4",
+                dtype=core.min_int_dtype(0, max_len),
                 dimensions=["variants"],
                 description="Length of each variant",
             ),

@@ -7,7 +7,7 @@ import pytest
 import sgkit as sg
 import xarray.testing as xt
 
-from bio2zarr import plink
+from bio2zarr import plink, vcf
 
 
 def test_missing_dependency():
@@ -396,3 +396,24 @@ class TestMultipleContigs:
             ds.variant_length,
             [1, 1, 1, 1, 1, 1],
         )
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "tests/data/plink/example",
+    ],
+)
+def test_against_plinks_vcf_output(prefix, tmp_path):
+    vcf_path = prefix + ".vcf"
+    plink_zarr = tmp_path / "plink.zarr"
+    vcf_zarr = tmp_path / "vcf.zarr"
+    plink.convert(prefix, plink_zarr)
+    vcf.convert([vcf_path], vcf_zarr)
+    ds1 = sg.load_dataset(plink_zarr)
+    ds2 = (
+        sg.load_dataset(vcf_zarr)
+        .drop_dims("filters")
+        .drop_vars(["variant_quality", "variant_PR", "contig_length"])
+    )
+    xt.assert_equal(ds1, ds2)

@@ -1026,23 +1026,6 @@ class TestVcfPartition:
         ]
 
 
-@pytest.mark.parametrize(
-    "cmd",
-    [
-        main.bio2zarr,
-        cli.vcf2zarr_main,
-        cli.plink2zarr,
-        cli.vcfpartition,
-        cli.tskit2zarr,
-    ],
-)
-def test_version(cmd):
-    runner = ct.CliRunner()
-    result = runner.invoke(cmd, ["--version"], catch_exceptions=False)
-    s = f"version {provenance.__version__}\n"
-    assert result.stdout.endswith(s)
-
-
 class TestTskitEndToEnd:
     def test_convert(self, tmp_path):
         ts_path = "tests/data/ts/example.trees"
@@ -1060,3 +1043,39 @@ class TestTskitEndToEnd:
         assert result.exit_code == 0
         # Arbitrary check
         assert "variant_position" in result.stdout
+
+
+class TestPlinkEndToEnd:
+    def test_convert(self, tmp_path):
+        ts_path = "tests/data/plink/example"
+        zarr_path = tmp_path / "zarr"
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.plink2zarr,
+            f"convert {ts_path} {zarr_path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        result = runner.invoke(
+            cli.vcf2zarr_main, f"inspect {zarr_path}", catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        # Arbitrary check
+        assert "variant_position" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        main.bio2zarr,
+        cli.vcf2zarr_main,
+        cli.plink2zarr,
+        cli.vcfpartition,
+        cli.tskit2zarr,
+    ],
+)
+def test_version(cmd):
+    runner = ct.CliRunner()
+    result = runner.invoke(cmd, ["--version"], catch_exceptions=False)
+    s = f"version {provenance.__version__}\n"
+    assert result.stdout.endswith(s)
