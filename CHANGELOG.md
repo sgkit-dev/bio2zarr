@@ -1,10 +1,8 @@
 # 0.1.6 2025-0X-XX
 
+- Initial version of supported plink2zarr (#390, #344, #382)
+
 - Make format-specific dependencies optional (#385)
-
-- Add contigs to plink output (#344)
-
-- Add variant_length and indexing to plink output (#382)
 
 Breaking changes
 
@@ -13,6 +11,8 @@ Breaking changes
 
 - Add dimensions and default compressor and filter settings to the schema.
   (#361)
+
+- Various changes to existing experimental plink encoding (#390)
 
 # 0.1.5 2025-03-31
 

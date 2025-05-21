@@ -6,6 +6,9 @@ chapters:
   sections:
   - file: vcf2zarr/tutorial
   - file: vcf2zarr/cli_ref
+- file: plink2zarr/overview
+  sections:
+  - file: plink2zarr/cli_ref
 - file: vcfpartition/overview
   sections:
   - file: vcfpartition/cli_ref
