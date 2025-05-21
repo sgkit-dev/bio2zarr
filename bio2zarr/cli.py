@@ -381,7 +381,7 @@ def encode(
     worker_processes,
 ):
     """
-    Convert intermediate columnar format to vcfzarr.
+    Convert intermediate columnar format to VCF Zarr.
     """
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)
@@ -504,7 +504,7 @@ def convert_vcf(
     local_alleles,
 ):
     """
-    Convert input VCF(s) directly to vcfzarr (not recommended for large files).
+    Convert input VCF(s) directly to VCF Zarr (not recommended for large files).
     """
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)
@@ -523,7 +523,7 @@ def convert_vcf(
 @click.group(cls=NaturalOrderGroup, name="vcf2zarr")
 def vcf2zarr_main():
     """
-    Convert VCF file(s) to the vcfzarr format.
+    Convert VCF file(s) to VCF Zarr format.
 
     See the online documentation at https://sgkit-dev.github.io/bio2zarr/
     for more information.
@@ -579,6 +579,9 @@ def convert_plink(
 @version
 @click.group()
 def plink2zarr():
+    """
+    Convert plink fileset(s) to VCF Zarr format
+    """
     pass
 
 
@@ -678,6 +681,9 @@ def convert_tskit(
 @version
 @click.group()
 def tskit2zarr():
+    """
+    Convert tskit tree sequence(s) to VCF Zarr format
+    """
     pass
 
 
