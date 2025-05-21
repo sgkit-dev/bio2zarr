@@ -30,6 +30,12 @@ class TskitFormat(vcz.Source):
         if individuals_nodes is None:
             individuals_nodes = self.ts.individuals_nodes
 
+        self.is_phased = True
+        if individuals_nodes.shape[1] == 1:
+            # For simplicity we defined haploids as unphased to do the same thing as the
+            # VCF conversion code. We should just omit the array for haploids anyway.
+            self.is_phased = False
+
         self._num_samples = individuals_nodes.shape[0]
         if self._num_samples < 1:
             raise ValueError("individuals_nodes must have at least one sample")
@@ -90,7 +96,7 @@ class TskitFormat(vcz.Source):
 
     def iter_alleles_and_genotypes(self, start, stop, shape, num_alleles):
         # All genotypes in tskit are considered phased
-        phased = np.ones(shape[:-1], dtype=bool)
+        phased = np.full(shape[:-1], self.is_phased, dtype=bool)
 
         for variant in self.ts.variants(
             isolated_as_missing=self.isolated_as_missing,
@@ -101,14 +107,15 @@ class TskitFormat(vcz.Source):
         ):
             gt = np.full(shape, constants.INT_FILL, dtype=np.int8)
             alleles = np.full(num_alleles, constants.STR_FILL, dtype="O")
-            variant_length = 0
+            # length is the length of the REF allele unless other fields
+            # are included.
+            variant_length = len(variant.alleles[0])
             for i, allele in enumerate(variant.alleles):
                 # None is returned by tskit in the case of a missing allele
                 if allele is None:
                     continue
                 assert i < num_alleles
                 alleles[i] = allele
-                variant_length = max(variant_length, len(allele))
             gt[self.sample_indices, self.ploidy_indices] = variant.genotypes[
                 self.genotype_indices
             ]
