@@ -402,6 +402,8 @@ class TestMultipleContigs:
     "prefix",
     [
         "tests/data/plink/example",
+        "tests/data/plink/example_with_fam",
+        # "tests/data/plink/plink_sim_10s_100v_10pmiss",
     ],
 )
 def test_against_plinks_vcf_output(prefix, tmp_path):
