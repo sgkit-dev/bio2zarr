@@ -647,7 +647,7 @@ class TestWithMocks:
     @pytest.mark.parametrize(("progress", "flag"), [(True, "-P"), (False, "-Q")])
     @mock.patch("bio2zarr.tskit.convert")
     def test_convert_tskit(self, mocked, tmp_path, progress, flag):
-        ts_path = "tests/data/ts/example.trees"
+        ts_path = "tests/data/tskit/example.trees"
         zarr_path = tmp_path / "zarr"
         runner = ct.CliRunner()
         result = runner.invoke(
@@ -669,7 +669,7 @@ class TestWithMocks:
     @pytest.mark.parametrize("response", ["y", "Y", "yes"])
     @mock.patch("bio2zarr.tskit.convert")
     def test_tskit_convert_overwrite_zarr_confirm_yes(self, mocked, tmp_path, response):
-        ts_path = "tests/data/ts/example.trees"
+        ts_path = "tests/data/tskit/example.trees"
         zarr_path = tmp_path / "zarr"
         zarr_path.mkdir()
         runner = ct.CliRunner()
@@ -691,7 +691,7 @@ class TestWithMocks:
     @pytest.mark.parametrize("response", ["n", "N", "No"])
     @mock.patch("bio2zarr.tskit.convert")
     def test_tskit_convert_overwrite_zarr_confirm_no(self, mocked, tmp_path, response):
-        ts_path = "tests/data/ts/example.trees"
+        ts_path = "tests/data/tskit/example.trees"
         zarr_path = tmp_path / "zarr"
         zarr_path.mkdir()
         runner = ct.CliRunner()
@@ -708,7 +708,7 @@ class TestWithMocks:
     @pytest.mark.parametrize("force_arg", ["-f", "--force"])
     @mock.patch("bio2zarr.tskit.convert")
     def test_tskit_convert_overwrite_zarr_force(self, mocked, tmp_path, force_arg):
-        ts_path = "tests/data/ts/example.trees"
+        ts_path = "tests/data/tskit/example.trees"
         zarr_path = tmp_path / "zarr"
         zarr_path.mkdir()
         runner = ct.CliRunner()
@@ -728,7 +728,7 @@ class TestWithMocks:
 
     @mock.patch("bio2zarr.tskit.convert")
     def test_tskit_convert_with_options(self, mocked, tmp_path):
-        ts_path = "tests/data/ts/example.trees"
+        ts_path = "tests/data/tskit/example.trees"
         zarr_path = tmp_path / "zarr"
         runner = ct.CliRunner()
         result = runner.invoke(
@@ -1028,7 +1028,7 @@ class TestVcfPartition:
 
 class TestTskitEndToEnd:
     def test_convert(self, tmp_path):
-        ts_path = "tests/data/ts/example.trees"
+        ts_path = "tests/data/tskit/example.trees"
         zarr_path = tmp_path / "zarr"
         runner = ct.CliRunner()
         result = runner.invoke(
