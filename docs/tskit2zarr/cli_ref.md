@@ -1,4 +1,4 @@
-(sec-plink2zarr-cli-ref)=
+(sec-tskit2zarr-cli-ref)=
 # CLI Reference
 
 % A note on cross references... There's some weird long-standing problem with
@@ -10,8 +10,9 @@
 
 ```{eval-rst}
 
-.. _cmd-plink2zarr-convert:
-.. click:: bio2zarr.cli:convert_plink
-   :prog: plink2zarr convert
+.. _cmd-tskit2zarr-convert:
+.. click:: bio2zarr.cli:convert_tskit
+   :prog: tskit2zarr convert
    :nested: full
+
 ```
