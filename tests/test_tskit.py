@@ -470,10 +470,7 @@ class TestTskitFormat:
 
 @pytest.mark.parametrize(
     "ts",
-    [
-        simple_ts(add_individuals=True),
-        simple_ts(add_individuals=False),
-    ],
+    [add_mutations(msprime.sim_ancestry(2, sequence_length=10, random_seed=42))],
 )
 def test_against_tskit_vcf_output(ts, tmp_path):
     vcf_path = tmp_path / "ts.vcf"
