@@ -1,5 +1,4 @@
-import sys
-
+import msprime
 import numpy.testing as nt
 import pysam
 import pytest
@@ -9,10 +8,6 @@ from bio2zarr import vcf as vcf_mod
 
 
 def run_simulation(num_samples=2, ploidy=1, seed=42, sequence_length=100_000):
-    # Import here to avoid problems on OSX (see below)
-    # https://github.com/sgkit-dev/bio2zarr/issues/336
-    import msprime
-
     ts = msprime.sim_ancestry(
         num_samples,
         population_size=10**4,
@@ -52,8 +47,6 @@ def write_vcf(ts, vcf_path, contig_id="1", indexed=False):
     return vcf_path
 
 
-# https://github.com/sgkit-dev/bio2zarr/issues/336
-@pytest.mark.skipif(sys.platform == "darwin", reason="msprime OSX pip packages broken")
 class TestTskitRoundTripVcf:
     @pytest.mark.parametrize("ploidy", [1, 2, 3, 4])
     def test_ploidy(self, ploidy, tmp_path):
@@ -127,8 +120,6 @@ class TestTskitRoundTripVcf:
         self.validate_tss_vcf_list(contig_ids, tss, vcfs, tmp_path)
 
 
-# https://github.com/sgkit-dev/bio2zarr/issues/336
-@pytest.mark.skipif(sys.platform == "darwin", reason="msprime OSX pip packages broken")
 class TestIncompatibleContigs:
     def test_different_lengths(self, tmp_path):
         vcfs = []
