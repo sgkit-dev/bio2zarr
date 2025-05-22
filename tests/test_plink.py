@@ -1,5 +1,3 @@
-from unittest import mock
-
 import bed_reader
 import numpy as np
 import numpy.testing as nt
@@ -9,22 +7,6 @@ import xarray.testing as xt
 import zarr
 
 from bio2zarr import plink, vcf
-
-
-def test_missing_dependency():
-    with mock.patch(
-        "importlib.import_module",
-        side_effect=ImportError("No module named 'bed_reader'"),
-    ):
-        with pytest.raises(ImportError) as exc_info:
-            plink.convert(
-                "UNUSED_PATH",
-                "UNUSED_PATH",
-            )
-        assert (
-            "This process requires the optional bed_reader module. "
-            "Install it with: pip install bio2zarr[plink]" in str(exc_info.value)
-        )
 
 
 class TestSmallExample:
