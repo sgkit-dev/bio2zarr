@@ -41,12 +41,6 @@ class TskitFormat(vcz.Source):
         individuals_nodes = model_mapping.individuals_nodes
         sample_ids = model_mapping.individuals_name
 
-        self.is_phased = True
-        if individuals_nodes.shape[1] == 1:
-            # For simplicity we defined haploids as unphased to do the same thing as the
-            # VCF conversion code. We should just omit the array for haploids anyway.
-            self.is_phased = False
-
         self._num_samples = individuals_nodes.shape[0]
         if self._num_samples < 1:
             raise ValueError("individuals_nodes must have at least one sample")
@@ -107,7 +101,7 @@ class TskitFormat(vcz.Source):
 
     def iter_alleles_and_genotypes(self, start, stop, shape, num_alleles):
         # All genotypes in tskit are considered phased
-        phased = np.full(shape[:-1], self.is_phased, dtype=bool)
+        phased = np.ones(shape[:-1], dtype=bool)
 
         for variant in self.ts.variants(
             isolated_as_missing=self.isolated_as_missing,

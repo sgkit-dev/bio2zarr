@@ -1,9 +1,9 @@
 import msprime
+import numpy as np
 import numpy.testing as nt
 import pysam
 import pytest
 import sgkit as sg
-import numpy as np
 
 from bio2zarr import vcf as vcf_mod
 
@@ -35,7 +35,8 @@ def assert_ts_ds_equal(ts, ds, ploidy=1):
     )
     nt.assert_array_equal(
         ds.call_genotype_phased.values,
-        np.ones((ts.num_sites, ts.num_individuals), dtype=bool))
+        np.ones((ts.num_sites, ts.num_individuals), dtype=bool),
+    )
     nt.assert_equal(ds.variant_allele[:, 0].values, "A")
     nt.assert_equal(ds.variant_allele[:, 1].values, "T")
     nt.assert_equal(ds.variant_position, ts.sites_position)
