@@ -1,3 +1,5 @@
+import os.path
+
 import bed_reader
 import numpy as np
 import numpy.testing as nt
@@ -60,6 +62,51 @@ class TestBedReader:
     def test_bad_file_type(self, path):
         with pytest.raises(ValueError, match="Invalid BED file magic bytes"):
             plink.BedReader(path, 1, 1)
+
+    @pytest.mark.parametrize(
+        ("num_variants", "num_samples"),
+        [
+            (1, 1),
+            (1, 2),
+            (1, 3),
+            (1, 4),
+            (1, 5),
+            (1, 6),
+            (1, 7),
+            (1, 8),
+            (1, 9),
+            (2, 1),
+            (3, 1),
+            (10, 1),
+            (100, 1),
+            (10, 2),
+            (10, 3),
+            (10, 4),
+            (10, 5),
+            (20, 20),
+            (30, 3),
+        ],
+    )
+    def test_generated_bed_files(self, tmp_path, num_variants, num_samples):
+        bed_file = tmp_path / "a_file.bed"
+        # Generate a regular pattern of all possible values
+        data = np.arange(num_variants * num_samples, dtype=int) % 4
+        data[data == 3] = -127
+        data = data.reshape((num_variants, num_samples))
+
+        bed_reader.to_bed(bed_file, data.T, num_threads=1)
+
+        bytes_per_variant = (num_samples + 3) // 4
+        expected_size = 3 + bytes_per_variant * num_variants
+        assert os.path.getsize(bed_file) == expected_size
+
+        br_map = {0: (0, 0), 1: (0, 1), 2: (1, 1), -127: (-1, -1)}
+        reader = plink.BedReader(bed_file, num_variants, num_samples)
+        g = reader.decode(0, num_variants)
+        assert g.shape == (num_variants, num_samples, 2)
+        for j in range(num_variants):
+            for k in range(num_samples):
+                assert br_map[data[j, k]] == tuple(g[j, k])
 
 
 class TestSmallExample:
