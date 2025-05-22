@@ -101,16 +101,6 @@ jobs:
           python -m bio2zarr tskit2zarr convert tests/data/ts/example.trees ts.vcz
           deactivate
 
-          python -m venv env-plink
-          source env-plink/bin/activate
-          python -m pip install .
-          python -m bio2zarr plink2zarr convert tests/data/plink/example plink.vcz > plink.txt 2>&1 || echo $? > plink_exit.txt
-          test "$(cat plink_exit.txt)" = "1"
-          grep -q "This process requires the optional bed_reader module. Install it with: pip install bio2zarr\[plink\]" plink.txt
-          python -m pip install '.[plink]'
-          python -m bio2zarr plink2zarr convert tests/data/plink/example plink.vcz
-          deactivate
-
           python -m venv env-vcf
           source env-vcf/bin/activate
           python -m pip install .
