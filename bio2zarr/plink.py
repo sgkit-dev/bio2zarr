@@ -1,8 +1,6 @@
 import dataclasses
 import logging
-import os
 import pathlib
-import warnings
 
 import numpy as np
 import pandas as pd
@@ -56,54 +54,21 @@ class PlinkPaths:
     fam_path: str
 
 
-@dataclasses.dataclass
-class FamData:
-    sid: np.ndarray
-    sid_count: int
+class BedReader:
+    def __init__(self, path, num_variants, num_samples):
+        self.num_variants = num_variants
+        self.num_samples = num_samples
+        self.path = path
+        # bytes per variant: 1 byte per 4 samples, rounded up
+        self.bytes_per_variant = (self.num_samples + 3) // 4
 
-
-class PlinkFormat(vcz.Source):
-    def __init__(self, prefix):
-        # TODO we will need support multiple chromosomes here to join
-        # plinks into on big zarr. So, these will require multiple
-        # bed and bim files, but should share a .fam
-        self.prefix = str(prefix)
-        self.paths = PlinkPaths(
-            self.prefix + ".bed",
-            self.prefix + ".bim",
-            self.prefix + ".fam",
-        )
-
-        self.bim = read_bim(self.paths.bim_path)
-        self.fam = read_fam(self.paths.fam_path)
-
-        self._num_records = self.bim.shape[0]
-        self._num_samples = self.fam.shape[0]
-
-        # Calculate bytes per SNP: 1 byte per 4 samples, rounded up
-        self.bytes_per_snp = (self._num_samples + 3) // 4
-
-        # Verify BED file has correct magic bytes
-        with open(self.paths.bed_path, "rb") as f:
+        with open(self.path, "rb") as f:
             magic = f.read(3)
-            assert magic == b"\x6c\x1b\x01", "Invalid BED file format"
+            if magic != b"\x6c\x1b\x01":
+                raise ValueError("Invalid BED file magic bytes")
 
-        expected_size = self.num_records * self.bytes_per_snp + 3  # +3 for magic bytes
-        actual_size = os.path.getsize(self.paths.bed_path)
-        if actual_size < expected_size:
-            raise ValueError(
-                f"BED file is truncated: expected at least {expected_size} bytes, "
-                f"but only found {actual_size} bytes. "
-                f"Check that .bed, .bim, and .fam files match."
-            )
-        elif actual_size > expected_size:
-            # Warn if there's extra data (might indicate file mismatch)
-            warnings.warn(
-                f"BED file contains {actual_size} bytes but only expected "
-                f"{expected_size}. "
-                f"Using first {expected_size} bytes only.",
-                stacklevel=1,
-            )
+        # We could check the size of the bed file here, but that would
+        # mean we can't work with streams.
 
         # Initialize the lookup table with shape (256, 4, 2)
         # 256 possible byte values, 4 samples per byte, 2 alleles per sample
@@ -126,6 +91,56 @@ class PlinkFormat(vcz.Source):
                     lookup[byte, sample] = [0, 0]
 
         self.byte_lookup = lookup
+
+    def decode(self, start, stop):
+        chunk_size = stop - start
+
+        # Calculate file offsets for the required data
+        # 3 bytes for the magic number at the beginning of the file
+        start_offset = 3 + (start * self.bytes_per_variant)
+        bytes_to_read = chunk_size * self.bytes_per_variant
+
+        # TODO make it possible to read sequentially from the same file handle,
+        # seeking only when necessary.
+        with open(self.path, "rb") as f:
+            f.seek(start_offset)
+            chunk_data = f.read(bytes_to_read)
+
+        data_bytes = np.frombuffer(chunk_data, dtype=np.uint8)
+        data_matrix = data_bytes.reshape(chunk_size, self.bytes_per_variant)
+
+        # Apply lookup table to get genotypes
+        # Shape becomes: (chunk_size, bytes_per_variant, 4, 2)
+        all_genotypes = self.byte_lookup[data_matrix]
+
+        # Reshape to get all samples in one dimension
+        # (chunk_size, bytes_per_variant*4, 2)
+        samples_padded = self.bytes_per_variant * 4
+        genotypes_reshaped = all_genotypes.reshape(chunk_size, samples_padded, 2)
+
+        return genotypes_reshaped[:, : self.num_samples]
+
+
+class PlinkFormat(vcz.Source):
+    def __init__(self, prefix):
+        # TODO we will need support multiple chromosomes here to join
+        # plinks into on big zarr. So, these will require multiple
+        # bed and bim files, but should share a .fam
+        self.prefix = str(prefix)
+        self.paths = PlinkPaths(
+            self.prefix + ".bed",
+            self.prefix + ".bim",
+            self.prefix + ".fam",
+        )
+
+        self.bim = read_bim(self.paths.bim_path)
+        self.fam = read_fam(self.paths.fam_path)
+
+        self._num_records = self.bim.shape[0]
+        self._num_samples = self.fam.shape[0]
+        self.bed_reader = BedReader(
+            self.paths.bed_path, self.num_records, self.num_samples
+        )
 
     @property
     def path(self):
@@ -163,33 +178,9 @@ class PlinkFormat(vcz.Source):
         alt_field = self.bim.allele_1.values
         ref_field = self.bim.allele_2.values
 
-        chunk_size = stop - start
+        gt = self.bed_reader.decode(start, stop)
 
-        # Calculate file offsets for the required data
-        # 3 bytes for the magic number at the beginning of the file
-        start_offset = 3 + (start * self.bytes_per_snp)
-        bytes_to_read = chunk_size * self.bytes_per_snp
-
-        # Read only the needed portion of the BED file
-        with open(self.paths.bed_path, "rb") as f:
-            f.seek(start_offset)
-            chunk_data = f.read(bytes_to_read)
-
-        data_bytes = np.frombuffer(chunk_data, dtype=np.uint8)
-        data_matrix = data_bytes.reshape(chunk_size, self.bytes_per_snp)
-
-        # Apply lookup table to get genotypes
-        # Shape becomes: (chunk_size, bytes_per_snp, 4, 2)
-        all_genotypes = self.byte_lookup[data_matrix]
-
-        # Reshape to get all samples in one dimension
-        # (chunk_size, bytes_per_snp*4, 2)
-        samples_padded = self.bytes_per_snp * 4
-        genotypes_reshaped = all_genotypes.reshape(chunk_size, samples_padded, 2)
-
-        gt = genotypes_reshaped[:, : self._num_samples]
-
-        phased = np.zeros((chunk_size, self._num_samples), dtype=bool)
+        phased = np.zeros(gt.shape[:2], dtype=bool)
 
         for i, (ref, alt) in enumerate(
             zip(ref_field[start:stop], alt_field[start:stop])
