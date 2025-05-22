@@ -1051,6 +1051,10 @@ class IntermediateColumnarFormat(vcz.Source):
             phased = value[:, -1] if value is not None else None
             sanitised_genotypes = sanitise_value_int_2d(shape, genotypes)
             sanitised_phased = sanitise_value_int_1d(shape[:-1], phased)
+            # Force haploids to always be phased
+            # https://github.com/sgkit-dev/bio2zarr/issues/399
+            if sanitised_genotypes.shape[1] == 1:
+                sanitised_phased[:] = True
             yield sanitised_genotypes, sanitised_phased
 
     def iter_alleles_and_genotypes(self, start, stop, shape, num_alleles):
