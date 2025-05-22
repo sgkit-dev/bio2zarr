@@ -143,7 +143,7 @@ class TestSimpleTs:
         phased = zroot["call_genotype_phased"][:]
         assert phased.shape == (3, 4)
         assert phased.dtype == "bool"
-        assert np.all(~phased)
+        assert np.all(phased)
 
     def test_contig_id(self, conversion):
         ts, zroot = conversion
@@ -470,7 +470,17 @@ class TestTskitFormat:
 
 @pytest.mark.parametrize(
     "ts",
-    [add_mutations(msprime.sim_ancestry(2, sequence_length=10, random_seed=42))],
+    [
+        add_mutations(
+            msprime.sim_ancestry(4, ploidy=1, sequence_length=10, random_seed=42)
+        ),
+        add_mutations(
+            msprime.sim_ancestry(2, ploidy=2, sequence_length=10, random_seed=42)
+        ),
+        add_mutations(
+            msprime.sim_ancestry(3, ploidy=12, sequence_length=10, random_seed=142)
+        ),
+    ],
 )
 def test_against_tskit_vcf_output(ts, tmp_path):
     vcf_path = tmp_path / "ts.vcf"
