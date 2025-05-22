@@ -49,6 +49,19 @@ class TestReadFam:
         nt.assert_array_equal(df["phenotype"].values, ["-9" for j in range(10)])
 
 
+class TestBedReader:
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "tests/data/plink/example.bim",
+            "tests/data/vcf/sample.vcf.gz",
+        ],
+    )
+    def test_bad_file_type(self, path):
+        with pytest.raises(ValueError, match="Invalid BED file magic bytes"):
+            plink.BedReader(path, 1, 1)
+
+
 class TestSmallExample:
     @pytest.fixture(scope="class")
     def bed_path(self, tmp_path_factory):
