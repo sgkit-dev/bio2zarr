@@ -24,7 +24,7 @@ html:
   extra_footer: |
       <p>
       Documentation available under the terms of the
-      <a href="https://creativecommons.org/publicdomain/zero/1.0/">CC0 1.0</a> 
+      <a href="https://creativecommons.org/publicdomain/zero/1.0/">CC0 1.0</a>
       license.
       </p>
 
@@ -32,6 +32,7 @@ sphinx:
   extra_extensions:
     - sphinx_click.ext
     - sphinx.ext.todo
+    - sphinx.ext.autodoc
   config:
     html_show_copyright: false
     # This is needed to make sure that text is output in single block from
@@ -40,3 +41,6 @@ sphinx:
     todo_include_todos: true
     myst_enable_extensions:
       - colon_fence
+    intersphinx_mapping:
+      python: ["https://docs.python.org/3/", null]
+      tskit: ["https://tskit.dev/tskit/docs/stable", null]

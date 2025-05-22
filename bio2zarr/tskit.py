@@ -241,8 +241,8 @@ class TskitFormat(vcz.Source):
 
 
 def convert(
-    ts_path,
-    zarr_path,
+    ts_or_path,
+    vcz_path,
     *,
     model_mapping=None,
     contig_id=None,
@@ -252,8 +252,14 @@ def convert(
     worker_processes=1,
     show_progress=False,
 ):
+    """
+    Convert a :class:`tskit.TreeSequence` (or path to a tree sequence
+    file) to VCF Zarr format stored at the specified path.
+
+    .. todo:: Document parameters
+    """
     tskit_format = TskitFormat(
-        ts_path,
+        ts_or_path,
         model_mapping=model_mapping,
         contig_id=contig_id,
         isolated_as_missing=isolated_as_missing,
@@ -262,7 +268,7 @@ def convert(
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
     )
-    zarr_path = pathlib.Path(zarr_path)
+    zarr_path = pathlib.Path(vcz_path)
     vzw = vcz.VcfZarrWriter(TskitFormat, zarr_path)
     # Rough heuristic to split work up enough to keep utilisation high
     target_num_partitions = max(1, worker_processes * 4)
