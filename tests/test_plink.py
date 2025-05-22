@@ -24,6 +24,31 @@ class TestReadBim:
         nt.assert_array_equal(df["allele_2"].values, ["GG", "C"])
 
 
+class TestReadFam:
+    def test_example(self):
+        path = "tests/data/plink/example.fam"
+        df = plink.read_fam(path)
+        # FID IID FATHER MOTHER SEX PHENOTYPE
+        # ind0 ind0 0 0 0 -9
+        # ind1 ind1 0 0 0 -9
+        # ind2 ind2 0 0 0 -9
+        # ind3 ind3 0 0 0 -9
+        # ind4 ind4 0 0 0 -9
+        # ind5 ind5 0 0 0 -9
+        # ind6 ind6 0 0 0 -9
+        # ind7 ind7 0 0 0 -9
+        # ind8 ind8 0 0 0 -9
+        # ind9 ind9 0 0 0 -9
+        nt.assert_array_equal(df["family_id"].values, [f"ind{j}" for j in range(10)])
+        nt.assert_array_equal(
+            df["individual_id"].values, [f"ind{j}" for j in range(10)]
+        )
+        nt.assert_array_equal(df["paternal_id"].values, ["0" for j in range(10)])
+        nt.assert_array_equal(df["maternal_id"].values, ["0" for j in range(10)])
+        nt.assert_array_equal(df["sex"].values, ["0" for j in range(10)])
+        nt.assert_array_equal(df["phenotype"].values, ["-9" for j in range(10)])
+
+
 class TestSmallExample:
     @pytest.fixture(scope="class")
     def bed_path(self, tmp_path_factory):

@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 FAM_FIELDS = [
     ("family_id", str, "U"),
-    ("member_id", str, "U"),
+    ("individual_id", str, "U"),
     ("paternal_id", str, "U"),
     ("maternal_id", str, "U"),
     ("sex", str, "int8"),
@@ -36,20 +36,16 @@ BIM_ARRAY_DTYPE = dict([(f[0], f[2]) for f in BIM_FIELDS])
 
 
 def read_fam(path, sep=None):
-    if sep is None:
-        sep = " "
     # See: https://www.cog-genomics.org/plink/1.9/formats#fam
     names = [f[0] for f in FAM_FIELDS]
-    return pd.read_csv(path, sep=sep, names=names, dtype=FAM_DF_DTYPE)
+    df = pd.read_csv(path, sep=sep, names=names, dtype=FAM_DF_DTYPE)
+    return df
 
 
 def read_bim(path, sep=None):
-    if sep is None:
-        sep = "\t"
     # See: https://www.cog-genomics.org/plink/1.9/formats#bim
     names = [f[0] for f in BIM_FIELDS]
     df = pd.read_csv(str(path), sep=sep, names=names, dtype=BIM_DF_DTYPE)
-    # df["contig"] = df["contig"].where(df["contig"] != "0", None)
     return df
 
 
@@ -78,28 +74,21 @@ class PlinkFormat(vcz.Source):
             self.prefix + ".fam",
         )
 
-        # Read sample information from .fam file
-        samples = []
-        with open(self.paths.fam_path) as f:
-            for line in f:
-                fields = line.strip().split()
-                if len(fields) >= 2:  # At minimum, we need FID and IID
-                    samples.append(fields[1])
-        self.fam = FamData(sid=np.array(samples), sid_count=len(samples))
-        self.n_samples = len(samples)
-
         self.bim = read_bim(self.paths.bim_path)
-        self.n_variants = self.bim.shape[0]
+        self.fam = read_fam(self.paths.fam_path)
+
+        self._num_records = self.bim.shape[0]
+        self._num_samples = self.fam.shape[0]
 
         # Calculate bytes per SNP: 1 byte per 4 samples, rounded up
-        self.bytes_per_snp = (self.n_samples + 3) // 4
+        self.bytes_per_snp = (self._num_samples + 3) // 4
 
         # Verify BED file has correct magic bytes
         with open(self.paths.bed_path, "rb") as f:
             magic = f.read(3)
             assert magic == b"\x6c\x1b\x01", "Invalid BED file format"
 
-        expected_size = self.n_variants * self.bytes_per_snp + 3  # +3 for magic bytes
+        expected_size = self.num_records * self.bytes_per_snp + 3  # +3 for magic bytes
         actual_size = os.path.getsize(self.paths.bed_path)
         if actual_size < expected_size:
             raise ValueError(
@@ -144,19 +133,19 @@ class PlinkFormat(vcz.Source):
 
     @property
     def num_records(self):
-        return self.n_variants
+        return self._num_records
+
+    @property
+    def num_samples(self):
+        return self._num_samples
 
     @property
     def samples(self):
-        return [vcz.Sample(id=sample) for sample in self.fam.sid]
+        return [vcz.Sample(id=iid) for iid in self.fam.individual_id]
 
     @property
     def contigs(self):
         return [vcz.Contig(id=str(chrom)) for chrom in self.bim.contig.unique()]
-
-    @property
-    def num_samples(self):
-        return len(self.samples)
 
     def iter_contig(self, start, stop):
         chrom_to_contig_index = {contig.id: i for i, contig in enumerate(self.contigs)}
@@ -198,9 +187,9 @@ class PlinkFormat(vcz.Source):
         samples_padded = self.bytes_per_snp * 4
         genotypes_reshaped = all_genotypes.reshape(chunk_size, samples_padded, 2)
 
-        gt = genotypes_reshaped[:, : self.n_samples]
+        gt = genotypes_reshaped[:, : self._num_samples]
 
-        phased = np.zeros((chunk_size, self.n_samples), dtype=bool)
+        phased = np.zeros((chunk_size, self._num_samples), dtype=bool)
 
         for i, (ref, alt) in enumerate(
             zip(ref_field[start:stop], alt_field[start:stop])
@@ -217,7 +206,7 @@ class PlinkFormat(vcz.Source):
         variants_chunk_size=None,
         samples_chunk_size=None,
     ):
-        n = self.fam.sid_count
+        n = self.num_samples
         m = self.num_records
         logging.info(f"Scanned plink with {n} samples and {m} variants")
         dimensions = vcz.standard_dimensions(
