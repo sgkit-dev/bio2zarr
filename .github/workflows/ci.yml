@@ -94,11 +94,11 @@ jobs:
           python -m venv env-tskit
           source env-tskit/bin/activate
           python -m pip install .
-          python -m bio2zarr tskit2zarr convert tests/data/ts/example.trees ts.vcz > ts.txt 2>&1 || echo $? > ts_exit.txt
+          python -m bio2zarr tskit2zarr convert tests/data/tskit/example.trees ts.vcz > ts.txt 2>&1 || echo $? > ts_exit.txt
           test "$(cat ts_exit.txt)" = "1"
             grep -q "This process requires the optional tskit module. Install it with: pip install bio2zarr\[tskit\]" ts.txt
           python -m pip install '.[tskit]'
-          python -m bio2zarr tskit2zarr convert tests/data/ts/example.trees ts.vcz
+          python -m bio2zarr tskit2zarr convert tests/data/tskit/example.trees ts.vcz
           deactivate
 
           python -m venv env-vcf

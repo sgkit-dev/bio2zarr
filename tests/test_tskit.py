@@ -1,6 +1,8 @@
 from unittest import mock
 
+import msprime
 import numpy as np
+import numpy.testing as nt
 import pytest
 import sgkit as sg
 import tskit
@@ -27,6 +29,22 @@ def test_missing_dependency():
         )
 
 
+def add_mutations(ts):
+    # Add some mutation to the tree sequence. This guarantees that
+    # we have variation at all sites > 0.
+    tables = ts.dump_tables()
+    samples = ts.samples()
+    states = "ACGT"
+    for j in range(1, int(ts.sequence_length) - 1):
+        site = tables.sites.add_row(j, ancestral_state=states[j % 4])
+        tables.mutations.add_row(
+            site=site,
+            derived_state=states[(j + 1) % 4],
+            node=samples[j % ts.num_samples],
+        )
+    return tables.tree_sequence()
+
+
 def simple_ts(add_individuals=False):
     tables = tskit.TableCollection(sequence_length=100)
     for _ in range(4):
@@ -51,6 +69,34 @@ def simple_ts(add_individuals=False):
     return tables.tree_sequence()
 
 
+def insert_branch_sites(ts, m=1):
+    if m == 0:
+        return ts
+    tables = ts.dump_tables()
+    tables.sites.clear()
+    tables.mutations.clear()
+    for tree in ts.trees():
+        left, right = tree.interval
+        delta = (right - left) / (m * len(list(tree.nodes())))
+        x = left
+        for u in tree.nodes():
+            if tree.parent(u) != tskit.NULL:
+                for _ in range(m):
+                    site = tables.sites.add_row(position=x, ancestral_state="0")
+                    tables.mutations.add_row(site=site, node=u, derived_state="1")
+                    x += delta
+    return tables.tree_sequence()
+
+
+@pytest.fixture()
+def fx_ts_isolated_samples():
+    tables = tskit.Tree.generate_balanced(2, span=10).tree_sequence.dump_tables()
+    # This also tests sample nodes that are not a single block at
+    # the start of the nodes table.
+    tables.nodes.add_row(time=0, flags=tskit.NODE_IS_SAMPLE)
+    return insert_branch_sites(tables.tree_sequence())
+
+
 class TestSimpleTs:
     @pytest.fixture()
     def conversion(self, tmp_path):
@@ -66,28 +112,28 @@ class TestSimpleTs:
         pos = zroot["variant_position"][:]
         assert pos.shape == (3,)
         assert pos.dtype == np.int8
-        assert np.array_equal(pos, [10, 20, 30])
+        nt.assert_array_equal(pos, [10, 20, 30])
 
     def test_alleles(self, conversion):
         ts, zroot = conversion
         alleles = zroot["variant_allele"][:]
         assert alleles.shape == (3, 2)
         assert alleles.dtype == "O"
-        assert np.array_equal(alleles, [["A", "TTTT"], ["CCC", "G"], ["G", "AA"]])
+        nt.assert_array_equal(alleles, [["A", "TTTT"], ["CCC", "G"], ["G", "AA"]])
 
     def test_variant_length(self, conversion):
         ts, zroot = conversion
         lengths = zroot["variant_length"][:]
         assert lengths.shape == (3,)
         assert lengths.dtype == np.int8
-        assert np.array_equal(lengths, [1, 3, 1])
+        nt.assert_array_equal(lengths, [1, 3, 1])
 
     def test_genotypes(self, conversion):
         ts, zroot = conversion
         genotypes = zroot["call_genotype"][:]
         assert genotypes.shape == (3, 4, 1)
         assert genotypes.dtype == np.int8
-        assert np.array_equal(
+        nt.assert_array_equal(
             genotypes,
             [[[1], [1], [0], [0]], [[0], [0], [1], [1]], [[1], [0], [0], [0]]],
         )
@@ -104,28 +150,28 @@ class TestSimpleTs:
         contigs = zroot["contig_id"][:]
         assert contigs.shape == (1,)
         assert contigs.dtype == "O"
-        assert np.array_equal(contigs, ["1"])
+        nt.assert_array_equal(contigs, ["1"])
 
     def test_variant_contig(self, conversion):
         ts, zroot = conversion
         contig = zroot["variant_contig"][:]
         assert contig.shape == (3,)
         assert contig.dtype == np.int8
-        assert np.array_equal(contig, [0, 0, 0])
+        nt.assert_array_equal(contig, [0, 0, 0])
 
     def test_sample_id(self, conversion):
         ts, zroot = conversion
         samples = zroot["sample_id"][:]
         assert samples.shape == (4,)
         assert samples.dtype == "O"
-        assert np.array_equal(samples, ["tsk_0", "tsk_1", "tsk_2", "tsk_3"])
+        nt.assert_array_equal(samples, ["tsk_0", "tsk_1", "tsk_2", "tsk_3"])
 
     def test_region_index(self, conversion):
         ts, zroot = conversion
         region_index = zroot["region_index"][:]
         assert region_index.shape == (1, 6)
         assert region_index.dtype == np.int8
-        assert np.array_equal(region_index, [[0, 0, 10, 30, 30, 3]])
+        nt.assert_array_equal(region_index, [[0, 0, 10, 30, 30, 3]])
 
     def test_fields(self, conversion):
         ts, zroot = conversion
@@ -147,74 +193,25 @@ class TestTskitFormat:
     """Unit tests for TskitFormat without using full conversion."""
 
     @pytest.fixture()
-    def simple_ts(self, tmp_path):
-        tables = tskit.TableCollection(sequence_length=100)
-        tables.individuals.add_row()
-        tables.individuals.add_row()
-        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0, individual=0)
-        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0, individual=0)
-        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0, individual=1)
-        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0, individual=1)
-        tables.nodes.add_row(flags=0, time=1)  # MRCA for 0,1
-        tables.nodes.add_row(flags=0, time=1)  # MRCA for 2,3
-        tables.edges.add_row(left=0, right=100, parent=4, child=0)
-        tables.edges.add_row(left=0, right=100, parent=4, child=1)
-        tables.edges.add_row(left=0, right=100, parent=5, child=2)
-        tables.edges.add_row(left=0, right=100, parent=5, child=3)
-        site_id = tables.sites.add_row(position=10, ancestral_state="A")
-        tables.mutations.add_row(site=site_id, node=4, derived_state="TT")
-        site_id = tables.sites.add_row(position=20, ancestral_state="CCC")
-        tables.mutations.add_row(site=site_id, node=5, derived_state="G")
-        site_id = tables.sites.add_row(position=30, ancestral_state="G")
-        tables.mutations.add_row(site=site_id, node=0, derived_state="A")
-        tables.sort()
-        tree_sequence = tables.tree_sequence()
-        ts_path = tmp_path / "test.trees"
-        tree_sequence.dump(ts_path)
-        return ts_path, tree_sequence
+    def fx_simple_ts(self, tmp_path):
+        return simple_ts(add_individuals=True)
 
     @pytest.fixture()
-    def no_individuals_ts(self, tmp_path):
-        tables = tskit.TableCollection(sequence_length=100)
-        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
-        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
-        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
-        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
-        tables.nodes.add_row(flags=0, time=1)  # MRCA for 0,1
-        tables.nodes.add_row(flags=0, time=1)  # MRCA for 2,3
-        tables.edges.add_row(left=0, right=100, parent=4, child=0)
-        tables.edges.add_row(left=0, right=100, parent=4, child=1)
-        tables.edges.add_row(left=0, right=100, parent=5, child=2)
-        tables.edges.add_row(left=0, right=100, parent=5, child=3)
-        site_id = tables.sites.add_row(position=10, ancestral_state="A")
-        tables.mutations.add_row(site=site_id, node=4, derived_state="T")
-        site_id = tables.sites.add_row(position=20, ancestral_state="C")
-        tables.mutations.add_row(site=site_id, node=5, derived_state="G")
-        tables.sort()
-        tree_sequence = tables.tree_sequence()
-        ts_path = tmp_path / "no_individuals.trees"
-        tree_sequence.dump(ts_path)
-        return ts_path, tree_sequence
+    def fx_ts_2_diploids(self, tmp_path):
+        ts = msprime.sim_ancestry(2, sequence_length=10, random_seed=42)
+        return add_mutations(ts)
 
-    def test_position_dtype_selection(self, tmp_path):
+    @pytest.fixture()
+    def fx_no_individuals_ts(self, tmp_path):
+        return simple_ts(add_individuals=False)
+
+    def test_small_position_dtype(self):
         tables = tskit.TableCollection(sequence_length=100)
         tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
         tables.sites.add_row(position=10, ancestral_state="A")
         tables.sites.add_row(position=20, ancestral_state="C")
-        ts_small = tables.tree_sequence()
-        ts_path_small = tmp_path / "small_positions.trees"
-        ts_small.dump(ts_path_small)
-
-        tables = tskit.TableCollection(sequence_length=3_000_000_000)
-        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
-        tables.sites.add_row(position=10, ancestral_state="A")
-        tables.sites.add_row(position=np.iinfo(np.int32).max + 1, ancestral_state="C")
-        ts_large = tables.tree_sequence()
-        ts_path_large = tmp_path / "large_positions.trees"
-        ts_large.dump(ts_path_large)
-
-        ind_nodes = np.array([[0], [1]])
-        format_obj_small = tsk.TskitFormat(ts_path_small, individuals_nodes=ind_nodes)
+        ts = tables.tree_sequence()
+        format_obj_small = tsk.TskitFormat(ts)
         schema_small = format_obj_small.generate_schema()
 
         position_field = next(
@@ -222,7 +219,14 @@ class TestTskitFormat:
         )
         assert position_field.dtype == "i1"
 
-        format_obj_large = tsk.TskitFormat(ts_path_large, individuals_nodes=ind_nodes)
+    def test_large_position_dtype(self):
+        tables = tskit.TableCollection(sequence_length=3_000_000_000)
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+        tables.sites.add_row(position=10, ancestral_state="A")
+        tables.sites.add_row(position=np.iinfo(np.int32).max + 1, ancestral_state="C")
+        ts = tables.tree_sequence()
+
+        format_obj_large = tsk.TskitFormat(ts)
         schema_large = format_obj_large.generate_schema()
 
         position_field = next(
@@ -230,32 +234,24 @@ class TestTskitFormat:
         )
         assert position_field.dtype == "i8"
 
-    def test_initialization(self, simple_ts):
-        ts_path, tree_sequence = simple_ts
-
-        # Test with default parameters
-        format_obj = tsk.TskitFormat(ts_path)
-        assert format_obj.path == ts_path
-        assert format_obj.ts.num_sites == tree_sequence.num_sites
+    def test_initialization_defaults(self, fx_simple_ts):
+        format_obj = tsk.TskitFormat(fx_simple_ts)
+        assert format_obj.path is None
+        assert format_obj.ts.num_sites == fx_simple_ts.num_sites
         assert format_obj.contig_id == "1"
         assert not format_obj.isolated_as_missing
 
-        # Test with custom parameters
+    def test_initialization_params(self, fx_simple_ts):
         format_obj = tsk.TskitFormat(
-            ts_path,
-            sample_ids=["ind1", "ind2"],
+            fx_simple_ts,
             contig_id="chr1",
             isolated_as_missing=True,
         )
         assert format_obj.contig_id == "chr1"
         assert format_obj.isolated_as_missing
-        assert format_obj.path == ts_path
-        assert format_obj.samples[0].id == "ind1"
-        assert format_obj.samples[1].id == "ind2"
 
-    def test_basic_properties(self, simple_ts):
-        ts_path, _ = simple_ts
-        format_obj = tsk.TskitFormat(ts_path)
+    def test_basic_properties(self, fx_ts_2_diploids):
+        format_obj = tsk.TskitFormat(fx_ts_2_diploids)
 
         assert format_obj.num_records == format_obj.ts.num_sites
         assert format_obj.num_samples == 2  # Two individuals
@@ -269,30 +265,23 @@ class TestTskitFormat:
         assert len(contigs) == 1
         assert contigs[0].id == "1"
 
-    def test_custom_sample_ids(self, simple_ts):
-        ts_path, _ = simple_ts
-        custom_ids = ["sample_X", "sample_Y"]
-        format_obj = tsk.TskitFormat(ts_path, sample_ids=custom_ids)
+    def test_custom_sample_ids(self, fx_ts_2_diploids):
+        custom_ids = ["sW", "sX"]
+        model_mapping = fx_ts_2_diploids.map_to_vcf_model(individual_names=custom_ids)
+        format_obj = tsk.TskitFormat(fx_ts_2_diploids, model_mapping=model_mapping)
 
         assert format_obj.num_samples == 2
         assert len(format_obj.samples) == 2
-        assert format_obj.samples[0].id == "sample_X"
-        assert format_obj.samples[1].id == "sample_Y"
+        assert format_obj.samples[0].id == "sW"
+        assert format_obj.samples[1].id == "sX"
 
-    def test_sample_id_length_mismatch(self, simple_ts):
-        ts_path, _ = simple_ts
-        # Wrong number of sample IDs
-        with pytest.raises(ValueError, match="Length of sample_ids.*does not match"):
-            tsk.TskitFormat(ts_path, sample_ids=["only_one_id"])
-
-    def test_schema_generation(self, simple_ts):
-        ts_path, _ = simple_ts
-        format_obj = tsk.TskitFormat(ts_path)
+    def test_schema_generation(self, fx_simple_ts):
+        format_obj = tsk.TskitFormat(fx_simple_ts)
 
         schema = format_obj.generate_schema()
         assert schema.dimensions["variants"].size == 3
-        assert schema.dimensions["samples"].size == 2
-        assert schema.dimensions["ploidy"].size == 2
+        assert schema.dimensions["samples"].size == 4
+        assert schema.dimensions["ploidy"].size == 1
         assert schema.dimensions["alleles"].size == 2  # A/T, C/G, G/A -> max is 2
         field_names = [field.name for field in schema.fields]
         assert "variant_position" in field_names
@@ -308,15 +297,13 @@ class TestTskitFormat:
         assert schema.dimensions["variants"].chunk_size == 10
         assert schema.dimensions["samples"].chunk_size == 5
 
-    def test_iter_contig(self, simple_ts):
-        ts_path, _ = simple_ts
-        format_obj = tsk.TskitFormat(ts_path)
+    def test_iter_contig(self, fx_simple_ts):
+        format_obj = tsk.TskitFormat(fx_simple_ts)
         contig_indices = list(format_obj.iter_contig(1, 3))
         assert contig_indices == [0, 0]
 
-    def test_iter_field(self, simple_ts):
-        ts_path, _ = simple_ts
-        format_obj = tsk.TskitFormat(ts_path)
+    def test_iter_field(self, fx_simple_ts):
+        format_obj = tsk.TskitFormat(fx_simple_ts)
         positions = list(format_obj.iter_field("position", None, 0, 3))
         assert positions == [10, 20, 30]
         positions = list(format_obj.iter_field("position", None, 1, 3))
@@ -359,10 +346,12 @@ class TestTskitFormat:
             ),
         ],
     )
-    def test_iter_alleles_and_genotypes(self, simple_ts, ind_nodes, expected_gts):
-        ts_path, _ = simple_ts
+    def test_iter_alleles_and_genotypes(self, fx_simple_ts, ind_nodes, expected_gts):
+        model_mapping = tskit.VcfModelMapping(
+            ind_nodes, ["tsk{j}" for j in range(len(ind_nodes))]
+        )
 
-        format_obj = tsk.TskitFormat(ts_path, individuals_nodes=ind_nodes)
+        format_obj = tsk.TskitFormat(fx_simple_ts, model_mapping=model_mapping)
 
         shape = (2, 2)  # (num_samples, max_ploidy)
         results = list(format_obj.iter_alleles_and_genotypes(0, 3, shape, 2))
@@ -372,79 +361,40 @@ class TestTskitFormat:
         for i, variant_data in enumerate(results):
             if i == 0:
                 assert variant_data.variant_length == 1
-                assert np.array_equal(variant_data.alleles, ("A", "TT"))
+                nt.assert_array_equal(variant_data.alleles, ("A", "TTTT"))
             elif i == 1:
                 assert variant_data.variant_length == 3
-                assert np.array_equal(variant_data.alleles, ("CCC", "G"))
+                nt.assert_array_equal(variant_data.alleles, ("CCC", "G"))
             elif i == 2:
                 assert variant_data.variant_length == 1
-                assert np.array_equal(variant_data.alleles, ("G", "A"))
+                nt.assert_array_equal(variant_data.alleles, ("G", "AA"))
 
-            assert np.array_equal(
-                variant_data.genotypes, expected_gts[i]
-            ), f"Mismatch at variant {i}, expected {expected_gts[i]}, "
-            f"got {variant_data.genotypes}"
+            nt.assert_array_equal(variant_data.genotypes, expected_gts[i])
             assert np.all(variant_data.phased)
 
-    def test_iter_alleles_and_genotypes_errors(self, simple_ts):
-        """Test error cases for iter_alleles_and_genotypes with invalid inputs."""
-        ts_path, _ = simple_ts
-
+    def test_iter_alleles_and_genotypes_missing_node(self, fx_ts_2_diploids):
         # Test with node ID that doesn't exist in tree sequence (out of range)
-        invalid_nodes = np.array([[10, 11], [12, 13]], dtype=np.int32)
-        format_obj = tsk.TskitFormat(ts_path, individuals_nodes=invalid_nodes)
+        ind_nodes = np.array([[10, 11], [12, 13]], dtype=np.int32)
+        model_mapping = tskit.VcfModelMapping(
+            ind_nodes, ["tsk{j}" for j in range(len(ind_nodes))]
+        )
+        format_obj = tsk.TskitFormat(fx_ts_2_diploids, model_mapping=model_mapping)
         shape = (2, 2)
         with pytest.raises(
             tskit.LibraryError, match="out of bounds"
         ):  # Node ID 10 doesn't exist
             list(format_obj.iter_alleles_and_genotypes(0, 1, shape, 2))
 
-        # Test with empty ind_nodes array (no samples)
-        empty_nodes = np.zeros((0, 2), dtype=np.int32)
-        with pytest.raises(
-            ValueError, match="individuals_nodes must have at least one sample"
-        ):
-            format_obj = tsk.TskitFormat(ts_path, individuals_nodes=empty_nodes)
-
-        # Test with all invalid nodes (-1)
-        all_invalid = np.full((2, 2), -1, dtype=np.int32)
-        with pytest.raises(
-            ValueError, match="individuals_nodes must have at least one valid sample"
-        ):
-            format_obj = tsk.TskitFormat(ts_path, individuals_nodes=all_invalid)
-
-    def test_isolated_as_missing(self, tmp_path):
-        def insert_branch_sites(tsk, m=1):
-            if m == 0:
-                return tsk
-            tables = tsk.dump_tables()
-            tables.sites.clear()
-            tables.mutations.clear()
-            for tree in tsk.trees():
-                left, right = tree.interval
-                delta = (right - left) / (m * len(list(tree.nodes())))
-                x = left
-                for u in tree.nodes():
-                    if tree.parent(u) != tskit.NULL:
-                        for _ in range(m):
-                            site = tables.sites.add_row(position=x, ancestral_state="0")
-                            tables.mutations.add_row(
-                                site=site, node=u, derived_state="1"
-                            )
-                            x += delta
-            return tables.tree_sequence()
-
-        tables = tskit.Tree.generate_balanced(2, span=10).tree_sequence.dump_tables()
-        # This also tests sample nodes that are not a single block at
-        # the start of the nodes table.
-        tables.nodes.add_row(time=0, flags=tskit.NODE_IS_SAMPLE)
-        tree_sequence = insert_branch_sites(tables.tree_sequence())
-
-        ts_path = tmp_path / "isolated_sample.trees"
-        tree_sequence.dump(ts_path)
+    def test_isolated_as_missing(self, fx_ts_isolated_samples):
         ind_nodes = np.array([[0], [1], [3]])
+        model_mapping = tskit.VcfModelMapping(
+            ind_nodes, ["tsk{j}" for j in range(len(ind_nodes))]
+        )
+
         format_obj_default = tsk.TskitFormat(
-            ts_path, individuals_nodes=ind_nodes, isolated_as_missing=False
+            fx_ts_isolated_samples,
+            model_mapping=model_mapping,
+            isolated_as_missing=False,
         )
         shape = (3, 1)  # (num_samples, max_ploidy)
         results_default = list(
@@ -453,14 +403,16 @@ class TestTskitFormat:
 
         assert len(results_default) == 1
         variant_data_default = results_default[0]
-        assert np.array_equal(variant_data_default.alleles, ("0", "1"))
+        nt.assert_array_equal(variant_data_default.alleles, ("0", "1"))
 
         # Sample 2 should have the ancestral state (0) when isolated_as_missing=False
         expected_gt_default = np.array([[1], [0], [0]])
-        assert np.array_equal(variant_data_default.genotypes, expected_gt_default)
+        nt.assert_array_equal(variant_data_default.genotypes, expected_gt_default)
 
         format_obj_missing = tsk.TskitFormat(
-            ts_path, individuals_nodes=ind_nodes, isolated_as_missing=True
+            fx_ts_isolated_samples,
+            model_mapping=model_mapping,
+            isolated_as_missing=True,
         )
         results_missing = list(
             format_obj_missing.iter_alleles_and_genotypes(0, 1, shape, 2)
@@ -469,11 +421,11 @@ class TestTskitFormat:
         assert len(results_missing) == 1
         variant_data_missing = results_missing[0]
         assert variant_data_missing.variant_length == 1
-        assert np.array_equal(variant_data_missing.alleles, ("0", "1"))
+        nt.assert_array_equal(variant_data_missing.alleles, ("0", "1"))
 
         # Individual 2 should have missing values (-1) when isolated_as_missing=True
         expected_gt_missing = np.array([[1], [0], [-1]])
-        assert np.array_equal(variant_data_missing.genotypes, expected_gt_missing)
+        nt.assert_array_equal(variant_data_missing.genotypes, expected_gt_missing)
 
     def test_genotype_dtype_i1(self, tmp_path):
         tables = tskit.TableCollection(sequence_length=100)
