@@ -64,17 +64,16 @@ dev = [
   "pytest-xdist",
   "sgkit>=0.8.0",
   "tqdm",
-  "tskit @ git+https://github.com/tskit-dev/tskit.git@main#subdirectory=python",
+  "tskit>=0.6.4",
   "bed_reader",
   "cyvcf2"
 ]
-# TODO Using dev version of tskit for CI, FIXME before release
-tskit = ["tskit @ git+https://github.com/tskit-dev/tskit.git@main#subdirectory=python"]
+tskit = ["tskit>=0.6.4"]
 vcf = ["cyvcf2"]
 all = [
-  "tskit @ git+https://github.com/tskit-dev/tskit.git@main#subdirectory=python", 
+  "tskit>=0.6.4", 
   "cyvcf2"
-  ]
+]
 
 
 [tool.setuptools]
