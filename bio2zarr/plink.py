@@ -5,10 +5,52 @@ import pathlib
 import warnings
 
 import numpy as np
+import pandas as pd
 
 from bio2zarr import constants, core, vcz
 
 logger = logging.getLogger(__name__)
+
+
+FAM_FIELDS = [
+    ("family_id", str, "U"),
+    ("member_id", str, "U"),
+    ("paternal_id", str, "U"),
+    ("maternal_id", str, "U"),
+    ("sex", str, "int8"),
+    ("phenotype", str, "int8"),
+]
+FAM_DF_DTYPE = dict([(f[0], f[1]) for f in FAM_FIELDS])
+FAM_ARRAY_DTYPE = dict([(f[0], f[2]) for f in FAM_FIELDS])
+
+BIM_FIELDS = [
+    ("contig", str, "U"),
+    ("variant_id", str, "U"),
+    ("cm_position", "float32", "float32"),
+    ("position", "int32", "int32"),
+    ("allele_1", str, "S"),
+    ("allele_2", str, "S"),
+]
+BIM_DF_DTYPE = dict([(f[0], f[1]) for f in BIM_FIELDS])
+BIM_ARRAY_DTYPE = dict([(f[0], f[2]) for f in BIM_FIELDS])
+
+
+def read_fam(path, sep=None):
+    if sep is None:
+        sep = " "
+    # See: https://www.cog-genomics.org/plink/1.9/formats#fam
+    names = [f[0] for f in FAM_FIELDS]
+    return pd.read_csv(path, sep=sep, names=names, dtype=FAM_DF_DTYPE)
+
+
+def read_bim(path, sep=None):
+    if sep is None:
+        sep = "\t"
+    # See: https://www.cog-genomics.org/plink/1.9/formats#bim
+    names = [f[0] for f in BIM_FIELDS]
+    df = pd.read_csv(str(path), sep=sep, names=names, dtype=BIM_DF_DTYPE)
+    # df["contig"] = df["contig"].where(df["contig"] != "0", None)
+    return df
 
 
 @dataclasses.dataclass
@@ -22,16 +64,6 @@ class PlinkPaths:
 class FamData:
     sid: np.ndarray
     sid_count: int
-
-
-@dataclasses.dataclass
-class BimData:
-    chromosome: np.ndarray
-    vid: np.ndarray
-    bp_position: np.ndarray
-    allele_1: np.ndarray
-    allele_2: np.ndarray
-    vid_count: int
 
 
 class PlinkFormat(vcz.Source):
@@ -56,40 +88,8 @@ class PlinkFormat(vcz.Source):
         self.fam = FamData(sid=np.array(samples), sid_count=len(samples))
         self.n_samples = len(samples)
 
-        # Read variant information from .bim file
-        chromosomes = []
-        vids = []
-        positions = []
-        allele1 = []
-        allele2 = []
-
-        with open(self.paths.bim_path) as f:
-            for line in f:
-                fields = line.strip().split()
-                if len(fields) >= 6:
-                    chrom, vid, _, pos, a1, a2 = (
-                        fields[0],
-                        fields[1],
-                        fields[2],
-                        fields[3],
-                        fields[4],
-                        fields[5],
-                    )
-                    chromosomes.append(chrom)
-                    vids.append(vid)
-                    positions.append(int(pos))
-                    allele1.append(a1)
-                    allele2.append(a2)
-
-        self.bim = BimData(
-            chromosome=np.array(chromosomes),
-            vid=np.array(vids),
-            bp_position=np.array(positions),
-            allele_1=np.array(allele1),
-            allele_2=np.array(allele2),
-            vid_count=len(vids),
-        )
-        self.n_variants = len(vids)
+        self.bim = read_bim(self.paths.bim_path)
+        self.n_variants = self.bim.shape[0]
 
         # Calculate bytes per SNP: 1 byte per 4 samples, rounded up
         self.bytes_per_snp = (self.n_samples + 3) // 4
@@ -144,7 +144,7 @@ class PlinkFormat(vcz.Source):
 
     @property
     def num_records(self):
-        return self.bim.vid_count
+        return self.n_variants
 
     @property
     def samples(self):
@@ -152,7 +152,7 @@ class PlinkFormat(vcz.Source):
 
     @property
     def contigs(self):
-        return [vcz.Contig(id=str(chrom)) for chrom in np.unique(self.bim.chromosome)]
+        return [vcz.Contig(id=str(chrom)) for chrom in self.bim.contig.unique()]
 
     @property
     def num_samples(self):
@@ -160,19 +160,19 @@ class PlinkFormat(vcz.Source):
 
     def iter_contig(self, start, stop):
         chrom_to_contig_index = {contig.id: i for i, contig in enumerate(self.contigs)}
-        for chrom in self.bim.chromosome[start:stop]:
+        for chrom in self.bim.contig[start:stop]:
             yield chrom_to_contig_index[str(chrom)]
 
     def iter_field(self, field_name, shape, start, stop):
         assert field_name == "position"  # Only position field is supported from plink
-        yield from self.bim.bp_position[start:stop]
+        yield from self.bim.position[start:stop]
 
     def iter_id(self, start, stop):
-        yield from self.bim.vid[start:stop]
+        yield from self.bim.variant_id[start:stop]
 
     def iter_alleles_and_genotypes(self, start, stop, shape, num_alleles):
-        alt_field = self.bim.allele_1
-        ref_field = self.bim.allele_2
+        alt_field = self.bim.allele_1.values
+        ref_field = self.bim.allele_2.values
 
         chunk_size = stop - start
 
@@ -218,7 +218,7 @@ class PlinkFormat(vcz.Source):
         samples_chunk_size=None,
     ):
         n = self.fam.sid_count
-        m = self.bim.vid_count
+        m = self.num_records
         logging.info(f"Scanned plink with {n} samples and {m} variants")
         dimensions = vcz.standard_dimensions(
             variants_size=m,
@@ -241,7 +241,7 @@ class PlinkFormat(vcz.Source):
         )
         # If we don't have SVLEN or END annotations, the rlen field is defined
         # as the length of the REF
-        max_len = self.bim.allele_2.itemsize
+        max_len = self.bim.allele_2.values.itemsize
 
         array_specs = [
             vcz.ZarrArraySpec(
@@ -278,7 +278,7 @@ class PlinkFormat(vcz.Source):
             ),
             vcz.ZarrArraySpec(
                 name="variant_contig",
-                dtype=core.min_int_dtype(0, len(np.unique(self.bim.chromosome))),
+                dtype=core.min_int_dtype(0, len(np.unique(self.bim.contig))),
                 dimensions=["variants"],
                 description="Contig/chromosome index for each variant",
             ),
