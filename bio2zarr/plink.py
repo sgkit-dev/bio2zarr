@@ -62,6 +62,8 @@ class BedReader:
         # bytes per variant: 1 byte per 4 samples, rounded up
         self.bytes_per_variant = (self.num_samples + 3) // 4
 
+        # TODO open this as a persistent file and support reading from a
+        # stream
         with open(self.path, "rb") as f:
             magic = f.read(3)
             if magic != b"\x6c\x1b\x01":
@@ -132,10 +134,8 @@ class PlinkFormat(vcz.Source):
             self.prefix + ".bim",
             self.prefix + ".fam",
         )
-
         self.bim = read_bim(self.paths.bim_path)
         self.fam = read_fam(self.paths.fam_path)
-
         self._num_records = self.bim.shape[0]
         self._num_samples = self.fam.shape[0]
         self.bed_reader = BedReader(
@@ -177,11 +177,8 @@ class PlinkFormat(vcz.Source):
     def iter_alleles_and_genotypes(self, start, stop, shape, num_alleles):
         alt_field = self.bim.allele_1.values
         ref_field = self.bim.allele_2.values
-
         gt = self.bed_reader.decode(start, stop)
-
         phased = np.zeros(gt.shape[:2], dtype=bool)
-
         for i, (ref, alt) in enumerate(
             zip(ref_field[start:stop], alt_field[start:stop])
         ):
