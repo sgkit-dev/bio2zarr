@@ -29,6 +29,12 @@ def test_missing_dependency():
         )
 
 
+def tskit_model_mapping(ind_nodes, ind_names=None):
+    if ind_names is None:
+        ind_names = ["tsk{j}" for j in range(len(ind_nodes))]
+    return tskit.VcfModelMapping(ind_nodes, ind_names)
+
+
 def add_mutations(ts):
     # Add some mutation to the tree sequence. This guarantees that
     # we have variation at all sites > 0.
@@ -86,15 +92,6 @@ def insert_branch_sites(ts, m=1):
                     tables.mutations.add_row(site=site, node=u, derived_state="1")
                     x += delta
     return tables.tree_sequence()
-
-
-@pytest.fixture()
-def fx_ts_isolated_samples():
-    tables = tskit.Tree.generate_balanced(2, span=10).tree_sequence.dump_tables()
-    # This also tests sample nodes that are not a single block at
-    # the start of the nodes table.
-    tables.nodes.add_row(time=0, flags=tskit.NODE_IS_SAMPLE)
-    return insert_branch_sites(tables.tree_sequence())
 
 
 class TestSimpleTs:
@@ -193,17 +190,28 @@ class TestTskitFormat:
     """Unit tests for TskitFormat without using full conversion."""
 
     @pytest.fixture()
-    def fx_simple_ts(self, tmp_path):
+    def fx_simple_ts(self):
         return simple_ts(add_individuals=True)
 
     @pytest.fixture()
-    def fx_ts_2_diploids(self, tmp_path):
+    def fx_ts_2_diploids(self):
         ts = msprime.sim_ancestry(2, sequence_length=10, random_seed=42)
         return add_mutations(ts)
 
     @pytest.fixture()
-    def fx_no_individuals_ts(self, tmp_path):
-        return simple_ts(add_individuals=False)
+    def fx_ts_isolated_samples(self):
+        tables = tskit.Tree.generate_balanced(2, span=10).tree_sequence.dump_tables()
+        # This also tests sample nodes that are not a single block at
+        # the start of the nodes table.
+        tables.nodes.add_row(time=0, flags=tskit.NODE_IS_SAMPLE)
+        return insert_branch_sites(tables.tree_sequence())
+
+    def test_path_or_ts_input(self, tmp_path, fx_simple_ts):
+        f1 = tsk.TskitFormat(fx_simple_ts)
+        ts_path = tmp_path / "trees.ts"
+        fx_simple_ts.dump(ts_path)
+        f2 = tsk.TskitFormat(ts_path)
+        f1.ts.tables.assert_equals(f2.ts.tables)
 
     def test_small_position_dtype(self):
         tables = tskit.TableCollection(sequence_length=100)
@@ -311,6 +319,23 @@ class TestTskitFormat:
         with pytest.raises(ValueError, match="Unknown field"):
             list(format_obj.iter_field("unknown_field", None, 0, 3))
 
+    def test_zero_samples(self, fx_simple_ts):
+        model_mapping = tskit_model_mapping(np.array([]))
+        with pytest.raises(ValueError, match="at least one sample"):
+            tsk.TskitFormat(fx_simple_ts, model_mapping=model_mapping)
+
+    def test_no_valid_samples(self, fx_simple_ts):
+        model_mapping = fx_simple_ts.map_to_vcf_model()
+        model_mapping.individuals_nodes[:] = -1
+        with pytest.raises(ValueError, match="at least one valid sample"):
+            tsk.TskitFormat(fx_simple_ts, model_mapping=model_mapping)
+
+    def test_model_size_mismatch(self, fx_simple_ts):
+        model_mapping = fx_simple_ts.map_to_vcf_model()
+        model_mapping.individuals_name = ["x"]
+        with pytest.raises(ValueError, match="match number of samples"):
+            tsk.TskitFormat(fx_simple_ts, model_mapping=model_mapping)
+
     @pytest.mark.parametrize(
         ("ind_nodes", "expected_gts"),
         [
@@ -347,10 +372,7 @@ class TestTskitFormat:
         ],
     )
     def test_iter_alleles_and_genotypes(self, fx_simple_ts, ind_nodes, expected_gts):
-        model_mapping = tskit.VcfModelMapping(
-            ind_nodes, ["tsk{j}" for j in range(len(ind_nodes))]
-        )
-
+        model_mapping = tskit_model_mapping(ind_nodes)
         format_obj = tsk.TskitFormat(fx_simple_ts, model_mapping=model_mapping)
 
         shape = (2, 2)  # (num_samples, max_ploidy)
@@ -375,9 +397,7 @@ class TestTskitFormat:
     def test_iter_alleles_and_genotypes_missing_node(self, fx_ts_2_diploids):
         # Test with node ID that doesn't exist in tree sequence (out of range)
         ind_nodes = np.array([[10, 11], [12, 13]], dtype=np.int32)
-        model_mapping = tskit.VcfModelMapping(
-            ind_nodes, ["tsk{j}" for j in range(len(ind_nodes))]
-        )
+        model_mapping = tskit_model_mapping(ind_nodes)
         format_obj = tsk.TskitFormat(fx_ts_2_diploids, model_mapping=model_mapping)
         shape = (2, 2)
         with pytest.raises(
@@ -387,9 +407,7 @@ class TestTskitFormat:
 
     def test_isolated_as_missing(self, fx_ts_isolated_samples):
         ind_nodes = np.array([[0], [1], [3]])
-        model_mapping = tskit.VcfModelMapping(
-            ind_nodes, ["tsk{j}" for j in range(len(ind_nodes))]
-        )
+        model_mapping = tskit_model_mapping(ind_nodes)
 
         format_obj_default = tsk.TskitFormat(
             fx_ts_isolated_samples,
@@ -427,7 +445,7 @@ class TestTskitFormat:
         expected_gt_missing = np.array([[1], [0], [-1]])
         nt.assert_array_equal(variant_data_missing.genotypes, expected_gt_missing)
 
-    def test_genotype_dtype_i1(self, tmp_path):
+    def test_genotype_dtype_i1(self):
         tables = tskit.TableCollection(sequence_length=100)
         for _ in range(4):
             tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
@@ -438,15 +456,13 @@ class TestTskitFormat:
         tables.mutations.add_row(site=site_id, node=0, derived_state="T")
         tables.sort()
         tree_sequence = tables.tree_sequence()
-        ts_path = tmp_path / "small_alleles.trees"
-        tree_sequence.dump(ts_path)
 
-        format_obj = tsk.TskitFormat(ts_path)
+        format_obj = tsk.TskitFormat(tree_sequence)
         schema = format_obj.generate_schema()
         call_genotype_spec = next(s for s in schema.fields if s.name == "call_genotype")
         assert call_genotype_spec.dtype == "i1"
 
-    def test_genotype_dtype_i4(self, tmp_path):
+    def test_genotype_dtype_i4(self):
         tables = tskit.TableCollection(sequence_length=100)
         for _ in range(4):
             tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
@@ -459,10 +475,8 @@ class TestTskitFormat:
 
         tables.sort()
         tree_sequence = tables.tree_sequence()
-        ts_path = tmp_path / "large_alleles.trees"
-        tree_sequence.dump(ts_path)
 
-        format_obj = tsk.TskitFormat(ts_path)
+        format_obj = tsk.TskitFormat(tree_sequence)
         schema = format_obj.generate_schema()
         call_genotype_spec = next(s for s in schema.fields if s.name == "call_genotype")
         assert call_genotype_spec.dtype == "i4"
@@ -471,6 +485,7 @@ class TestTskitFormat:
 @pytest.mark.parametrize(
     "ts",
     [
+        # Standard individuals-with-a-given-ploidy situation
         add_mutations(
             msprime.sim_ancestry(4, ploidy=1, sequence_length=10, random_seed=42)
         ),
@@ -480,20 +495,20 @@ class TestTskitFormat:
         add_mutations(
             msprime.sim_ancestry(3, ploidy=12, sequence_length=10, random_seed=142)
         ),
+        # No individuals, ploidy1
+        add_mutations(msprime.simulate(4, length=10, random_seed=412)),
     ],
 )
 def test_against_tskit_vcf_output(ts, tmp_path):
     vcf_path = tmp_path / "ts.vcf"
-    ts_path = tmp_path / "ts.trees"
-    ts.dump(ts_path)
     with open(vcf_path, "w") as f:
         ts.write_vcf(f)
 
     tskit_zarr = tmp_path / "tskit.zarr"
     vcf_zarr = tmp_path / "vcf.zarr"
-    tsk.convert(ts_path, tskit_zarr)
+    tsk.convert(ts, tskit_zarr, worker_processes=0)
 
-    vcf.convert([vcf_path], vcf_zarr)
+    vcf.convert([vcf_path], vcf_zarr, worker_processes=0)
     ds1 = sg.load_dataset(tskit_zarr)
     ds2 = (
         sg.load_dataset(vcf_zarr)

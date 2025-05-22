@@ -45,9 +45,7 @@ class TskitFormat(vcz.Source):
         if self._num_samples < 1:
             raise ValueError("individuals_nodes must have at least one sample")
         self.max_ploidy = individuals_nodes.shape[1]
-        if sample_ids is None:
-            sample_ids = [f"tsk_{j}" for j in range(self._num_samples)]
-        elif len(sample_ids) != self._num_samples:
+        if len(sample_ids) != self._num_samples:
             raise ValueError(
                 f"Length of sample_ids ({len(sample_ids)}) does not match "
                 f"number of samples ({self._num_samples})"
