@@ -9,6 +9,21 @@ import zarr
 from bio2zarr import plink, vcf
 
 
+class TestReadBim:
+    def test_example(self):
+        path = "tests/data/plink/example.bim"
+        df = plink.read_bim(path)
+        # chrom, vid, cm_pos, pos, a1, a2
+        # 1       1_10    0       10      A       GG
+        # 1       1_20    0       20      TTT     C
+        nt.assert_array_equal(df["contig"].values, ["1", "1"])
+        nt.assert_array_equal(df["variant_id"].values, ["1_10", "1_20"])
+        nt.assert_array_equal(df["cm_position"].values, [0, 0])
+        nt.assert_array_equal(df["position"].values, [10, 20])
+        nt.assert_array_equal(df["allele_1"].values, ["A", "TTT"])
+        nt.assert_array_equal(df["allele_2"].values, ["GG", "C"])
+
+
 class TestSmallExample:
     @pytest.fixture(scope="class")
     def bed_path(self, tmp_path_factory):
