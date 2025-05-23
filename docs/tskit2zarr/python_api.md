@@ -22,7 +22,7 @@ TreeSequence.map_to_vcf_model
 to return the required mapping:
 
 ```python
-model_mapping = ts.map_vcf_model(individuals=[0, 1])
+model_mapping = ts.map_to_vcf_model(individuals=[0, 1])
 ts2z.convert(ts, vcz_path, model_mapping=model_mapping)
 ```
 
