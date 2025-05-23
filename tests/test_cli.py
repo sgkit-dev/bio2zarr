@@ -7,19 +7,19 @@ import numcodecs
 import pytest
 
 from bio2zarr import __main__ as main
-from bio2zarr import cli, provenance
+from bio2zarr import cli, core, provenance
 
 DEFAULT_EXPLODE_ARGS = dict(
     column_chunk_size=64,
     compressor=None,
-    worker_processes=1,
+    worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=True,
 )
 
 DEFAULT_DEXPLODE_PARTITION_ARGS = dict()
 
 DEFAULT_DEXPLODE_INIT_ARGS = dict(
-    worker_processes=1,
+    worker_processes=core.DEFAULT_WORKER_PROCESSES,
     column_chunk_size=64,
     compressor=None,
     show_progress=True,
@@ -30,7 +30,7 @@ DEFAULT_ENCODE_ARGS = dict(
     variants_chunk_size=None,
     samples_chunk_size=None,
     max_variant_chunks=None,
-    worker_processes=1,
+    worker_processes=core.DEFAULT_WORKER_PROCESSES,
     max_memory=None,
     show_progress=True,
 )
@@ -57,7 +57,7 @@ DEFAULT_CONVERT_ARGS = dict(
     variants_chunk_size=None,
     samples_chunk_size=None,
     show_progress=True,
-    worker_processes=1,
+    worker_processes=core.DEFAULT_WORKER_PROCESSES,
     local_alleles=False,
 )
 
@@ -67,14 +67,14 @@ DEFAULT_TSKIT_CONVERT_ARGS = dict(
     variants_chunk_size=None,
     samples_chunk_size=None,
     show_progress=True,
-    worker_processes=1,
+    worker_processes=core.DEFAULT_WORKER_PROCESSES,
 )
 
 DEFAULT_PLINK_CONVERT_ARGS = dict(
     variants_chunk_size=None,
     samples_chunk_size=None,
     show_progress=True,
-    worker_processes=1,
+    worker_processes=core.DEFAULT_WORKER_PROCESSES,
 )
 
 

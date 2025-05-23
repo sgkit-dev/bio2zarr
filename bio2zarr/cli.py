@@ -8,7 +8,7 @@ import coloredlogs
 import numcodecs
 import tabulate
 
-from . import plink, provenance, vcf_utils
+from . import core, plink, provenance, vcf_utils
 from . import tskit as tskit_mod
 from . import vcf as vcf_mod
 
@@ -89,7 +89,12 @@ json = click.option(
 version = click.version_option(version=f"{provenance.__version__}")
 
 worker_processes = click.option(
-    "-p", "--worker-processes", type=int, default=1, help="Number of worker processes"
+    "-p",
+    "--worker-processes",
+    type=int,
+    default=core.DEFAULT_WORKER_PROCESSES,
+    help="Number of worker processes",
+    show_default=True,
 )
 
 column_chunk_size = click.option(

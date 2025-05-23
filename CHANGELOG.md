@@ -4,6 +4,9 @@
 
 - Make format-specific dependencies optional (#385)
 
+- Change default number of worker processes to zero (#404) to simplify
+  debugging
+
 Breaking changes
 
 - Remove explicit sample, contig and filter lists from the schema.

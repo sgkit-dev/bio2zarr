@@ -20,7 +20,7 @@ class TskitFormat(vcz.Source):
     ):
         import tskit
 
-        self._path = None  # Not sure what we're using this for?
+        self._path = None
         # Future versions here will need to deal with the complexities of
         # having lists of tree sequences for multiple chromosomes.
         if isinstance(ts, tskit.TreeSequence):
@@ -256,7 +256,7 @@ def convert(
     isolated_as_missing=False,
     variants_chunk_size=None,
     samples_chunk_size=None,
-    worker_processes=1,
+    worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
 ):
     """
@@ -265,6 +265,15 @@ def convert(
 
     .. todo:: Document parameters
     """
+    # FIXME there's some tricky details here in how we're handling
+    # parallelism that we'll need to tackle properly, and maybe
+    # review the current structures a bit. Basically, it looks like
+    # we're pickling/unpickling the format object when we have
+    # multiple workers, and this results in several copies of the
+    # tree sequence object being pass around. This is fine most
+    # of the time, but results in lots of memory being used when
+    # we're dealing with really massive files.
+    # See https://github.com/sgkit-dev/bio2zarr/issues/403
     tskit_format = TskitFormat(
         ts_or_path,
         model_mapping=model_mapping,
