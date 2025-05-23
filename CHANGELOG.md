@@ -1,13 +1,21 @@
-# 0.1.6 2025-0X-XX
+# 0.1.6 2025-05-23
+
+- Initial Python API support for VCF and tskit one-shot conversion. Format
+conversion is done using the functions ``bio2zarr.vcf.convert``
+and ``bio2zarr.tskit.convert``.
 
 - Initial version of supported plink2zarr (#390, #344, #382)
 
+- Initial version of tskit2zarr (#232)
+
 - Make format-specific dependencies optional (#385)
+
+- Remove bed_reader dependency (#397, #400)
 
 - Change default number of worker processes to zero (#404) to simplify
   debugging
 
-Breaking changes
+*Breaking changes*
 
 - Remove explicit sample, contig and filter lists from the schema.
   Existing ICFs will need to be recreated. (#343)
