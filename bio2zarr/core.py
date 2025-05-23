@@ -130,12 +130,20 @@ def du(path):
     return total
 
 
+# We set the default number of worker processes to 0 because it avoids
+# complexity in the call chain and makes things easier to debug by
+# default. However, it does use the SynchronousExecutor here, which
+# is technically not recommended by the Python docs.
+DEFAULT_WORKER_PROCESSES = 0
+
+
 class SynchronousExecutor(cf.Executor):
-    # Arguably we should use workers=0 as the default and use this
+    # Since https://github.com/sgkit-dev/bio2zarr/issues/404 we
+    # set worker_processses=0 as the default and use this
     # executor implementation. However, the docs are fairly explicit
     # about saying we shouldn't instantiate Future objects directly,
-    # so it's best to keep this as a semi-secret debugging interface
-    # for now.
+    # so we may need to revisit this is obscure problems start to
+    # arise.
     def submit(self, fn, /, *args, **kwargs):
         future = cf.Future()
         future.set_result(fn(*args, **kwargs))

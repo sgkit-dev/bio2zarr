@@ -291,7 +291,7 @@ def convert(
     *,
     variants_chunk_size=None,
     samples_chunk_size=None,
-    worker_processes=1,
+    worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
 ):
     plink_format = PlinkFormat(prefix)

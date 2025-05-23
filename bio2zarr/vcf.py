@@ -285,7 +285,12 @@ def scan_vcf(path, target_num_partitions):
         return metadata, vcf.raw_header
 
 
-def scan_vcfs(paths, show_progress, target_num_partitions, worker_processes=1):
+def scan_vcfs(
+    paths,
+    show_progress,
+    target_num_partitions,
+    worker_processes=core.DEFAULT_WORKER_PROCESSES,
+):
     logger.info(
         f"Scanning {len(paths)} VCFs attempting to split into {target_num_partitions}"
         f" partitions."
@@ -1298,7 +1303,7 @@ class IntermediateColumnarFormatWriter:
         vcfs,
         *,
         column_chunk_size=16,
-        worker_processes=1,
+        worker_processes=core.DEFAULT_WORKER_PROCESSES,
         target_num_partitions=None,
         show_progress=False,
         compressor=None,
@@ -1450,7 +1455,9 @@ class IntermediateColumnarFormatWriter:
             f"{num_records} records last_pos={last_position}"
         )
 
-    def explode(self, *, worker_processes=1, show_progress=False):
+    def explode(
+        self, *, worker_processes=core.DEFAULT_WORKER_PROCESSES, show_progress=False
+    ):
         self.load_metadata()
         num_records = self.metadata.num_records
         if np.isinf(num_records):
@@ -1518,7 +1525,7 @@ def explode(
     vcfs,
     *,
     column_chunk_size=16,
-    worker_processes=1,
+    worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
     compressor=None,
 ):
@@ -1543,7 +1550,7 @@ def explode_init(
     *,
     column_chunk_size=16,
     target_num_partitions=1,
-    worker_processes=1,
+    worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
     compressor=None,
 ):
@@ -1605,7 +1612,7 @@ def convert(
     *,
     variants_chunk_size=None,
     samples_chunk_size=None,
-    worker_processes=1,
+    worker_processes=core.DEFAULT_WORKER_PROCESSES,
     local_alleles=None,
     show_progress=False,
     icf_path=None,
@@ -1649,7 +1656,7 @@ def encode(
     dimension_separator=None,
     max_memory=None,
     local_alleles=None,
-    worker_processes=1,
+    worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
 ):
     # Rough heuristic to split work up enough to keep utilisation high
@@ -1687,7 +1694,7 @@ def encode_init(
     max_variant_chunks=None,
     dimension_separator=None,
     max_memory=None,
-    worker_processes=1,
+    worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
 ):
     icf_store = IntermediateColumnarFormat(icf_path)
