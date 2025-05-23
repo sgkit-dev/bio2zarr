@@ -356,7 +356,13 @@ class TestSimulatedExample:
         ds = ds.drop_vars("region_index")
         ds2 = ds2.drop_vars("region_index")
         xt.assert_equal(ds, ds2)
-        # TODO check array chunks
+        root = zarr.open(out, mode="r")
+        v = variants_chunk_size
+        s = samples_chunk_size
+        assert root["call_genotype"].chunks == (v, s, 2)
+        assert root["call_genotype_phased"].chunks == (v, s)
+        assert root["variant_position"].chunks == (v,)
+        assert root["variant_contig"].chunks == (v,)
 
 
 def validate(bed_path, zarr_path):

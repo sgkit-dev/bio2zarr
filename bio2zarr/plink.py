@@ -33,17 +33,19 @@ BIM_DF_DTYPE = dict([(f[0], f[1]) for f in BIM_FIELDS])
 BIM_ARRAY_DTYPE = dict([(f[0], f[2]) for f in BIM_FIELDS])
 
 
-def read_fam(path, sep=None):
+# See https://github.com/sgkit-dev/bio2zarr/issues/409 for discussion
+# on the parameters to Pandas here.
+def read_fam(path):
     # See: https://www.cog-genomics.org/plink/1.9/formats#fam
     names = [f[0] for f in FAM_FIELDS]
-    df = pd.read_csv(path, sep=sep, names=names, dtype=FAM_DF_DTYPE)
+    df = pd.read_csv(path, sep=None, names=names, dtype=FAM_DF_DTYPE, engine="python")
     return df
 
 
-def read_bim(path, sep=None):
+def read_bim(path):
     # See: https://www.cog-genomics.org/plink/1.9/formats#bim
     names = [f[0] for f in BIM_FIELDS]
-    df = pd.read_csv(str(path), sep=sep, names=names, dtype=BIM_DF_DTYPE)
+    df = pd.read_csv(path, sep=None, names=names, dtype=BIM_DF_DTYPE, engine="python")
     return df
 
 
@@ -102,6 +104,10 @@ class BedReader:
         start_offset = 3 + (start * self.bytes_per_variant)
         bytes_to_read = chunk_size * self.bytes_per_variant
 
+        logger.debug(
+            f"Reading {chunk_size} variants ({bytes_to_read} bytes) "
+            f"from {self.path}"
+        )
         # TODO make it possible to read sequentially from the same file handle,
         # seeking only when necessary.
         with open(self.path, "rb") as f:
