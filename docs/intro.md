@@ -11,6 +11,9 @@
 - {ref}`sec-plink2zarr` converts PLINK 1.0 data to
   [VCF Zarr](https://github.com/sgkit-dev/vcf-zarr-spec/) format.
 
+- {ref}`sec-tskit2zarr` converts [tskit](https://tskit.dev)
+  data into [VCF Zarr](https://github.com/sgkit-dev/vcf-zarr-spec/) format.
+
 - {ref}`sec-vcfpartition` is a utility to split an input
   VCF into a given number of partitions. This is useful for
   parallel processing of VCF data.
@@ -25,13 +28,11 @@ support for other formats such as BGEN (or an interested in helping with impleme
 please open an [issue on Github](https://github.com/sgkit-dev/bio2zarr/issues)
 to discuss!
 
+## Python APIs
 
-The package is currently focused on command line interfaces, but a
-Python API is also planned.
+There is access to some limited functionality via Python APIs (documented
+along with the respective tools). These are in beta, and should be fully
+documented and stabilised in the coming releases. General APIs to enable
+efficient and straightforward encoding of data to VCZ are planned
+(see [issue #412](https://github.com/sgkit-dev/bio2zarr/issues/412)).
 
-:::{warning}
-Although it is possible to import the bio2zarr Python package
-the APIs are purely internal for the moment and will change
-in arbitrary ways. Please don't use them (or open issues about
-them on GitHub).
-:::
