@@ -15,9 +15,9 @@ def bio2zarr():
 # is handy for development and for those whose PATHs aren't set
 # up in the right way.
 bio2zarr.add_command(cli.vcf2zarr_main)
-bio2zarr.add_command(cli.plink2zarr)
+bio2zarr.add_command(cli.plink2zarr_main)
+bio2zarr.add_command(cli.tskit2zarr_main)
 bio2zarr.add_command(cli.vcfpartition)
-bio2zarr.add_command(cli.tskit2zarr)
 
 if __name__ == "__main__":
     bio2zarr()

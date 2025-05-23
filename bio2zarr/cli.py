@@ -582,15 +582,15 @@ def convert_plink(
 
 
 @version
-@click.group()
-def plink2zarr():
+@click.group(name="plink2zarr")
+def plink2zarr_main():
     """
     Convert plink fileset(s) to VCF Zarr format
     """
     pass
 
 
-plink2zarr.add_command(convert_plink)
+plink2zarr_main.add_command(convert_plink)
 
 
 @click.command
@@ -684,12 +684,12 @@ def convert_tskit(
 
 
 @version
-@click.group()
-def tskit2zarr():
+@click.group(name="tskit2zarr")
+def tskit2zarr_main():
     """
     Convert tskit tree sequence(s) to VCF Zarr format
     """
     pass
 
 
-tskit2zarr.add_command(convert_tskit)
+tskit2zarr_main.add_command(convert_tskit)
