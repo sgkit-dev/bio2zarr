@@ -842,6 +842,7 @@ class VcfZarrWriter:
                 partition_index, "call_genotype_phased"
             )
             shape = gt.buff.shape[1:]
+
         for variant_data in self.source.iter_alleles_and_genotypes(
             partition.start, partition.stop, shape, alleles.array.shape[1]
         ):

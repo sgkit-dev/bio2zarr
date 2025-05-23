@@ -93,7 +93,6 @@ class TestBedReader:
         data = np.arange(num_variants * num_samples, dtype=int) % 4
         data[data == 3] = -127
         data = data.reshape((num_variants, num_samples))
-
         bed_reader.to_bed(bed_file, data.T, num_threads=1)
 
         bytes_per_variant = (num_samples + 3) // 4
@@ -107,6 +106,31 @@ class TestBedReader:
         for j in range(num_variants):
             for k in range(num_samples):
                 assert br_map[data[j, k]] == tuple(g[j, k])
+
+    @pytest.mark.parametrize(
+        ("num_variants", "num_samples"),
+        [
+            (1, 1),
+            (30, 3),
+            (300, 1000),
+        ],
+    )
+    @pytest.mark.parametrize("buffer_size", [0, 1, 3, 100, 100_000, None])
+    def test_iter_decode(self, tmp_path, buffer_size, num_variants, num_samples):
+        bed_file = tmp_path / "a_file.bed"
+        # Generate a regular pattern of all possible values
+        data = np.arange(num_variants * num_samples, dtype=int) % 4
+        data[data == 3] = -127
+        data = data.reshape((num_variants, num_samples))
+        bed_reader.to_bed(bed_file, data.T, num_threads=1)
+
+        reader = plink.BedReader(bed_file, num_variants, num_samples)
+        G = reader.decode(0, num_variants)
+        assert G.shape == (num_variants, num_samples, 2)
+
+        reader = plink.BedReader(bed_file, num_variants, num_samples)
+        G2 = list(reader.iter_decode(0, num_variants, buffer_size=buffer_size))
+        nt.assert_array_equal(G, G2)
 
 
 class TestSmallExample:
