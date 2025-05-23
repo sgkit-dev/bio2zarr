@@ -52,6 +52,7 @@ documentation = "https://sgkit-dev.github.io/bio2zarr/"
 vcf2zarr = "bio2zarr.cli:vcf2zarr_main"
 vcfpartition = "bio2zarr.cli:vcfpartition"
 tskit2zarr = "bio2zarr.cli:tskit2zarr_main"
+plink2zarr = "bio2zarr.cli:plink2zarr_main"
 
 [project.optional-dependencies]
 dev = [

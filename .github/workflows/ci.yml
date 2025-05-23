@@ -69,6 +69,12 @@ jobs:
           python -m bio2zarr vcf2zarr dencode-partition sample.vcz 1
           python -m bio2zarr vcf2zarr dencode-partition sample.vcz 2
           python -m bio2zarr vcf2zarr dencode-finalise sample.vcz
+      - name: Run tskit2zarr example
+        run: |
+          python -m bio2zarr tskit2zarr convert tests/data/tskit/example.trees sample.vcz -f
+      - name: Run plink2zarr example
+        run: |
+          python -m bio2zarr plink2zarr convert tests/data/plink/example sample.vcz -f
       - name: Run tests
         run: |
           pytest --cov=bio2zarr
@@ -137,6 +143,14 @@ jobs:
         run: |
           vcfpartition --help
           python -m bio2zarr vcfpartition --help
+      - name: Check tskit2zarr CLI
+        run: |
+          tskit2zarr --help
+          python -m bio2zarr tskit2zarr --help
+      - name: Check plink2zarr CLI
+        run: |
+          plink2zarr --help
+          python -m bio2zarr plink2zarr --help
 
   test-numpy-version:
     name: Test numpy versions

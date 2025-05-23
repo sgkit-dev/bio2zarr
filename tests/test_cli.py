@@ -616,7 +616,7 @@ class TestWithMocks:
     def test_convert_plink(self, mocked, progress, flag):
         runner = ct.CliRunner()
         result = runner.invoke(
-            cli.plink2zarr, ["convert", "in", "out", flag], catch_exceptions=False
+            cli.plink2zarr_main, ["convert", "in", "out", flag], catch_exceptions=False
         )
         assert result.exit_code == 0
         assert len(result.stdout) == 0
@@ -651,7 +651,7 @@ class TestWithMocks:
         zarr_path = tmp_path / "zarr"
         runner = ct.CliRunner()
         result = runner.invoke(
-            cli.tskit2zarr,
+            cli.tskit2zarr_main,
             f"convert {ts_path} {zarr_path} {flag}",
             catch_exceptions=False,
         )
@@ -674,7 +674,7 @@ class TestWithMocks:
         zarr_path.mkdir()
         runner = ct.CliRunner()
         result = runner.invoke(
-            cli.tskit2zarr,
+            cli.tskit2zarr_main,
             f"convert {ts_path} {zarr_path}",
             catch_exceptions=False,
             input=response,
@@ -696,7 +696,7 @@ class TestWithMocks:
         zarr_path.mkdir()
         runner = ct.CliRunner()
         result = runner.invoke(
-            cli.tskit2zarr,
+            cli.tskit2zarr_main,
             f"convert {ts_path} {zarr_path}",
             catch_exceptions=False,
             input=response,
@@ -713,7 +713,7 @@ class TestWithMocks:
         zarr_path.mkdir()
         runner = ct.CliRunner()
         result = runner.invoke(
-            cli.tskit2zarr,
+            cli.tskit2zarr_main,
             f"convert {ts_path} {zarr_path} {force_arg}",
             catch_exceptions=False,
         )
@@ -732,7 +732,7 @@ class TestWithMocks:
         zarr_path = tmp_path / "zarr"
         runner = ct.CliRunner()
         result = runner.invoke(
-            cli.tskit2zarr,
+            cli.tskit2zarr_main,
             f"convert {ts_path} {zarr_path} --contig-id chr1 "
             "--isolated-as-missing -l 100 -w 50 -p 4",
             catch_exceptions=False,
@@ -1032,7 +1032,7 @@ class TestTskitEndToEnd:
         zarr_path = tmp_path / "zarr"
         runner = ct.CliRunner()
         result = runner.invoke(
-            cli.tskit2zarr,
+            cli.tskit2zarr_main,
             f"convert {ts_path} {zarr_path}",
             catch_exceptions=False,
         )
@@ -1051,7 +1051,7 @@ class TestPlinkEndToEnd:
         zarr_path = tmp_path / "zarr"
         runner = ct.CliRunner()
         result = runner.invoke(
-            cli.plink2zarr,
+            cli.plink2zarr_main,
             f"convert {ts_path} {zarr_path}",
             catch_exceptions=False,
         )
@@ -1069,9 +1069,9 @@ class TestPlinkEndToEnd:
     [
         main.bio2zarr,
         cli.vcf2zarr_main,
-        cli.plink2zarr,
+        cli.plink2zarr_main,
         cli.vcfpartition,
-        cli.tskit2zarr,
+        cli.tskit2zarr_main,
     ],
 )
 def test_version(cmd):
