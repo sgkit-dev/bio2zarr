@@ -28,7 +28,12 @@ class TskitFormat(vcz.Source):
         else:
             # input 'ts' is a path.
             self._path = ts
+            logger.info(f"Loading from {ts}")
             self.ts = tskit.load(ts)
+        logger.info(
+            f"Input has {self.ts.num_individuals} individuals and "
+            f"{self.ts.num_sites} sites"
+        )
 
         self.contig_id = contig_id if contig_id is not None else "1"
         self.isolated_as_missing = isolated_as_missing
@@ -42,6 +47,7 @@ class TskitFormat(vcz.Source):
         sample_ids = model_mapping.individuals_name
 
         self._num_samples = individuals_nodes.shape[0]
+        logger.info(f"Converting for {self._num_samples} samples")
         if self._num_samples < 1:
             raise ValueError("individuals_nodes must have at least one sample")
         self.max_ploidy = individuals_nodes.shape[1]
@@ -100,6 +106,7 @@ class TskitFormat(vcz.Source):
     def iter_alleles_and_genotypes(self, start, stop, shape, num_alleles):
         # All genotypes in tskit are considered phased
         phased = np.ones(shape[:-1], dtype=bool)
+        logger.debug(f"Getting genotpes start={start} stop={stop}")
 
         for variant in self.ts.variants(
             isolated_as_missing=self.isolated_as_missing,
