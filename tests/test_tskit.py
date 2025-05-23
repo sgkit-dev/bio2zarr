@@ -518,3 +518,37 @@ def test_against_tskit_vcf_output(ts, tmp_path):
         )
     )
     xt.assert_equal(ds1, ds2)
+
+
+def assert_ts_ds_equal(ts, ds, ploidy=2):
+    assert ds.sizes["ploidy"] == ploidy
+    assert ds.sizes["variants"] == ts.num_sites
+    assert ds.sizes["samples"] == ts.num_individuals
+    # Msprime guarantees that this will be true.
+    nt.assert_array_equal(
+        ts.genotype_matrix().reshape((ts.num_sites, ts.num_individuals, ploidy)),
+        ds.call_genotype.values,
+    )
+    nt.assert_array_equal(
+        ds.call_genotype_phased.values,
+        np.ones((ts.num_sites, ts.num_individuals), dtype=bool),
+    )
+    # Specialised for the limited form of mutations used here
+    nt.assert_equal(
+        ds.variant_allele[:, 0].values, [site.ancestral_state for site in ts.sites()]
+    )
+    nt.assert_equal(
+        ds.variant_allele[:, 1].values,
+        [mutation.derived_state for mutation in ts.mutations()],
+    )
+    nt.assert_equal(ds.variant_position, ts.sites_position)
+
+
+@pytest.mark.parametrize("worker_processes", [0, 1, 2, 15])
+def test_workers(tmp_path, worker_processes):
+    ts = msprime.sim_ancestry(10, sequence_length=1000, random_seed=42)
+    ts = add_mutations(ts)
+    out = tmp_path / "tskit.zarr"
+    tsk.convert(ts, out, worker_processes=worker_processes)
+    ds = sg.load_dataset(out)
+    assert_ts_ds_equal(ts, ds)
