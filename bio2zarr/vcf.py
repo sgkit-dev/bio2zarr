@@ -1608,7 +1608,7 @@ def mkschema(
 
 def convert(
     vcfs,
-    out_path,
+    vcz_path,
     *,
     variants_chunk_size=None,
     samples_chunk_size=None,
@@ -1617,6 +1617,12 @@ def convert(
     show_progress=False,
     icf_path=None,
 ):
+    """
+    Convert the VCF data at the specified list of paths
+    to VCF Zarr format stored at the specified path.
+
+    .. todo:: Document parameters
+    """
     if icf_path is None:
         cm = temp_icf_path(prefix="vcf2zarr")
     else:
@@ -1631,7 +1637,7 @@ def convert(
         )
         encode(
             icf_path,
-            out_path,
+            vcz_path,
             variants_chunk_size=variants_chunk_size,
             samples_chunk_size=samples_chunk_size,
             worker_processes=worker_processes,

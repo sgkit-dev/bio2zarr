@@ -6,6 +6,7 @@ chapters:
   sections:
   - file: vcf2zarr/tutorial
   - file: vcf2zarr/cli_ref
+  - file: vcf2zarr/python_api
 - file: plink2zarr/overview
   sections:
   - file: plink2zarr/cli_ref
