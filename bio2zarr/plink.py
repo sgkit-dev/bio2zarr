@@ -96,6 +96,18 @@ class BedReader:
 
         self.byte_lookup = lookup
 
+    def iter_decode(self, start, stop, buffer_size=None):
+        """
+        Iterate of over the variants in the specified window
+        with the specified approximate buffer size in bytes (default=10MiB).
+        """
+        if buffer_size is None:
+            buffer_size = 10 * 1024 * 1024
+        variants_per_read = max(1, int(buffer_size / self.bytes_per_variant))
+        for off in range(start, stop, variants_per_read):
+            genotypes = self.decode(off, min(off + variants_per_read, stop))
+            yield from genotypes
+
     def decode(self, start, stop):
         chunk_size = stop - start
 
@@ -108,6 +120,7 @@ class BedReader:
             f"Reading {chunk_size} variants ({bytes_to_read} bytes) "
             f"from {self.path}"
         )
+
         # TODO make it possible to read sequentially from the same file handle,
         # seeking only when necessary.
         with open(self.path, "rb") as f:
@@ -181,19 +194,16 @@ class PlinkFormat(vcz.Source):
         yield from self.bim.variant_id[start:stop]
 
     def iter_alleles_and_genotypes(self, start, stop, shape, num_alleles):
-        alt_field = self.bim.allele_1.values
-        ref_field = self.bim.allele_2.values
-        gt = self.bed_reader.decode(start, stop)
-        phased = np.zeros(gt.shape[:2], dtype=bool)
-        for i, (ref, alt) in enumerate(
-            zip(ref_field[start:stop], alt_field[start:stop])
-        ):
+        alt_iter = self.bim.allele_1.values[start:stop]
+        ref_iter = self.bim.allele_2.values[start:stop]
+        gt_iter = self.bed_reader.iter_decode(start, stop)
+        for alt, ref, gt in zip(alt_iter, ref_iter, gt_iter):
             alleles = np.full(num_alleles, constants.STR_FILL, dtype="O")
             alleles[0] = ref
             alleles[1 : 1 + len(alt)] = alt
-
+            phased = np.zeros(gt.shape[0], dtype=bool)
             # rlen is the length of the REF in PLINK as there's no END annotations
-            yield vcz.VariantData(len(alleles[0]), alleles, gt[i], phased[i])
+            yield vcz.VariantData(len(alleles[0]), alleles, gt, phased)
 
     def generate_schema(
         self,
