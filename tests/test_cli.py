@@ -754,6 +754,66 @@ class TestWithMocks:
             **expected_args,
         )
 
+    @pytest.mark.parametrize("response", ["y", "Y", "yes"])
+    @mock.patch("bio2zarr.plink.convert")
+    def test_plink_convert_overwrite_zarr_confirm_yes(self, mocked, tmp_path, response):
+        prefix = "tests/data/plink/example"
+        zarr_path = tmp_path / "zarr"
+        zarr_path.mkdir()
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.plink2zarr_main,
+            f"convert {prefix} {zarr_path}",
+            catch_exceptions=False,
+            input=response,
+        )
+        assert result.exit_code == 0
+        assert f"Do you want to overwrite {zarr_path}" in result.stdout
+        assert len(result.stderr) == 0
+        mocked.assert_called_once_with(
+            prefix,
+            str(zarr_path),
+            **DEFAULT_PLINK_CONVERT_ARGS,
+        )
+
+    @pytest.mark.parametrize("response", ["n", "N", "No"])
+    @mock.patch("bio2zarr.plink.convert")
+    def test_plink_convert_overwrite_zarr_confirm_no(self, mocked, tmp_path, response):
+        prefix = "tests/data/plink/example"
+        zarr_path = tmp_path / "zarr"
+        zarr_path.mkdir()
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.plink2zarr_main,
+            f"convert {prefix} {zarr_path}",
+            catch_exceptions=False,
+            input=response,
+        )
+        assert result.exit_code == 1
+        assert "Aborted" in result.stderr
+        mocked.assert_not_called()
+
+    @pytest.mark.parametrize("force_arg", ["-f", "--force"])
+    @mock.patch("bio2zarr.plink.convert")
+    def test_plink_convert_overwrite_zarr_force(self, mocked, tmp_path, force_arg):
+        prefix = "tests/data/plink/example"
+        zarr_path = tmp_path / "zarr"
+        zarr_path.mkdir()
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.plink2zarr_main,
+            f"convert {prefix} {zarr_path} {force_arg}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert len(result.stdout) == 0
+        assert len(result.stderr) == 0
+        mocked.assert_called_once_with(
+            prefix,
+            str(zarr_path),
+            **DEFAULT_PLINK_CONVERT_ARGS,
+        )
+
 
 class TestVcfEndToEnd:
     vcf_path = "tests/data/vcf/sample.vcf.gz"

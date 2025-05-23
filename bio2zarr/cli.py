@@ -531,6 +531,7 @@ def vcf2zarr_main():
     Convert VCF file(s) to VCF Zarr format.
 
     See the online documentation at https://sgkit-dev.github.io/bio2zarr/
+
     for more information.
     """
 
@@ -551,6 +552,7 @@ vcf2zarr_main.add_command(dencode_finalise)
 @click.command(name="convert")
 @click.argument("in_path", type=click.Path())
 @click.argument("zarr_path", type=click.Path())
+@force
 @worker_processes
 @progress
 @verbose
@@ -559,6 +561,7 @@ vcf2zarr_main.add_command(dencode_finalise)
 def convert_plink(
     in_path,
     zarr_path,
+    force,
     verbose,
     worker_processes,
     progress,
@@ -571,6 +574,7 @@ def convert_plink(
     then running `vcf2zarr convert tmp.vcf zarr_path`
     """
     setup_logging(verbose)
+    check_overwrite_dir(zarr_path, force)
     plink.convert(
         in_path,
         zarr_path,
