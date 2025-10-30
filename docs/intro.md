@@ -3,6 +3,10 @@
 `bio2zarr` efficiently converts common bioinformatics formats to
 [Zarr](https://zarr.readthedocs.io/en/stable/) format.
 
+To convert
+the resulting  [VCF Zarr](https://github.com/sgkit-dev/vcf-zarr-spec/)
+files to other formats, see [vcztools](https://github.com/sgkit-dev/vcztools).
+
 ## Tools
 
 - {ref}`sec-vcf2zarr` converts VCF data to
