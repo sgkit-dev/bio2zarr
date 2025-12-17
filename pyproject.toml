@@ -65,14 +65,16 @@ dev = [
   "pytest-xdist",
   "sgkit>=0.8.0",
   "tqdm",
-  "tskit>=0.6.4",
+  "tskit==0.6.4",
   "bed_reader",
   "cyvcf2"
 ]
-tskit = ["tskit>=0.6.4"]
+# Temporary - pinning to 0.6.4 until we fix support for 1.0
+# https://github.com/sgkit-dev/bio2zarr/issues/424
+tskit = ["tskit==0.6.4"]
 vcf = ["cyvcf2"]
 all = [
-  "tskit>=0.6.4", 
+  "tskit==0.6.4", 
   "cyvcf2"
 ]
 
