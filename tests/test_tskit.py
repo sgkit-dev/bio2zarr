@@ -320,7 +320,8 @@ class TestTskitFormat:
             list(format_obj.iter_field("unknown_field", None, 0, 3))
 
     def test_zero_samples(self, fx_simple_ts):
-        model_mapping = tskit_model_mapping(np.array([]))
+        model_mapping = fx_simple_ts.map_to_vcf_model()
+        # tskit_model_mapping(np.array([]))
         with pytest.raises(ValueError, match="at least one sample"):
             tsk.TskitFormat(fx_simple_ts, model_mapping=model_mapping)
 

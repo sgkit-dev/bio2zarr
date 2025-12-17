@@ -135,3 +135,98 @@ class TestIncompatibleContigs:
         out = tmp_path / "example.vcf.zarr"
         with pytest.raises(ValueError, match="Incompatible contig definitions"):
             vcf_mod.convert(vcfs, out)
+
+
+class TestMissingFields:
+    def write_vcf(self, vcf_path, fields=None):
+        if fields is None:
+            fields = []
+        with open(vcf_path, "w") as f:
+            print("##fileformat=VCFv4.2", file=f)
+            print('##FILTER=<ID=PASS,Description="All filters passed">', file=f)
+            print("##contig=<ID=chr1>", file=f)
+            print(
+                '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">', file=f
+            )
+            for field in fields:
+                print(field, file=f)
+            header = "\t".join(
+                [
+                    "#CHROM",
+                    "POS",
+                    "ID",
+                    "REF",
+                    "ALT",
+                    "QUAL",
+                    "FILTER",
+                    "INFO",
+                    "FORMAT",
+                    "S1",
+                ]
+            )
+            print(header, file=f)
+            print(
+                "\t".join(["chr1", "123", ".", "A", "T", ".", ".", ".", "GT", "1/1"]),
+                file=f,
+            )
+        return vcf_path
+
+    def test_minimal(self, tmp_path):
+        vcf_path = tmp_path / "out.vcf"
+        out = tmp_path / "example.vcf.zarr"
+        self.write_vcf(vcf_path)
+        vcf_mod.convert([vcf_path], out)
+
+    def test_missing_info_fixed_size_field(self, tmp_path):
+        vcf_path = tmp_path / "out.vcf"
+        out = tmp_path / "example.vcf.zarr"
+        field = '##INFO=<ID=XX,Number=2,Type=Integer,Description="">'
+        self.write_vcf(vcf_path, fields=[field])
+        vcf_mod.convert([vcf_path], out)
+        ds = sg.load_dataset(out)
+        assert ds["variant_XX"].shape == (1, 2)
+
+    def test_missing_info_unsized_field(self, tmp_path):
+        vcf_path = tmp_path / "out.vcf"
+        out = tmp_path / "example.vcf.zarr"
+        field = '##INFO=<ID=XX,Number=.,Type=Integer,Description="">'
+        self.write_vcf(vcf_path, fields=[field])
+        vcf_mod.convert([vcf_path], out)
+        ds = sg.load_dataset(out)
+        assert ds["variant_XX"].shape == (1,)
+
+    def test_missing_info_unsized_string_field(self, tmp_path):
+        vcf_path = tmp_path / "out.vcf"
+        out = tmp_path / "example.vcf.zarr"
+        field = '##INFO=<ID=XX,Number=.,Type=String,Description="">'
+        self.write_vcf(vcf_path, fields=[field])
+        vcf_mod.convert([vcf_path], out)
+        ds = sg.load_dataset(out)
+        assert ds["variant_XX"].shape == (1,)
+
+    def test_missing_format_fixed_size_field(self, tmp_path):
+        vcf_path = tmp_path / "out.vcf"
+        out = tmp_path / "example.vcf.zarr"
+        field = '##FORMAT=<ID=XX,Number=2,Type=Integer,Description="">'
+        self.write_vcf(vcf_path, fields=[field])
+        vcf_mod.convert([vcf_path], out)
+        ds = sg.load_dataset(out)
+        assert ds["call_XX"].shape == (1, 1, 2)
+
+    def test_missing_format_unsized_field(self, tmp_path):
+        vcf_path = tmp_path / "out.vcf"
+        out = tmp_path / "example.vcf.zarr"
+        field = '##FORMAT=<ID=XX,Number=.,Type=Integer,Description="">'
+        self.write_vcf(vcf_path, fields=[field])
+        vcf_mod.convert([vcf_path], out)
+        ds = sg.load_dataset(out)
+        assert ds["call_XX"].shape == (1, 1)
+
+    def test_missing_format_unsized_string_field(self, tmp_path):
+        vcf_path = tmp_path / "out.vcf"
+        out = tmp_path / "example.vcf.zarr"
+        field = '##FORMAT=<ID=XX,Number=.,Type=String,Description="">'
+        self.write_vcf(vcf_path, fields=[field])
+        vcf_mod.convert([vcf_path], out)
+        ds = sg.load_dataset(out)
+        assert ds["call_XX"].shape == (1, 1)
