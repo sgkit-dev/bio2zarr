@@ -11,6 +11,7 @@ import zarr
 
 from bio2zarr import tskit as tsk
 from bio2zarr import vcf
+from bio2zarr.zarr_utils import STRING_DTYPE_NAME
 
 
 def test_missing_dependency():
@@ -115,7 +116,7 @@ class TestSimpleTs:
         ts, zroot = conversion
         alleles = zroot["variant_allele"][:]
         assert alleles.shape == (3, 2)
-        assert alleles.dtype == "O"
+        assert alleles.dtype.kind == STRING_DTYPE_NAME
         nt.assert_array_equal(alleles, [["A", "TTTT"], ["CCC", "G"], ["G", "AA"]])
 
     def test_variant_length(self, conversion):
@@ -146,7 +147,7 @@ class TestSimpleTs:
         ts, zroot = conversion
         contigs = zroot["contig_id"][:]
         assert contigs.shape == (1,)
-        assert contigs.dtype == "O"
+        assert contigs.dtype.kind == STRING_DTYPE_NAME
         nt.assert_array_equal(contigs, ["1"])
 
     def test_variant_contig(self, conversion):
@@ -160,7 +161,7 @@ class TestSimpleTs:
         ts, zroot = conversion
         samples = zroot["sample_id"][:]
         assert samples.shape == (4,)
-        assert samples.dtype == "O"
+        assert samples.dtype.kind == STRING_DTYPE_NAME
         nt.assert_array_equal(samples, ["tsk_0", "tsk_1", "tsk_2", "tsk_3"])
 
     def test_region_index(self, conversion):

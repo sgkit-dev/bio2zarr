@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from bio2zarr import constants, core, vcz
+from bio2zarr.zarr_utils import STRING_DTYPE_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +199,7 @@ class PlinkFormat(vcz.Source):
         ref_iter = self.bim.allele_2.values[start:stop]
         gt_iter = self.bed_reader.iter_decode(start, stop)
         for alt, ref, gt in zip(alt_iter, ref_iter, gt_iter):
-            alleles = np.full(num_alleles, constants.STR_FILL, dtype="O")
+            alleles = np.full(num_alleles, constants.STR_FILL, dtype=STRING_DTYPE_NAME)
             alleles[0] = ref
             alleles[1 : 1 + len(alt)] = alt
             phased = np.zeros(gt.shape[0], dtype=bool)
@@ -246,13 +247,13 @@ class PlinkFormat(vcz.Source):
             ),
             vcz.ZarrArraySpec(
                 name="variant_allele",
-                dtype="O",
+                dtype=STRING_DTYPE_NAME,
                 dimensions=["variants", "alleles"],
                 description=None,
             ),
             vcz.ZarrArraySpec(
                 name="variant_id",
-                dtype="O",
+                dtype=STRING_DTYPE_NAME,
                 dimensions=["variants"],
                 description=None,
             ),

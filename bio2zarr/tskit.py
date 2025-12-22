@@ -4,6 +4,7 @@ import pathlib
 import numpy as np
 
 from bio2zarr import constants, core, vcz
+from bio2zarr.zarr_utils import STRING_DTYPE_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +117,7 @@ class TskitFormat(vcz.Source):
             copy=False,
         ):
             gt = np.full(shape, constants.INT_FILL, dtype=np.int8)
-            alleles = np.full(num_alleles, constants.STR_FILL, dtype="O")
+            alleles = np.full(num_alleles, constants.STR_FILL, dtype=STRING_DTYPE_NAME)
             # length is the length of the REF allele unless other fields
             # are included.
             variant_length = len(variant.alleles[0])
@@ -200,7 +201,7 @@ class TskitFormat(vcz.Source):
             vcz.ZarrArraySpec(
                 source=None,
                 name="variant_allele",
-                dtype="O",
+                dtype=STRING_DTYPE_NAME,
                 dimensions=["variants", "alleles"],
                 description="Alleles for each variant",
             ),

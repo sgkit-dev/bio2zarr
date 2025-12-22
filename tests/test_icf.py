@@ -8,6 +8,7 @@ import pytest
 
 from bio2zarr import provenance, vcf_utils, vcz
 from bio2zarr import vcf as vcf_mod
+from bio2zarr.zarr_utils import STRING_DTYPE_NAME
 
 
 class TestSmallExample:
@@ -227,9 +228,14 @@ class TestGeneratedFieldsExample:
             ("variant_IFD", "f4", (208, 9), ("variants", "INFO_IFD_dim")),
             ("variant_IC1", "U1", (208,), ("variants",)),
             ("variant_IC2", "U1", (208, 2), ("variants", "INFO_IC2_dim")),
-            ("variant_IS1", "O", (208,), ("variants",)),
-            ("variant_IS2", "O", (208, 2), ("variants", "INFO_IS2_dim")),
-            ("call_FS2", "O", (208, 2, 2), ("variants", "samples", "FORMAT_FS2_dim")),
+            ("variant_IS1", STRING_DTYPE_NAME, (208,), ("variants",)),
+            ("variant_IS2", STRING_DTYPE_NAME, (208, 2), ("variants", "INFO_IS2_dim")),
+            (
+                "call_FS2",
+                STRING_DTYPE_NAME,
+                (208, 2, 2),
+                ("variants", "samples", "FORMAT_FS2_dim"),
+            ),
             ("call_FC2", "U1", (208, 2, 2), ("variants", "samples", "FORMAT_FC2_dim")),
             ("call_FIG", "i2", (208, 2, 6), ("variants", "samples", "genotypes")),
             ("call_FIA", "i2", (208, 2, 2), ("variants", "samples", "alt_alleles")),

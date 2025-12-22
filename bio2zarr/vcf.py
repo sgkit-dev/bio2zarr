@@ -16,6 +16,8 @@ from typing import Any
 import numcodecs
 import numpy as np
 
+from bio2zarr.zarr_utils import STRING_DTYPE_NAME
+
 from . import constants, core, provenance, vcf_utils, vcz
 
 logger = logging.getLogger(__name__)
@@ -110,7 +112,7 @@ class VcfField:
             ret = "U1"
         else:
             assert self.vcf_type == "String"
-            ret = "O"
+            ret = STRING_DTYPE_NAME
         return ret
 
 
@@ -397,7 +399,7 @@ def sanitise_value_string_scalar(shape, value):
 
 def sanitise_value_string_1d(shape, value):
     if value is None:
-        return np.full(shape, ".", dtype="O")
+        return np.full(shape, ".", dtype=STRING_DTYPE_NAME)
     else:
         value = drop_empty_second_dim(value)
         result = np.full(shape, "", dtype=value.dtype)
@@ -407,9 +409,9 @@ def sanitise_value_string_1d(shape, value):
 
 def sanitise_value_string_2d(shape, value):
     if value is None:
-        return np.full(shape, ".", dtype="O")
+        return np.full(shape, ".", dtype=STRING_DTYPE_NAME)
     else:
-        result = np.full(shape, "", dtype="O")
+        result = np.full(shape, "", dtype=STRING_DTYPE_NAME)
         if value.ndim == 2:
             result[: value.shape[0], : value.shape[1]] = value
         else:
@@ -569,7 +571,12 @@ class StringValueTransformer(VcfValueTransformer):
             value = np.array(list(vcf_value.split(",")))
         else:
             # TODO can we make this faster??
-            value = np.array([v.split(",") for v in vcf_value], dtype="O")
+            var_len_values = [v.split(",") for v in vcf_value]
+            number = max(len(v) for v in var_len_values)
+            value = np.array(
+                [v + [""] * (number - len(v)) for v in var_len_values],
+                dtype=STRING_DTYPE_NAME,
+            )
             # print("HERE", vcf_value, value)
             # for v in vcf_value:
             #     print("\t", type(v), len(v), v.split(","))
@@ -1044,7 +1051,7 @@ class IntermediateColumnarFormat(vcz.Source):
             ref_field.iter_values(start, stop),
             alt_field.iter_values(start, stop),
         ):
-            alleles = np.full(num_alleles, constants.STR_FILL, dtype="O")
+            alleles = np.full(num_alleles, constants.STR_FILL, dtype=STRING_DTYPE_NAME)
             alleles[0] = ref[0]
             alleles[1 : 1 + len(alt)] = alt
             yield alleles
@@ -1165,7 +1172,7 @@ class IntermediateColumnarFormat(vcz.Source):
             ),
             fixed_field_spec(
                 name="variant_allele",
-                dtype="O",
+                dtype=STRING_DTYPE_NAME,
                 dimensions=["variants", "alleles"],
             ),
             fixed_field_spec(
@@ -1175,7 +1182,7 @@ class IntermediateColumnarFormat(vcz.Source):
             ),
             fixed_field_spec(
                 name="variant_id",
-                dtype="O",
+                dtype=STRING_DTYPE_NAME,
             ),
             fixed_field_spec(
                 name="variant_id_mask",
