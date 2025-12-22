@@ -284,7 +284,7 @@ class ZarrArraySpec:
         for size in self.get_shape(schema)[1:]:
             chunk_items *= size
         dt = np.dtype(self.dtype)
-        if dt.kind == "O" and "samples" in self.dimensions:
+        if dt.kind == zarr_utils.STRING_DTYPE_NAME and "samples" in self.dimensions:
             logger.warning(
                 f"Field {self.name} is a string; max memory usage may "
                 "be a significant underestimate"
@@ -707,13 +707,16 @@ class VcfZarrWriter:
             else schema.defaults["compressor"]
         )
         compressor = numcodecs.get_codec(compressor)
-        if array_spec.dtype == "O":
+        if array_spec.dtype == zarr_utils.STRING_DTYPE_NAME:
             if zarr_utils.zarr_v3():
                 filters = [*list(filters), numcodecs.VLenUTF8()]
             else:
                 kwargs["object_codec"] = numcodecs.VLenUTF8()
 
-        if not zarr_utils.zarr_v3():
+        if zarr_utils.zarr_v3():
+            # see https://github.com/zarr-developers/zarr-python/issues/3197
+            kwargs["fill_value"] = None
+        else:
             kwargs["dimension_separator"] = self.metadata.dimension_separator
 
         shape = schema.get_shape(array_spec.dimensions)

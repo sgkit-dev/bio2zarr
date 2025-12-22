@@ -8,8 +8,10 @@ def zarr_v3() -> bool:
 if zarr_v3():
     # Use zarr format v2 even when running with zarr-python v3
     ZARR_FORMAT_KWARGS = dict(zarr_format=2)
+    STRING_DTYPE_NAME = "T"
 else:
     ZARR_FORMAT_KWARGS = dict()
+    STRING_DTYPE_NAME = "O"
 
 
 # See discussion in https://github.com/zarr-developers/zarr-python/issues/2529
