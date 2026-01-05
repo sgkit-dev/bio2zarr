@@ -1,4 +1,4 @@
 asciinema-automation
 bash_kernel
-jupyter-book
+jupyter-book<2
 sphinx-click
