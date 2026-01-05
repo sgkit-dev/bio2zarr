@@ -1068,14 +1068,16 @@ class IntermediateColumnarFormat(vcz.Source):
             for variant_length, alleles in zip(
                 variant_lengths, self.iter_alleles(start, stop, num_alleles)
             ):
-                yield vcz.VariantData(variant_length, alleles, None, None)
+                # Stored ICF values are always at least 1D arrays; "rlen" is Number=1
+                # so we must extract the scalar to avoid NumPy scalar-conversion issues.
+                yield vcz.VariantData(variant_length[0], alleles, None, None)
         else:
             for variant_length, alleles, (gt, phased) in zip(
                 variant_lengths,
                 self.iter_alleles(start, stop, num_alleles),
                 self.iter_genotypes(shape, start, stop),
             ):
-                yield vcz.VariantData(variant_length, alleles, gt, phased)
+                yield vcz.VariantData(variant_length[0], alleles, gt, phased)
 
     def generate_schema(
         self, variants_chunk_size=None, samples_chunk_size=None, local_alleles=None
