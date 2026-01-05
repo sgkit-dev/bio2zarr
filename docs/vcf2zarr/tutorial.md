@@ -62,7 +62,7 @@ of these arrays is then stored hierarchically within
 these directories:
 
 ```{code-cell}
-tree sample.vcz
+find sample.vcz -maxdepth 2 -type d | sort
 ```
 
 You can get a better idea of what's being stored and the sizes
