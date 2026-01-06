@@ -64,7 +64,6 @@ dev = [
   "pytest",
   "pytest-coverage",
   "pytest-xdist",
-  "sgkit>=0.8.0",
   "tqdm",
   "tskit>=0.6.4,<1",
   "bed_reader",
@@ -113,6 +112,5 @@ known-third-party = [
   "pandas",
   "pytest",
   "setuptools",
-  "sgkit",
   "zarr"
 ]

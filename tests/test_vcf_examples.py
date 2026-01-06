@@ -6,12 +6,12 @@ from unittest import mock
 import numpy as np
 import numpy.testing as nt
 import pytest
-import sgkit as sg
 import xarray.testing as xt
 
 from bio2zarr import constants, provenance, vcz_verification
 from bio2zarr import vcf as vcf_mod
 from bio2zarr.zarr_utils import zarr_v3
+from tests.utils import load_dataset
 
 
 def assert_dataset_equal(ds1, ds2, drop_vars=None):
@@ -28,7 +28,7 @@ class TestSmallExample:
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
         vcf_mod.convert([self.data_path], out)
-        return sg.load_dataset(out)
+        return load_dataset(out)
 
     def test_filters(self, ds):
         nt.assert_array_equal(ds["filter_id"], ["PASS", "s50", "q10"])
@@ -270,7 +270,7 @@ class TestSmallExample:
         path = "tests/data/vcf/sample_no_genotypes.vcf.gz"
         out = tmp_path / "example.vcf.zarr"
         vcf_mod.convert([path], out)
-        ds2 = sg.load_dataset(out)
+        ds2 = load_dataset(out)
         assert len(ds2["sample_id"]) == 0
         for field_name in ds:
             if field_name != "sample_id" and not field_name.startswith("call_"):
@@ -299,7 +299,7 @@ class TestSmallExample:
             variants_chunk_size=variants_chunk_size,
             samples_chunk_size=samples_chunk_size,
         )
-        ds2 = sg.load_dataset(out)
+        ds2 = load_dataset(out)
         # print(ds2.call_genotype.values)
         # print(ds.call_genotype.values)
         assert_dataset_equal(ds, ds2, drop_vars=["region_index"])
@@ -336,7 +336,7 @@ class TestSmallExample:
         files.rotate(rotate)
         assert len(files) == 3
         vcf_mod.convert(files, out, worker_processes=worker_processes)
-        ds2 = sg.load_dataset(out)
+        ds2 = load_dataset(out)
         xt.assert_equal(ds, ds2)
 
     @pytest.mark.parametrize("worker_processes", [0, 1, 2])
@@ -352,7 +352,7 @@ class TestSmallExample:
             vcf_mod.mkschema(exploded, f)
         out = tmp_path / "example.zarr"
         vcf_mod.encode(exploded, out, schema, worker_processes=worker_processes)
-        ds2 = sg.load_dataset(out)
+        ds2 = load_dataset(out)
         xt.assert_equal(ds, ds2)
 
     @pytest.mark.parametrize("max_variant_chunks", [1, 2, 3])
@@ -369,7 +369,7 @@ class TestSmallExample:
             variants_chunk_size=variants_chunk_size,
             max_variant_chunks=max_variant_chunks,
         )
-        ds2 = sg.load_dataset(out)
+        ds2 = load_dataset(out)
         assert_dataset_equal(
             ds.isel(variants=slice(None, variants_chunk_size * max_variant_chunks)),
             ds2,
@@ -385,7 +385,7 @@ class TestSmallExample:
             variants_chunk_size=3,
             worker_processes=worker_processes,
         )
-        ds2 = sg.load_dataset(out)
+        ds2 = load_dataset(out)
         assert_dataset_equal(ds, ds2, drop_vars=["region_index"])
 
     def test_inspect(self, tmp_path):
@@ -415,7 +415,7 @@ class TestSmallExample:
         # sample across VCF and BCF with tabix and VSI indexes
         zarr_path = tmp_path / "zarr"
         vcf_mod.convert([path], zarr_path)
-        ds2 = sg.load_dataset(zarr_path)
+        ds2 = load_dataset(zarr_path)
         contig_id_2 = ["19", "X", "20"]
         assert list(ds2["contig_id"].values) == contig_id_2
         for id1, contig in enumerate(["19", "20", "X"]):
@@ -480,7 +480,7 @@ class TestSmallExample:
         data_path = "tests/data/vcf/sample_all_missing_gts.vcf.gz"
         out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
         vcf_mod.convert([data_path], out, worker_processes=0)
-        ds2 = sg.load_dataset(out)
+        ds2 = load_dataset(out)
 
         assert_dataset_equal(
             ds,
@@ -523,7 +523,7 @@ class TestSmallExampleLocalAlleles:
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
         vcf_mod.convert([self.data_path], out, local_alleles=True)
-        return sg.load_dataset(out)
+        return load_dataset(out)
 
     def test_call_LA(self, ds):
         call_genotype = np.array(
@@ -570,7 +570,7 @@ class TestTriploidExample:
         data_path = f"tests/data/vcf/{request.param}.vcf.gz"
         out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
         vcf_mod.convert([data_path], out, local_alleles=False)
-        return sg.load_dataset(out)
+        return load_dataset(out)
 
     @pytest.mark.parametrize("name", ["triploid", "triploid2", "triploid3"])
     def test_error_with_local_alleles(self, tmp_path_factory, name):
@@ -592,7 +592,7 @@ class TestWithGtHeaderNoGenotypes:
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
         vcf_mod.convert([self.data_path], out, worker_processes=0)
-        return sg.load_dataset(out)
+        return load_dataset(out)
 
     def test_gts(self, ds):
         assert "call_genotype" not in ds
@@ -605,7 +605,7 @@ class TestChr22Example:
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
         vcf_mod.convert([self.data_path], out, worker_processes=0)
-        return sg.load_dataset(out)
+        return load_dataset(out)
 
     def test_call_SB(self, ds):
         # fixes https://github.com/sgkit-dev/bio2zarr/issues/355
@@ -620,7 +620,7 @@ class Test1000G2020Example:
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
         vcf_mod.convert([self.data_path], out, worker_processes=0)
-        return sg.load_dataset(out)
+        return load_dataset(out)
 
     def test_position(self, ds):
         # fmt: off
@@ -731,7 +731,7 @@ class Test1000G2020ExampleLocalAlleles:
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
         vcf_mod.convert([self.data_path], out, worker_processes=0, local_alleles=True)
-        return sg.load_dataset(out)
+        return load_dataset(out)
 
     def test_position(self, ds):
         # fmt: off
@@ -820,7 +820,7 @@ class Test1000G2020AnnotationsExample:
         out = tmp_path_factory.mktemp("data") / "example.zarr"
         # TODO capture warnings from htslib here
         vcf_mod.convert([self.data_path], out, worker_processes=0)
-        return sg.load_dataset(out)
+        return load_dataset(out)
 
     def test_position(self, ds):
         # fmt: off
@@ -1060,7 +1060,7 @@ class TestGeneratedFieldsExample:
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "vcf.zarr"
         vcf_mod.convert([self.data_path], out)
-        return sg.load_dataset(out)
+        return load_dataset(out)
 
     def test_info_string1(self, ds):
         values = ds["variant_IS1"].values
@@ -1198,7 +1198,7 @@ class TestOutOfOrderFields:
     def ds(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("data") / "ooo_example.vcf.zarr"
         vcf_mod.convert([self.data_path1, self.data_path2], out)
-        return sg.load_dataset(out)
+        return load_dataset(out)
 
     def test_filters(self, ds):
         nt.assert_array_equal(ds["filter_id"], ["PASS", "FAIL"])

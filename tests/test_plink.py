@@ -4,11 +4,11 @@ import bed_reader
 import numpy as np
 import numpy.testing as nt
 import pytest
-import sgkit as sg
 import xarray.testing as xt
 import zarr
 
 from bio2zarr import plink, vcf
+from tests.utils import load_dataset
 
 
 class TestReadBim:
@@ -168,7 +168,7 @@ class TestSmallExample:
         tmp_path = tmp_path_factory.mktemp("data")
         zarr_path = tmp_path / "example.plink.zarr"
         plink.convert(bed_path, zarr_path)
-        return sg.load_dataset(zarr_path)
+        return load_dataset(zarr_path)
 
     def test_genotypes(self, ds):
         call_genotype = ds.call_genotype.values
@@ -229,7 +229,7 @@ class TestExample:
         path = "tests/data/plink/example"
         out = tmp_path_factory.mktemp("data") / "example.plink.zarr"
         plink.convert(path, out)
-        return sg.load_dataset(out)
+        return load_dataset(out)
 
     def test_sample_ids(self, ds):
         nt.assert_array_equal(ds.sample_id, [f"ind{j}" for j in range(10)])
@@ -293,7 +293,7 @@ class TestSimulatedExample:
         path = "tests/data/plink/plink_sim_10s_100v_10pmiss"
         out = tmp_path_factory.mktemp("data") / "example.plink.zarr"
         plink.convert(path, out)
-        return sg.load_dataset(out)
+        return load_dataset(out)
 
     def test_genotypes(self, ds):
         # Validate a few randomly selected individual calls
@@ -375,7 +375,7 @@ class TestSimulatedExample:
             samples_chunk_size=samples_chunk_size,
             worker_processes=worker_processes,
         )
-        ds2 = sg.load_dataset(out)
+        ds2 = load_dataset(out)
         # Drop the region_index as it is chunk dependent
         ds = ds.drop_vars("region_index")
         ds2 = ds2.drop_vars("region_index")
@@ -494,7 +494,7 @@ class TestMultipleContigs:
         tmp_path = tmp_path_factory.mktemp("data")
         zarr_path = tmp_path / "multi_contig.plink.zarr"
         plink.convert(multi_contig_bed_path, zarr_path)
-        return sg.load_dataset(zarr_path)
+        return load_dataset(zarr_path)
 
     def test_contig_ids(self, ds):
         nt.assert_array_equal(ds.contig_id, ["1", "2", "X", "Y"])
@@ -556,9 +556,9 @@ def test_against_plinks_vcf_output(prefix, tmp_path):
     vcf_zarr = tmp_path / "vcf.zarr"
     plink.convert(prefix, plink_zarr)
     vcf.convert([vcf_path], vcf_zarr)
-    ds1 = sg.load_dataset(plink_zarr)
+    ds1 = load_dataset(plink_zarr)
     ds2 = (
-        sg.load_dataset(vcf_zarr)
+        load_dataset(vcf_zarr)
         .drop_dims("filters")
         .drop_vars(["variant_quality", "variant_PR", "contig_length"])
     )
