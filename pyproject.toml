@@ -67,7 +67,8 @@ dev = [
   "tqdm",
   "tskit>=0.6.4,<1",
   "bed_reader",
-  "cyvcf2"
+  "cyvcf2",
+  "xarray",
 ]
 tskit = ["tskit>=0.6.4,<1"]
 vcf = ["cyvcf2"]
@@ -112,5 +113,6 @@ known-third-party = [
   "pandas",
   "pytest",
   "setuptools",
+  "xarray",
   "zarr"
 ]
