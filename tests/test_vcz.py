@@ -5,13 +5,13 @@ import numpy.testing as nt
 import pandas as pd
 import pysam
 import pytest
-import sgkit as sg
 import xarray.testing as xt
 import zarr
 
 from bio2zarr import core, vcz
 from bio2zarr import vcf as vcf_mod
 from bio2zarr.zarr_utils import zarr_v3
+from tests.utils import load_dataset
 
 # In zarr-python v2 strings are stored as object arrays (O) with itemsize 8
 # In zarr-python v3 strings are stored as string arrays (T) with itemsize 16
@@ -104,8 +104,8 @@ class TestEncodeMaxMemory:
                 variants_chunk_size=10_000,
             )
         assert "Limiting number of workers to 1 to keep within" in caplog.text
-        ds1 = sg.load_dataset(zarr_path)
-        ds2 = sg.load_dataset(other_zarr_path)
+        ds1 = load_dataset(zarr_path)
+        ds2 = load_dataset(other_zarr_path)
         xt.assert_equal(ds1, ds2)
 
 

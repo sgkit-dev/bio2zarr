@@ -3,9 +3,9 @@ import numpy as np
 import numpy.testing as nt
 import pysam
 import pytest
-import sgkit as sg
 
 from bio2zarr import vcf as vcf_mod
+from tests.utils import load_dataset
 
 
 def run_simulation(num_samples=2, ploidy=1, seed=42, sequence_length=100_000):
@@ -59,7 +59,7 @@ class TestTskitRoundTripVcf:
         vcf_path = write_vcf(ts, tmp_path / "sim.vcf")
         out = tmp_path / "example.vcf.zarr"
         vcf_mod.convert([vcf_path], out)
-        ds = sg.load_dataset(out)
+        ds = load_dataset(out)
         assert_ts_ds_equal(ts, ds, ploidy)
 
     @pytest.mark.parametrize(
@@ -80,7 +80,7 @@ class TestTskitRoundTripVcf:
     def validate_tss_vcf_list(self, contig_ids, tss, vcfs, tmp_path):
         out = tmp_path / "example.vcf.zarr"
         vcf_mod.convert(vcfs, out)
-        ds = sg.load_dataset(out).set_index(
+        ds = load_dataset(out).set_index(
             variants=("variant_contig", "variant_position")
         )
         assert ds.sizes["ploidy"] == 1
@@ -102,7 +102,7 @@ class TestTskitRoundTripVcf:
         vcf_path = write_vcf(ts, tmp_path / "sim.vcf", indexed=indexed)
         out = tmp_path / "example.vcf.zarr"
         vcf_mod.convert([vcf_path], out)
-        ds = sg.load_dataset(out)
+        ds = load_dataset(out)
         assert_ts_ds_equal(ts, ds)
 
     @pytest.mark.parametrize("num_contigs", [2, 3, 6])

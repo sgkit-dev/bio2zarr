@@ -4,7 +4,6 @@ import msprime
 import numpy as np
 import numpy.testing as nt
 import pytest
-import sgkit as sg
 import tskit
 import xarray.testing as xt
 import zarr
@@ -12,6 +11,7 @@ import zarr
 from bio2zarr import tskit as tsk
 from bio2zarr import vcf
 from bio2zarr.zarr_utils import STRING_DTYPE_NAME
+from tests.utils import load_dataset
 
 
 def test_missing_dependency():
@@ -510,9 +510,9 @@ def test_against_tskit_vcf_output(ts, tmp_path):
     tsk.convert(ts, tskit_zarr, worker_processes=0)
 
     vcf.convert([vcf_path], vcf_zarr, worker_processes=0)
-    ds1 = sg.load_dataset(tskit_zarr)
+    ds1 = load_dataset(tskit_zarr)
     ds2 = (
-        sg.load_dataset(vcf_zarr)
+        load_dataset(vcf_zarr)
         .drop_dims("filters")
         .drop_vars(
             ["variant_id", "variant_id_mask", "variant_quality", "contig_length"]
@@ -551,5 +551,5 @@ def test_workers(tmp_path, worker_processes):
     ts = add_mutations(ts)
     out = tmp_path / "tskit.zarr"
     tsk.convert(ts, out, worker_processes=worker_processes)
-    ds = sg.load_dataset(out)
+    ds = load_dataset(out)
     assert_ts_ds_equal(ts, ds)
