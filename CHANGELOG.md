@@ -1,3 +1,9 @@
+# Unreleased
+
+*Breaking changes*
+
+- Require NumPy 2 (#426)
+
 # 0.1.6 2025-05-23
 
 - Initial Python API support for VCF and tskit one-shot conversion. Format
