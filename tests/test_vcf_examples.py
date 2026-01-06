@@ -11,6 +11,7 @@ import xarray.testing as xt
 
 from bio2zarr import constants, provenance, vcz_verification
 from bio2zarr import vcf as vcf_mod
+from bio2zarr.zarr_utils import zarr_v3
 
 
 def assert_dataset_equal(ds1, ds2, drop_vars=None):
@@ -275,6 +276,10 @@ class TestSmallExample:
             if field_name != "sample_id" and not field_name.startswith("call_"):
                 xt.assert_equal(ds[field_name], ds2[field_name])
 
+    @pytest.mark.skipif(
+        zarr_v3(),
+        reason="Zarr chunks ignored when reading arrays with StringDType: https://github.com/pydata/xarray/issues/11054",
+    )
     @pytest.mark.parametrize(
         ("variants_chunk_size", "samples_chunk_size", "y_chunks", "x_chunks"),
         [
