@@ -6,6 +6,9 @@ on:
   push:
     branches:
       - main
+  schedule:
+    # At 04:44 on Monday, see https://crontab.guru/
+    - cron: "44 4 * * 1"
 
 jobs:
   pre-commit:
