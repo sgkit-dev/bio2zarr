@@ -11,9 +11,7 @@ authors = [
   {name = "sgkit Developers", email = "project@sgkit.dev"},
 ]
 dependencies = [
-  # Pin numpy to >= 1.26 because this enables ICF files to be supported
-  # across numpy 1 and 2 (due to pickle format)
-  "numpy >= 1.26",
+  "numpy>=2",
   "zarr >= 2.17,< 3",
   # Pinning numcodecs due to https://github.com/zarr-developers/zarr-python/issues/2963
   "numcodecs[msgpack]!=0.14.0,!=0.14.1,<0.16",
