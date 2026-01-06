@@ -13,6 +13,10 @@ from bio2zarr import core, vcz
 from bio2zarr import vcf as vcf_mod
 from bio2zarr.zarr_utils import zarr_v3
 
+# In zarr-python v2 strings are stored as object arrays (O) with itemsize 8
+# In zarr-python v3 strings are stored as string arrays (T) with itemsize 16
+STRING_ITEMSIZE = 16 if zarr_v3() else 8
+
 
 @pytest.fixture(scope="module")
 def vcf_file():
@@ -292,9 +296,8 @@ class TestChunkNbytes:
             ("variant_position", 36),  # 9 * 4
             ("variant_H2", 9),
             ("variant_AC", 18),  # 9 * 2
-            # Object fields have an itemsize of 8
-            ("variant_AA", 72),  # 9 * 8
-            ("variant_allele", 9 * 4 * 8),
+            ("variant_AA", 9 * STRING_ITEMSIZE),
+            ("variant_allele", 9 * 4 * STRING_ITEMSIZE),
         ],
     )
     def test_example_schema(self, schema, field, value):
