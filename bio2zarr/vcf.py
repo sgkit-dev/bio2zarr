@@ -1591,7 +1591,7 @@ def inspect(path):
     if (path / "metadata.json").exists():
         obj = IntermediateColumnarFormat(path)
     # NOTE: this is too strict, we should support more general Zarrs, see #276
-    elif (path / ".zmetadata").exists():
+    elif (path / ".zmetadata").exists() or (path / "zarr.json").exists():
         obj = vcz.VcfZarr(path)
     else:
         raise ValueError(f"{path} not in ICF or VCF Zarr format")
