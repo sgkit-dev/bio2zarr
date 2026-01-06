@@ -68,7 +68,8 @@ dev = [
   "tskit>=0.6.4,<1",
   "bed_reader",
   "cyvcf2",
-  "xarray",
+  "xarray<2025.03.1",
+  "dask[array]>=2022.01.0,<=2024.8.0"
 ]
 tskit = ["tskit>=0.6.4,<1"]
 vcf = ["cyvcf2"]
