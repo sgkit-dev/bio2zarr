@@ -643,55 +643,60 @@ class VcfZarrWriter:
 
     def encode_samples(self, root):
         samples = self.source.samples
-        array = root.array(
+        zarr_utils.create_group_array(
+            root,
             "sample_id",
             data=[sample.id for sample in samples],
             shape=len(samples),
             dtype="str",
             compressor=DEFAULT_ZARR_COMPRESSOR,
             chunks=(self.schema.get_chunks(["samples"])[0],),
+            dimension_names=["samples"],
         )
-        array.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
         logger.debug("Samples done")
 
     def encode_contigs(self, root):
         contigs = self.source.contigs
-        array = root.array(
+        zarr_utils.create_group_array(
+            root,
             "contig_id",
             data=[contig.id for contig in contigs],
             shape=len(contigs),
             dtype="str",
             compressor=DEFAULT_ZARR_COMPRESSOR,
+            dimension_names=["contigs"],
         )
-        array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
         if all(contig.length is not None for contig in contigs):
-            array = root.array(
+            zarr_utils.create_group_array(
+                root,
                 "contig_length",
                 data=[contig.length for contig in contigs],
                 shape=len(contigs),
                 dtype=np.int64,
                 compressor=DEFAULT_ZARR_COMPRESSOR,
+                dimension_names=["contigs"],
             )
-            array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
 
     def encode_filters(self, root):
         filters = self.source.filters
-        array = root.array(
+        zarr_utils.create_group_array(
+            root,
             "filter_id",
             data=[filt.id for filt in filters],
             shape=len(filters),
             dtype="str",
             compressor=DEFAULT_ZARR_COMPRESSOR,
+            dimension_names=["filters"],
         )
-        array.attrs["_ARRAY_DIMENSIONS"] = ["filters"]
-        array = root.array(
+        zarr_utils.create_group_array(
+            root,
             "filter_description",
             data=[filt.description for filt in filters],
             shape=len(filters),
             dtype="str",
             compressor=DEFAULT_ZARR_COMPRESSOR,
+            dimension_names=["filters"],
         )
-        array.attrs["_ARRAY_DIMENSIONS"] = ["filters"]
 
     def init_array(self, root, schema, array_spec, variants_dim_size):
         kwargs = dict(zarr_utils.ZARR_FORMAT_KWARGS)
@@ -722,22 +727,18 @@ class VcfZarrWriter:
         shape = schema.get_shape(array_spec.dimensions)
         # Truncate the variants dimension if max_variant_chunks was specified
         shape[0] = variants_dim_size
-        a = root.empty(
+        a = zarr_utils.create_empty_group_array(
+            root,
             name=array_spec.name,
             shape=shape,
             chunks=schema.get_chunks(array_spec.dimensions),
             dtype=array_spec.dtype,
             compressor=compressor,
             filters=filters,
+            dimension_names=array_spec.dimensions,
             **kwargs,
         )
-        a.attrs.update(
-            {
-                "description": array_spec.description,
-                # Dimension names are part of the spec in Zarr v3
-                "_ARRAY_DIMENSIONS": array_spec.dimensions,
-            }
-        )
+        a.attrs.update({"description": array_spec.description})
         logger.debug(f"Initialised {a}")
         return a
 
@@ -1195,7 +1196,8 @@ class VcfZarrIndexer:
         kwargs = {}
         if not zarr_utils.zarr_v3():
             kwargs["dimension_separator"] = "/"
-        array = root.array(
+        zarr_utils.create_group_array(
+            root,
             "region_index",
             data=index,
             shape=index.shape,
@@ -1203,12 +1205,12 @@ class VcfZarrIndexer:
             dtype=index.dtype,
             compressor=numcodecs.Blosc("zstd", clevel=9, shuffle=0),
             fill_value=None,
+            dimension_names=[
+                "region_index_values",
+                "region_index_fields",
+            ],
             **kwargs,
         )
-        array.attrs["_ARRAY_DIMENSIONS"] = [
-            "region_index_values",
-            "region_index_fields",
-        ]
 
         logger.info("Consolidating Zarr metadata")
         zarr.consolidate_metadata(self.path)

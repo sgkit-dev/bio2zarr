@@ -18,3 +18,55 @@ else:
 def first_dim_iter(z):
     for chunk in range(z.cdata_shape[0]):
         yield from z.blocks[chunk]
+
+
+def create_group_array(
+    group,
+    name,
+    *,
+    data,
+    shape,
+    dtype,
+    compressor=None,
+    dimension_names=None,
+    **kwargs,
+):
+    """Create an array within a group."""
+    array = group.array(
+        name,
+        data=data,
+        shape=shape,
+        dtype=dtype,
+        compressor=compressor,
+        **kwargs,
+    )
+    if dimension_names is not None:
+        array.attrs["_ARRAY_DIMENSIONS"] = dimension_names
+    return array
+
+
+def create_empty_group_array(
+    group,
+    name,
+    *,
+    shape,
+    dtype,
+    chunks,
+    compressor=None,
+    filters=None,
+    dimension_names=None,
+    **kwargs,
+):
+    """Create an empty array within a group."""
+    array = group.empty(
+        name=name,
+        shape=shape,
+        dtype=dtype,
+        chunks=chunks,
+        compressor=compressor,
+        filters=filters,
+        **kwargs,
+    )
+    if dimension_names is not None:
+        array.attrs["_ARRAY_DIMENSIONS"] = dimension_names
+    return array
