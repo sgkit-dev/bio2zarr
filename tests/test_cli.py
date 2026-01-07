@@ -62,8 +62,7 @@ DEFAULT_CONVERT_ARGS = dict(
 )
 
 DEFAULT_TSKIT_CONVERT_ARGS = dict(
-    contig_id=None,
-    isolated_as_missing=False,
+    model_mapping=None,
     variants_chunk_size=None,
     samples_chunk_size=None,
     show_progress=True,
@@ -741,18 +740,14 @@ class TestWithMocks:
         assert len(result.stdout) == 0
         assert len(result.stderr) == 0
 
-        expected_args = dict(DEFAULT_TSKIT_CONVERT_ARGS)
-        expected_args["contig_id"] = "chr1"
-        expected_args["isolated_as_missing"] = True
-        expected_args["variants_chunk_size"] = 100
-        expected_args["samples_chunk_size"] = 50
-        expected_args["worker_processes"] = 4
-
-        mocked.assert_called_once_with(
-            ts_path,
-            str(zarr_path),
-            **expected_args,
-        )
+        args, kwargs = mocked.call_args
+        assert not isinstance(args[0], str)
+        assert args[1] == str(zarr_path)
+        assert kwargs["variants_chunk_size"] == 100
+        assert kwargs["samples_chunk_size"] == 50
+        assert kwargs["worker_processes"] == 4
+        assert kwargs["model_mapping"].contig_id == "chr1"
+        assert kwargs["model_mapping"].isolated_as_missing
 
     @pytest.mark.parametrize("response", ["y", "Y", "yes"])
     @mock.patch("bio2zarr.plink.convert")
