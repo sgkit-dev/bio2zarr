@@ -16,8 +16,6 @@ class TskitFormat(vcz.Source):
         ts,
         *,
         model_mapping=None,
-        contig_id=None,
-        isolated_as_missing=False,
     ):
         import tskit
 
@@ -36,14 +34,14 @@ class TskitFormat(vcz.Source):
             f"{self.ts.num_sites} sites"
         )
 
-        self.contig_id = contig_id if contig_id is not None else "1"
-        self.isolated_as_missing = isolated_as_missing
-
-        self.positions = self.ts.sites_position
-
         if model_mapping is None:
             model_mapping = self.ts.map_to_vcf_model()
 
+        self.contig_id = model_mapping.contig_id
+        self.contig_length = model_mapping.contig_length
+        self.isolated_as_missing = model_mapping.isolated_as_missing
+        self.raw_positions = self.ts.sites_position
+        self.vcf_positions = model_mapping.transformed_positions
         individuals_nodes = model_mapping.individuals_nodes
         sample_ids = model_mapping.individuals_name
 
@@ -92,14 +90,14 @@ class TskitFormat(vcz.Source):
 
     @property
     def contigs(self):
-        return [vcz.Contig(id=self.contig_id)]
+        return [vcz.Contig(id=self.contig_id, length=self.contig_length)]
 
     def iter_contig(self, start, stop):
         yield from (0 for _ in range(start, stop))
 
     def iter_field(self, field_name, shape, start, stop):
         if field_name == "position":
-            for pos in self.ts.sites_position[start:stop]:
+            for pos in self.vcf_positions[start:stop]:
                 yield int(pos)
         else:
             raise ValueError(f"Unknown field {field_name}")
@@ -111,8 +109,8 @@ class TskitFormat(vcz.Source):
 
         for variant in self.ts.variants(
             isolated_as_missing=self.isolated_as_missing,
-            left=self.positions[start],
-            right=self.positions[stop] if stop < self.num_records else None,
+            left=self.raw_positions[start],
+            right=self.raw_positions[stop] if stop < self.num_records else None,
             samples=self.tskit_samples,
             copy=False,
         ):
@@ -177,8 +175,8 @@ class TskitFormat(vcz.Source):
         min_position = 0
         max_position = 0
         if self.ts.num_sites > 0:
-            min_position = np.min(self.ts.sites_position)
-            max_position = np.max(self.ts.sites_position)
+            min_position = np.min(self.vcf_positions)
+            max_position = np.max(self.vcf_positions)
 
         tables = self.ts.tables
         ancestral_state_offsets = tables.sites.ancestral_state_offset
@@ -253,8 +251,6 @@ def convert(
     vcz_path,
     *,
     model_mapping=None,
-    contig_id=None,
-    isolated_as_missing=False,
     variants_chunk_size=None,
     samples_chunk_size=None,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
@@ -278,8 +274,6 @@ def convert(
     tskit_format = TskitFormat(
         ts_or_path,
         model_mapping=model_mapping,
-        contig_id=contig_id,
-        isolated_as_missing=isolated_as_missing,
     )
     schema_instance = tskit_format.generate_schema(
         variants_chunk_size=variants_chunk_size,

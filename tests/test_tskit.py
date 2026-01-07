@@ -30,10 +30,14 @@ def test_missing_dependency():
         )
 
 
-def tskit_model_mapping(ind_nodes, ind_names=None):
+def tskit_model_mapping(ts, ind_nodes, ind_names=None, isolated_as_missing=False):
+    mapping = ts.map_to_vcf_model(isolated_as_missing=isolated_as_missing)
+    ind_nodes = np.asarray(ind_nodes)
     if ind_names is None:
-        ind_names = ["tsk{j}" for j in range(len(ind_nodes))]
-    return tskit.VcfModelMapping(ind_nodes, ind_names)
+        ind_names = [f"tsk_{j}" for j in range(len(ind_nodes))]
+    mapping.individuals_nodes = ind_nodes
+    mapping.individuals_name = np.asarray(ind_names)
+    return mapping
 
 
 def add_mutations(ts):
@@ -177,6 +181,7 @@ class TestSimpleTs:
             "variant_position",
             "variant_allele",
             "variant_length",
+            "contig_length",
             "call_genotype",
             "call_genotype_phased",
             "call_genotype_mask",
@@ -248,16 +253,24 @@ class TestTskitFormat:
         assert format_obj.path is None
         assert format_obj.ts.num_sites == fx_simple_ts.num_sites
         assert format_obj.contig_id == "1"
-        assert not format_obj.isolated_as_missing
+        assert format_obj.isolated_as_missing
 
     def test_initialization_params(self, fx_simple_ts):
-        format_obj = tsk.TskitFormat(
-            fx_simple_ts,
+        model_mapping = fx_simple_ts.map_to_vcf_model(
             contig_id="chr1",
             isolated_as_missing=True,
         )
+        format_obj = tsk.TskitFormat(fx_simple_ts, model_mapping=model_mapping)
         assert format_obj.contig_id == "chr1"
         assert format_obj.isolated_as_missing
+
+    def test_initialization_rejects_contig_id_param(self, fx_simple_ts):
+        with pytest.raises(TypeError, match="contig_id"):
+            tsk.TskitFormat(fx_simple_ts, contig_id="chr1")
+
+    def test_initialization_rejects_isolated_as_missing_param(self, fx_simple_ts):
+        with pytest.raises(TypeError, match="isolated_as_missing"):
+            tsk.TskitFormat(fx_simple_ts, isolated_as_missing=True)
 
     def test_basic_properties(self, fx_ts_2_diploids):
         format_obj = tsk.TskitFormat(fx_ts_2_diploids)
@@ -321,7 +334,7 @@ class TestTskitFormat:
             list(format_obj.iter_field("unknown_field", None, 0, 3))
 
     def test_zero_samples(self, fx_simple_ts):
-        model_mapping = tskit_model_mapping(np.array([]))
+        model_mapping = tskit_model_mapping(fx_simple_ts, np.array([]))
         with pytest.raises(ValueError, match="at least one sample"):
             tsk.TskitFormat(fx_simple_ts, model_mapping=model_mapping)
 
@@ -373,7 +386,7 @@ class TestTskitFormat:
         ],
     )
     def test_iter_alleles_and_genotypes(self, fx_simple_ts, ind_nodes, expected_gts):
-        model_mapping = tskit_model_mapping(ind_nodes)
+        model_mapping = tskit_model_mapping(fx_simple_ts, ind_nodes)
         format_obj = tsk.TskitFormat(fx_simple_ts, model_mapping=model_mapping)
 
         shape = (2, 2)  # (num_samples, max_ploidy)
@@ -398,7 +411,7 @@ class TestTskitFormat:
     def test_iter_alleles_and_genotypes_missing_node(self, fx_ts_2_diploids):
         # Test with node ID that doesn't exist in tree sequence (out of range)
         ind_nodes = np.array([[10, 11], [12, 13]], dtype=np.int32)
-        model_mapping = tskit_model_mapping(ind_nodes)
+        model_mapping = tskit_model_mapping(fx_ts_2_diploids, ind_nodes)
         format_obj = tsk.TskitFormat(fx_ts_2_diploids, model_mapping=model_mapping)
         shape = (2, 2)
         with pytest.raises(
@@ -408,12 +421,13 @@ class TestTskitFormat:
 
     def test_isolated_as_missing(self, fx_ts_isolated_samples):
         ind_nodes = np.array([[0], [1], [3]])
-        model_mapping = tskit_model_mapping(ind_nodes)
+        model_mapping_default = tskit_model_mapping(
+            fx_ts_isolated_samples, ind_nodes, isolated_as_missing=False
+        )
 
         format_obj_default = tsk.TskitFormat(
             fx_ts_isolated_samples,
-            model_mapping=model_mapping,
-            isolated_as_missing=False,
+            model_mapping=model_mapping_default,
         )
         shape = (3, 1)  # (num_samples, max_ploidy)
         results_default = list(
@@ -428,10 +442,12 @@ class TestTskitFormat:
         expected_gt_default = np.array([[1], [0], [0]])
         nt.assert_array_equal(variant_data_default.genotypes, expected_gt_default)
 
+        model_mapping_missing = tskit_model_mapping(
+            fx_ts_isolated_samples, ind_nodes, isolated_as_missing=True
+        )
         format_obj_missing = tsk.TskitFormat(
             fx_ts_isolated_samples,
-            model_mapping=model_mapping,
-            isolated_as_missing=True,
+            model_mapping=model_mapping_missing,
         )
         results_missing = list(
             format_obj_missing.iter_alleles_and_genotypes(0, 1, shape, 2)
@@ -475,6 +491,8 @@ class TestTskitFormat:
             tables.mutations.add_row(site=site_id, node=0, derived_state=f"ALLELE_{i}")
 
         tables.sort()
+        tables.build_index()
+        tables.compute_mutation_parents()
         tree_sequence = tables.tree_sequence()
 
         format_obj = tsk.TskitFormat(tree_sequence)
@@ -510,7 +528,7 @@ def test_against_tskit_vcf_output(ts, tmp_path):
     tsk.convert(ts, tskit_zarr, worker_processes=0)
 
     vcf.convert([vcf_path], vcf_zarr, worker_processes=0)
-    ds1 = load_dataset(tskit_zarr)
+    ds1 = load_dataset(tskit_zarr).drop_vars("contig_length")
     ds2 = (
         load_dataset(vcf_zarr)
         .drop_dims("filters")
