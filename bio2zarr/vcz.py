@@ -643,55 +643,60 @@ class VcfZarrWriter:
 
     def encode_samples(self, root):
         samples = self.source.samples
-        array = root.array(
+        zarr_utils.create_group_array(
+            root,
             "sample_id",
             data=[sample.id for sample in samples],
             shape=len(samples),
             dtype="str",
             compressor=DEFAULT_ZARR_COMPRESSOR,
             chunks=(self.schema.get_chunks(["samples"])[0],),
+            dimension_names=["samples"],
         )
-        array.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
         logger.debug("Samples done")
 
     def encode_contigs(self, root):
         contigs = self.source.contigs
-        array = root.array(
+        zarr_utils.create_group_array(
+            root,
             "contig_id",
             data=[contig.id for contig in contigs],
             shape=len(contigs),
             dtype="str",
             compressor=DEFAULT_ZARR_COMPRESSOR,
+            dimension_names=["contigs"],
         )
-        array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
         if all(contig.length is not None for contig in contigs):
-            array = root.array(
+            zarr_utils.create_group_array(
+                root,
                 "contig_length",
                 data=[contig.length for contig in contigs],
                 shape=len(contigs),
                 dtype=np.int64,
                 compressor=DEFAULT_ZARR_COMPRESSOR,
+                dimension_names=["contigs"],
             )
-            array.attrs["_ARRAY_DIMENSIONS"] = ["contigs"]
 
     def encode_filters(self, root):
         filters = self.source.filters
-        array = root.array(
+        zarr_utils.create_group_array(
+            root,
             "filter_id",
             data=[filt.id for filt in filters],
             shape=len(filters),
             dtype="str",
             compressor=DEFAULT_ZARR_COMPRESSOR,
+            dimension_names=["filters"],
         )
-        array.attrs["_ARRAY_DIMENSIONS"] = ["filters"]
-        array = root.array(
+        zarr_utils.create_group_array(
+            root,
             "filter_description",
             data=[filt.description for filt in filters],
             shape=len(filters),
             dtype="str",
             compressor=DEFAULT_ZARR_COMPRESSOR,
+            dimension_names=["filters"],
         )
-        array.attrs["_ARRAY_DIMENSIONS"] = ["filters"]
 
     def init_array(self, root, schema, array_spec, variants_dim_size):
         kwargs = dict(zarr_utils.ZARR_FORMAT_KWARGS)
@@ -722,22 +727,18 @@ class VcfZarrWriter:
         shape = schema.get_shape(array_spec.dimensions)
         # Truncate the variants dimension if max_variant_chunks was specified
         shape[0] = variants_dim_size
-        a = root.empty(
+        a = zarr_utils.create_empty_group_array(
+            root,
             name=array_spec.name,
             shape=shape,
             chunks=schema.get_chunks(array_spec.dimensions),
             dtype=array_spec.dtype,
             compressor=compressor,
             filters=filters,
+            dimension_names=array_spec.dimensions,
             **kwargs,
         )
-        a.attrs.update(
-            {
-                "description": array_spec.description,
-                # Dimension names are part of the spec in Zarr v3
-                "_ARRAY_DIMENSIONS": array_spec.dimensions,
-            }
-        )
+        a.attrs.update({"description": array_spec.description})
         logger.debug(f"Initialised {a}")
         return a
 
@@ -980,11 +981,24 @@ class VcfZarrWriter:
             if not src.exists():
                 # Needs test
                 raise ValueError(f"Partition {partition} of {name} does not exist")
-            dest = self.arrays_path / name
-            # This is Zarr v2 specific. Chunks in v3 with start with "c" prefix.
-            chunk_files = [
-                path for path in src.iterdir() if not path.name.startswith(".")
-            ]
+
+            if zarr_utils.ZARR_FORMAT == 2:
+                dest = self.arrays_path / name
+                chunk_files = [
+                    path for path in src.iterdir() if not path.name.startswith(".")
+                ]
+            else:
+                dest = self.arrays_path / name / "c"
+                dest.mkdir(exist_ok=True)
+                src_chunks = src / "c"
+                if not src_chunks.exists():
+                    chunk_files = []
+                else:
+                    chunk_files = [
+                        path
+                        for path in src_chunks.iterdir()
+                        if not path.name.startswith(".")
+                    ]
             # TODO check for a count of then number of files. If we require a
             # dimension_separator of "/" then we could make stronger assertions
             # here, as we'd always have num_variant_chunks
@@ -1111,7 +1125,7 @@ class VcfZarrWriter:
 
 class VcfZarr:
     def __init__(self, path):
-        if not (path / ".zmetadata").exists():
+        if not (path / ".zmetadata").exists() and not (path / "zarr.json").exists():
             raise ValueError("Not in VcfZarr format")  # NEEDS TEST
         self.path = path
         self.root = zarr.open(path, mode="r")
@@ -1132,9 +1146,21 @@ class VcfZarr:
                 "avg_chunk_stored": core.display_size(int(stored / array.nchunks)),
                 "shape": str(array.shape),
                 "chunk_shape": str(array.chunks),
-                "compressor": str(array.compressor),
                 "filters": str(array.filters),
             }
+            try:
+                # zarr format v2: compressor (singular)
+                compressor = array.compressor
+                d["compressor"] = str(compressor)
+            except TypeError as e:
+                # zarr format v3: compressors (plural)
+                compressors = array.compressors
+                if len(compressors) > 1:
+                    raise ValueError(
+                        f"Only one compressor is supported but found {compressors}"
+                    ) from e
+                compressor = compressors[0] if len(compressors) == 1 else None
+                d["compressor"] = str(compressor)
             data.append(d)
         return data
 
@@ -1195,7 +1221,8 @@ class VcfZarrIndexer:
         kwargs = {}
         if not zarr_utils.zarr_v3():
             kwargs["dimension_separator"] = "/"
-        array = root.array(
+        zarr_utils.create_group_array(
+            root,
             "region_index",
             data=index,
             shape=index.shape,
@@ -1203,12 +1230,12 @@ class VcfZarrIndexer:
             dtype=index.dtype,
             compressor=numcodecs.Blosc("zstd", clevel=9, shuffle=0),
             fill_value=None,
+            dimension_names=[
+                "region_index_values",
+                "region_index_fields",
+            ],
             **kwargs,
         )
-        array.attrs["_ARRAY_DIMENSIONS"] = [
-            "region_index_values",
-            "region_index_fields",
-        ]
 
         logger.info("Consolidating Zarr metadata")
         zarr.consolidate_metadata(self.path)

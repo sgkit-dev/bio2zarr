@@ -155,6 +155,10 @@ jobs:
     strategy:
       matrix:
         zarr: ["==2.18.3", ">=3.0.3"]
+        zarr-format: [2, 3]
+        exclude:
+          - zarr: "==2.18.3"
+            zarr-format: 3
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -170,3 +174,5 @@ jobs:
       - name: Run tests
         run: |
           python -m pytest
+        env:
+          BIO2ZARR_ZARR_FORMAT: ${{ matrix.zarr-format }}
