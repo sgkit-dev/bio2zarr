@@ -4,7 +4,9 @@ from unittest import mock
 
 import click.testing as ct
 import numcodecs
+import numpy as np
 import pytest
+import tskit
 
 from bio2zarr import __main__ as main
 from bio2zarr import cli, core, provenance
@@ -62,7 +64,7 @@ DEFAULT_CONVERT_ARGS = dict(
 )
 
 DEFAULT_TSKIT_CONVERT_ARGS = dict(
-    model_mapping=None,
+    model_mapping=mock.ANY,
     variants_chunk_size=None,
     samples_chunk_size=None,
     show_progress=True,
@@ -86,6 +88,17 @@ class FakeWorkSummary:
 
     def asjson(self):
         return json.dumps(self.asdict())
+
+
+def assert_vcf_model_mapping_equal(actual, expected):
+    np.testing.assert_array_equal(actual.individuals_nodes, expected.individuals_nodes)
+    np.testing.assert_array_equal(actual.individuals_name, expected.individuals_name)
+    np.testing.assert_array_equal(
+        actual.transformed_positions, expected.transformed_positions
+    )
+    assert actual.contig_length == expected.contig_length
+    assert actual.contig_id == expected.contig_id
+    assert actual.isolated_as_missing == expected.isolated_as_missing
 
 
 class TestWithMocks:
@@ -647,6 +660,8 @@ class TestWithMocks:
     @mock.patch("bio2zarr.tskit.convert")
     def test_convert_tskit(self, mocked, tmp_path, progress, flag):
         ts_path = "tests/data/tskit/example.trees"
+        ts = tskit.load(ts_path)
+        model_mapping = ts.map_to_vcf_model()
         zarr_path = tmp_path / "zarr"
         runner = ct.CliRunner()
         result = runner.invoke(
@@ -664,11 +679,17 @@ class TestWithMocks:
             str(zarr_path),
             **args,
         )
+        assert_vcf_model_mapping_equal(
+            mocked.call_args.kwargs["model_mapping"],
+            model_mapping,
+        )
 
     @pytest.mark.parametrize("response", ["y", "Y", "yes"])
     @mock.patch("bio2zarr.tskit.convert")
     def test_tskit_convert_overwrite_zarr_confirm_yes(self, mocked, tmp_path, response):
         ts_path = "tests/data/tskit/example.trees"
+        ts = tskit.load(ts_path)
+        model_mapping = ts.map_to_vcf_model()
         zarr_path = tmp_path / "zarr"
         zarr_path.mkdir()
         runner = ct.CliRunner()
@@ -685,6 +706,10 @@ class TestWithMocks:
             ts_path,
             str(zarr_path),
             **DEFAULT_TSKIT_CONVERT_ARGS,
+        )
+        assert_vcf_model_mapping_equal(
+            mocked.call_args.kwargs["model_mapping"],
+            model_mapping,
         )
 
     @pytest.mark.parametrize("response", ["n", "N", "No"])
@@ -708,6 +733,8 @@ class TestWithMocks:
     @mock.patch("bio2zarr.tskit.convert")
     def test_tskit_convert_overwrite_zarr_force(self, mocked, tmp_path, force_arg):
         ts_path = "tests/data/tskit/example.trees"
+        ts = tskit.load(ts_path)
+        model_mapping = ts.map_to_vcf_model()
         zarr_path = tmp_path / "zarr"
         zarr_path.mkdir()
         runner = ct.CliRunner()
@@ -723,6 +750,10 @@ class TestWithMocks:
             ts_path,
             str(zarr_path),
             **DEFAULT_TSKIT_CONVERT_ARGS,
+        )
+        assert_vcf_model_mapping_equal(
+            mocked.call_args.kwargs["model_mapping"],
+            model_mapping,
         )
 
     @mock.patch("bio2zarr.tskit.convert")
@@ -741,7 +772,7 @@ class TestWithMocks:
         assert len(result.stderr) == 0
 
         args, kwargs = mocked.call_args
-        assert not isinstance(args[0], str)
+        assert isinstance(args[0], str)
         assert args[1] == str(zarr_path)
         assert kwargs["variants_chunk_size"] == 100
         assert kwargs["samples_chunk_size"] == 50
