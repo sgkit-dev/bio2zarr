@@ -9,6 +9,7 @@ import numcodecs
 import tabulate
 
 from . import core, plink, provenance, vcf_utils
+from . import tskit as tskit_mod
 from . import vcf as vcf_mod
 
 logger = logging.getLogger(__name__)
@@ -679,24 +680,17 @@ def convert_tskit(
 ):
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)
-    from . import tskit as tskit_mod
 
-    model_mapping = None
-    ts_input = ts_path
-    mapping_kwargs = {}
-    if contig_id is not None:
-        mapping_kwargs["contig_id"] = contig_id
-    if isolated_as_missing is not None:
-        mapping_kwargs["isolated_as_missing"] = isolated_as_missing
-    if mapping_kwargs:
-        import tskit
+    import tskit
 
-        ts = tskit.load(ts_path)
-        model_mapping = ts.map_to_vcf_model(**mapping_kwargs)
-        ts_input = ts
+    ts = tskit.load(ts_path)
+    model_mapping = ts.map_to_vcf_model(
+        contig_id=contig_id,
+        isolated_as_missing=isolated_as_missing,
+    )
 
     tskit_mod.convert(
-        ts_input,
+        ts_path,
         zarr_path,
         model_mapping=model_mapping,
         variants_chunk_size=variants_chunk_size,
