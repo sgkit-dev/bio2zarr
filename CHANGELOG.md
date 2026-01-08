@@ -1,8 +1,20 @@
 # Unreleased
 
+- Update tskit support for tskit 1.0.
+
 *Breaking changes*
 
 - Require NumPy 2 (#426)
+
+- The default `isolated_as_missing` behaviour for tskit conversion now follows
+  tskit's default (currently `True`). To get the previous behaviour, create a
+  model mapping using `ts.map_to_vcf_model(isolated_as_missing=False)` and pass
+  it via the `model_mapping` parameter (or use `tskit2zarr convert --isolated-as-ancestral`).
+
+- The `contig_id` and `isolated_as_missing` parameters to
+  `bio2zarr.tskit.convert` have been removed; set these via
+  `tskit.TreeSequence.map_to_vcf_model` and pass the returned mapping via the
+  `model_mapping` parameter.
 
 # 0.1.6 2025-05-23
 

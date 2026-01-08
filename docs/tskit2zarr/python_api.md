@@ -18,12 +18,15 @@ parameters by default if the ``model_mapping`` parameter to
 {func}`~bio2zarr.tskit.convert` is not specified.
 
 For more control over the properties of the output, for example
-to pick a specific subset of individuals, you can use
+to pick a specific subset of individuals or to specify properties like
+the contig ID and `isolated_as_missing`, you can use
 {meth}`~tskit.TreeSequence.map_to_vcf_model`
 to return the required mapping:
 
 ```python
-model_mapping = ts.map_to_vcf_model(individuals=[0, 1])
+model_mapping = ts.map_to_vcf_model(
+    individuals=[0, 1], contig_id="chr1", isolated_as_missing=True
+)
 ts2z.convert(ts, vcz_path, model_mapping=model_mapping)
 ```
 

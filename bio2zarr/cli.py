@@ -652,7 +652,12 @@ def vcfpartition(vcfs, verbose, num_partitions, partition_size):
 @click.argument("zarr_path", type=click.Path())
 @click.option("--contig-id", type=str, help="Contig/chromosome ID (default: '1')")
 @click.option(
-    "--isolated-as-missing", is_flag=True, help="Treat isolated nodes as missing"
+    "--isolated-as-missing/--isolated-as-ancestral",
+    default=None,
+    help=(
+        "Treat isolated samples without mutations as missing or ancestral "
+        "(default: tskit default)"
+    ),
 )
 @variants_chunk_size
 @samples_chunk_size
@@ -660,6 +665,7 @@ def vcfpartition(vcfs, verbose, num_partitions, partition_size):
 @progress
 @worker_processes
 @force
+@core.requires_optional_dependency("tskit", "tskit")
 def convert_tskit(
     ts_path,
     zarr_path,
@@ -675,11 +681,18 @@ def convert_tskit(
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)
 
+    import tskit
+
+    ts = tskit.load(ts_path)
+    model_mapping = ts.map_to_vcf_model(
+        contig_id=contig_id,
+        isolated_as_missing=isolated_as_missing,
+    )
+
     tskit_mod.convert(
         ts_path,
         zarr_path,
-        contig_id=contig_id,
-        isolated_as_missing=isolated_as_missing,
+        model_mapping=model_mapping,
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
         worker_processes=worker_processes,

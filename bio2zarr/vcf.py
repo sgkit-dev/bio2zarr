@@ -1096,8 +1096,10 @@ class IntermediateColumnarFormat(vcz.Source):
 
         # Add ploidy and genotypes dimensions only when needed
         max_genotypes = 0
+        has_g_field = False
         for field in self.metadata.format_fields:
             if field.vcf_number == "G":
+                has_g_field = True
                 max_genotypes = max(max_genotypes, field.summary.max_number)
 
         ploidy = None
@@ -1109,7 +1111,7 @@ class IntermediateColumnarFormat(vcz.Source):
             genotypes_size = math.comb(max_alleles + ploidy - 1, ploidy)
             # assert max_genotypes == genotypes_size
         else:
-            if max_genotypes > 0:
+            if max_genotypes > 0 or has_g_field:
                 # there is no GT field, but there is at least one Number=G field,
                 # so need to define genotypes dimension
                 genotypes_size = max_genotypes
