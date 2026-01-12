@@ -10,12 +10,8 @@ import zarr
 
 from bio2zarr import core, vcz
 from bio2zarr import vcf as vcf_mod
-from bio2zarr.zarr_utils import zarr_v3
+from bio2zarr.zarr_utils import STRING_ITEMSIZE, get_compressor_config, zarr_v3
 from tests.utils import load_dataset
-
-# In zarr-python v2 strings are stored as object arrays (O) with itemsize 8
-# In zarr-python v3 strings are stored as string arrays (T) with itemsize 16
-STRING_ITEMSIZE = 16 if zarr_v3() else 8
 
 
 @pytest.fixture(scope="module")
@@ -250,20 +246,10 @@ class TestSchemaEncode:
         for array_spec in schema.fields:
             a = root[array_spec.name]
             if array_spec.compressor is not None:
-                try:
-                    # zarr format v2: compressor (singular)
-                    assert a.compressor.cname == cname
-                    assert a.compressor.clevel == clevel
-                    assert a.compressor.shuffle == shuffle
-                except TypeError:
-                    # zarr format v3: compressors (plural)
-                    from zarr.codecs.blosc import BloscShuffle
-
-                    assert len(a.compressors) == 1
-                    compressor = a.compressors[0]
-                    assert compressor.cname.name == cname
-                    assert compressor.clevel == clevel
-                    assert compressor.shuffle == BloscShuffle.from_int(shuffle)
+                config = get_compressor_config(a)
+                assert config["cname"] == cname
+                assert config["clevel"] == clevel
+                assert config["shuffle"] == shuffle
 
     @pytest.mark.parametrize("dtype", ["i4", "i8"])
     def test_genotype_dtype(self, tmp_path, icf_path, dtype):
@@ -828,20 +814,10 @@ class TestSchemaDefaults:
             if array_spec.compressor is None:
                 # This array should use the default compressor
                 a = root[array_spec.name]
-                try:
-                    # zarr format v2: compressor (singular)
-                    assert a.compressor.cname == "lz4"
-                    assert a.compressor.clevel == 3
-                    assert a.compressor.shuffle == 1
-                except TypeError:
-                    # zarr format v3: compressors (plural)
-                    from zarr.codecs.blosc import BloscShuffle
-
-                    assert len(a.compressors) == 1
-                    compressor = a.compressors[0]
-                    assert compressor.cname.name == "lz4"
-                    assert compressor.clevel == 3
-                    assert compressor.shuffle == BloscShuffle.from_int(1)
+                config = get_compressor_config(a)
+                assert config["cname"] == "lz4"
+                assert config["clevel"] == 3
+                assert config["shuffle"] == 1
 
 
 class TestVcfZarrDimension:

@@ -981,32 +981,7 @@ class VcfZarrWriter:
             if not src.exists():
                 # Needs test
                 raise ValueError(f"Partition {partition} of {name} does not exist")
-
-            if zarr_utils.ZARR_FORMAT == 2:
-                dest = self.arrays_path / name
-                chunk_files = [
-                    path for path in src.iterdir() if not path.name.startswith(".")
-                ]
-            else:
-                dest = self.arrays_path / name / "c"
-                dest.mkdir(exist_ok=True)
-                src_chunks = src / "c"
-                if not src_chunks.exists():
-                    chunk_files = []
-                else:
-                    chunk_files = [
-                        path
-                        for path in src_chunks.iterdir()
-                        if not path.name.startswith(".")
-                    ]
-            # TODO check for a count of then number of files. If we require a
-            # dimension_separator of "/" then we could make stronger assertions
-            # here, as we'd always have num_variant_chunks
-            logger.debug(
-                f"Moving {len(chunk_files)} chunks for {name} partition {partition}"
-            )
-            for chunk_file in chunk_files:
-                os.rename(chunk_file, dest / chunk_file.name)
+            zarr_utils.move_chunks(src, self.arrays_path, partition, name)
         # Finally, once all the chunks have moved into the arrays dir,
         # we move it out of wip
         os.rename(self.arrays_path / name, self.path / name)
@@ -1125,7 +1100,7 @@ class VcfZarrWriter:
 
 class VcfZarr:
     def __init__(self, path):
-        if not (path / ".zmetadata").exists() and not (path / "zarr.json").exists():
+        if not zarr_utils.zarr_exists(path):
             raise ValueError("Not in VcfZarr format")  # NEEDS TEST
         self.path = path
         self.root = zarr.open(path, mode="r")
@@ -1146,21 +1121,9 @@ class VcfZarr:
                 "avg_chunk_stored": core.display_size(int(stored / array.nchunks)),
                 "shape": str(array.shape),
                 "chunk_shape": str(array.chunks),
+                "compressor": str(zarr_utils.get_compressor(array)),
                 "filters": str(array.filters),
             }
-            try:
-                # zarr format v2: compressor (singular)
-                compressor = array.compressor
-                d["compressor"] = str(compressor)
-            except TypeError as e:
-                # zarr format v3: compressors (plural)
-                compressors = array.compressors
-                if len(compressors) > 1:
-                    raise ValueError(
-                        f"Only one compressor is supported but found {compressors}"
-                    ) from e
-                compressor = compressors[0] if len(compressors) == 1 else None
-                d["compressor"] = str(compressor)
             data.append(d)
         return data
 

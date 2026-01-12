@@ -16,7 +16,7 @@ from typing import Any
 import numcodecs
 import numpy as np
 
-from bio2zarr.zarr_utils import STRING_DTYPE_NAME
+from bio2zarr.zarr_utils import STRING_DTYPE_NAME, zarr_exists
 
 from . import constants, core, provenance, vcf_utils, vcz
 
@@ -1592,8 +1592,7 @@ def inspect(path):
         raise ValueError(f"Path not found: {path}")
     if (path / "metadata.json").exists():
         obj = IntermediateColumnarFormat(path)
-    # NOTE: this is too strict, we should support more general Zarrs, see #276
-    elif (path / ".zmetadata").exists() or (path / "zarr.json").exists():
+    elif zarr_exists(path):
         obj = vcz.VcfZarr(path)
     else:
         raise ValueError(f"{path} not in ICF or VCF Zarr format")
