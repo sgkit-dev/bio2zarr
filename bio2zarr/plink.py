@@ -235,8 +235,9 @@ class PlinkFormat(vcz.Source):
         )
         # If we don't have SVLEN or END annotations, the rlen field is defined
         # as the length of the REF
-        max_len = self.bim.allele_2.values.itemsize
-
+        # Explicitly cast to fixed size array to support pandas 2.x and 3.x
+        allele_2_array = self.bim.allele_2.values.astype("S")
+        max_len = allele_2_array.itemsize
         array_specs = [
             vcz.ZarrArraySpec(
                 source="position",
