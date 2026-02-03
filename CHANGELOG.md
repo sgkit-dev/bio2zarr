@@ -4,6 +4,8 @@
 
 - Fix issue with 0-dimensional arrays (#437)
 
+- Fix issue with pandas 3.x (required in plink code; #439)
+
 *Breaking changes*
 
 - Require NumPy 2 (#426)
