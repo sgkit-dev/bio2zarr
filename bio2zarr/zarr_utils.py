@@ -6,6 +6,8 @@ import zarr
 logger = logging.getLogger(__name__)
 
 # Use zarr format v2 by default even when running with zarr-python v3
+# NOTE: this interface was introduced for experimentation with zarr
+# format 3 and is not envisaged as a long-term interface.
 try:
     ZARR_FORMAT = int(os.environ.get("BIO2ZARR_ZARR_FORMAT", "2"))
 except Exception:

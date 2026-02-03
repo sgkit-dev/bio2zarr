@@ -1,10 +1,14 @@
-# Unreleased
+# 0.1.7 2026-02-03
 
-- Update tskit support for tskit 1.0.
+*Bug fixes*
+
+- Fix issue with 0-dimensional arrays (#437)
 
 *Breaking changes*
 
 - Require NumPy 2 (#426)
+
+- Require tskit >= 1.0.
 
 - The default `isolated_as_missing` behaviour for tskit conversion now follows
   tskit's default (currently `True`). To get the previous behaviour, create a
@@ -15,6 +19,10 @@
   `bio2zarr.tskit.convert` have been removed; set these via
   `tskit.TreeSequence.map_to_vcf_model` and pass the returned mapping via the
   `model_mapping` parameter.
+
+*Maintenance*
+
+- Add support for Python 3.13
 
 # 0.1.6 2025-05-23
 
