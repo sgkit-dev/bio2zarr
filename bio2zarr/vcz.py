@@ -981,7 +981,7 @@ class VcfZarrWriter:
         os.rename(self.arrays_path / name, self.path / name)
         core.update_progress(1)
 
-    def finalise(self, show_progress=False):
+    def finalise(self, show_progress=False, consolidate_metadata=True):
         self.load_metadata()
 
         logger.info(f"Scanning {self.num_partitions} partitions")
@@ -1012,18 +1012,19 @@ class VcfZarrWriter:
                 pwm.submit(self.finalise_array, field.name)
         logger.debug(f"Removing {self.wip_path}")
         shutil.rmtree(self.wip_path)
-        logger.info("Consolidating Zarr metadata")
-        zarr.consolidate_metadata(self.path)
+        if consolidate_metadata:
+            logger.info("Consolidating Zarr metadata")
+            zarr.consolidate_metadata(self.path)
 
     #######################
     # index
     #######################
 
-    def create_index(self):
+    def create_index(self, consolidate_metadata=True):
         """Create an index to support efficient region queries."""
 
         indexer = VcfZarrIndexer(self.path)
-        indexer.create_index()
+        indexer.create_index(consolidate_metadata=consolidate_metadata)
 
     ######################
     # encode_all_partitions
@@ -1130,7 +1131,7 @@ class VcfZarrIndexer:
     def __init__(self, path):
         self.path = pathlib.Path(path)
 
-    def create_index(self):
+    def create_index(self, consolidate_metadata=True):
         """Create an index to support efficient region queries."""
         root = zarr.open_group(store=self.path, mode="r+")
         if (
@@ -1190,5 +1191,6 @@ class VcfZarrIndexer:
             ],
         )
 
-        logger.info("Consolidating Zarr metadata")
-        zarr.consolidate_metadata(self.path)
+        if consolidate_metadata:
+            logger.info("Consolidating Zarr metadata")
+            zarr.consolidate_metadata(self.path)

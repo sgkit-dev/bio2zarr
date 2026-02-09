@@ -255,6 +255,7 @@ def convert(
     samples_chunk_size=None,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
+    consolidate_metadata=True,
 ):
     """
     Convert a :class:`tskit.TreeSequence` (or path to a tree sequence
@@ -292,5 +293,5 @@ def convert(
         worker_processes=worker_processes,
         show_progress=show_progress,
     )
-    vzw.finalise(show_progress)
-    vzw.create_index()
+    vzw.finalise(show_progress, consolidate_metadata=consolidate_metadata)
+    vzw.create_index(consolidate_metadata=consolidate_metadata)

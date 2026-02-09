@@ -162,6 +162,13 @@ local_alleles = click.option(
     help="Use local allele fields to reduce the storage requirements of the output.",
 )
 
+consolidate_metadata = click.option(
+    "--consolidate-metadata",
+    is_flag=True,
+    flag_value=True,
+    help="Consolidate Zarr metadata",
+)
+
 
 def setup_logging(verbosity):
     level = "WARNING"
@@ -372,6 +379,7 @@ def mkschema(icf_path, variants_chunk_size, samples_chunk_size, local_alleles):
 @max_memory
 @progress
 @worker_processes
+@consolidate_metadata
 def encode(
     icf_path,
     zarr_path,
@@ -384,6 +392,7 @@ def encode(
     max_memory,
     progress,
     worker_processes,
+    consolidate_metadata,
 ):
     """
     Convert intermediate columnar format to VCF Zarr.
@@ -400,6 +409,7 @@ def encode(
         worker_processes=worker_processes,
         max_memory=max_memory,
         show_progress=progress,
+        consolidate_metadata=consolidate_metadata,
     )
 
 
@@ -497,6 +507,7 @@ def dencode_finalise(zarr_path, verbose, progress):
 @progress
 @worker_processes
 @local_alleles
+@consolidate_metadata
 def convert_vcf(
     vcfs,
     zarr_path,
@@ -507,6 +518,7 @@ def convert_vcf(
     progress,
     worker_processes,
     local_alleles,
+    consolidate_metadata,
 ):
     """
     Convert input VCF(s) directly to VCF Zarr (not recommended for large files).
@@ -521,6 +533,7 @@ def convert_vcf(
         show_progress=progress,
         worker_processes=worker_processes,
         local_alleles=local_alleles,
+        consolidate_metadata=consolidate_metadata,
     )
 
 
@@ -558,6 +571,7 @@ vcf2zarr_main.add_command(dencode_finalise)
 @verbose
 @variants_chunk_size
 @samples_chunk_size
+@consolidate_metadata
 def convert_plink(
     in_path,
     zarr_path,
@@ -567,6 +581,7 @@ def convert_plink(
     progress,
     variants_chunk_size,
     samples_chunk_size,
+    consolidate_metadata,
 ):
     """
     Convert plink fileset to VCF Zarr. Results are equivalent to
@@ -582,6 +597,7 @@ def convert_plink(
         worker_processes=worker_processes,
         samples_chunk_size=samples_chunk_size,
         variants_chunk_size=variants_chunk_size,
+        consolidate_metadata=consolidate_metadata,
     )
 
 
