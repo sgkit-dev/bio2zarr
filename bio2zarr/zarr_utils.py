@@ -1,6 +1,8 @@
 import logging
 import os
 
+import zarr
+
 logger = logging.getLogger(__name__)
 
 # Use zarr format v2 by default even when running with zarr-python v3
