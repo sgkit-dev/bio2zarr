@@ -19,8 +19,8 @@ FAM_FIELDS = [
     ("sex", str, "int8"),
     ("phenotype", str, "int8"),
 ]
-FAM_DF_DTYPE = dict([(f[0], f[1]) for f in FAM_FIELDS])
-FAM_ARRAY_DTYPE = dict([(f[0], f[2]) for f in FAM_FIELDS])
+FAM_DF_DTYPE = {f[0]: f[1] for f in FAM_FIELDS}
+FAM_ARRAY_DTYPE = {f[0]: f[2] for f in FAM_FIELDS}
 
 BIM_FIELDS = [
     ("contig", str, "U"),
@@ -30,8 +30,8 @@ BIM_FIELDS = [
     ("allele_1", str, "S"),
     ("allele_2", str, "S"),
 ]
-BIM_DF_DTYPE = dict([(f[0], f[1]) for f in BIM_FIELDS])
-BIM_ARRAY_DTYPE = dict([(f[0], f[2]) for f in BIM_FIELDS])
+BIM_DF_DTYPE = {f[0]: f[1] for f in BIM_FIELDS}
+BIM_ARRAY_DTYPE = {f[0]: f[2] for f in BIM_FIELDS}
 
 
 # See https://github.com/sgkit-dev/bio2zarr/issues/409 for discussion
