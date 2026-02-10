@@ -164,8 +164,8 @@ local_alleles = click.option(
 
 consolidate_metadata = click.option(
     "--consolidate-metadata",
-    is_flag=True,
-    flag_value=True,
+    show_default=True,
+    default=True,
     help="Consolidate Zarr metadata",
 )
 
