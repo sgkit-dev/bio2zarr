@@ -10,7 +10,6 @@ import xarray.testing as xt
 
 from bio2zarr import constants, provenance, vcz_verification
 from bio2zarr import vcf as vcf_mod
-from bio2zarr.zarr_utils import zarr_v3
 from tests.utils import load_dataset
 
 
@@ -277,7 +276,7 @@ class TestSmallExample:
                 xt.assert_equal(ds[field_name], ds2[field_name])
 
     @pytest.mark.skipif(
-        zarr_v3(),
+        True,
         reason="Zarr chunks ignored when reading arrays with StringDType: https://github.com/pydata/xarray/issues/11054",
     )
     @pytest.mark.parametrize(

@@ -10,7 +10,7 @@ import zarr
 
 from bio2zarr import core, vcz
 from bio2zarr import vcf as vcf_mod
-from bio2zarr.zarr_utils import STRING_ITEMSIZE, get_compressor_config, zarr_v3
+from bio2zarr.zarr_utils import STRING_ITEMSIZE, get_compressor_config
 from tests.utils import load_dataset
 
 
@@ -82,10 +82,7 @@ class TestEncodeMaxMemory:
         with pytest.raises(ValueError, match="Insufficient memory"):
             vcf_mod.encode(icf_path, zarr_path, max_memory=max_memory)
 
-    # zarr-python v3 string use more memory
-    @pytest.mark.parametrize(
-        "max_memory", ["630KiB", "1000KiB"] if zarr_v3() else ["315KiB", "500KiB"]
-    )
+    @pytest.mark.parametrize("max_memory", ["630KiB", "1000KiB"])
     def test_not_enough_memory_for_two(
         self, tmp_path, icf_path, zarr_path, caplog, max_memory
     ):
@@ -133,31 +130,6 @@ class TestJsonVersions:
         d["format_version"] = version
         with pytest.raises(ValueError, match="VcfZarrWriter format version mismatch"):
             vcz.VcfZarrWriterMetadata.fromdict(d)
-
-
-@pytest.mark.skipif(
-    zarr_v3(), reason="Zarr-python v3 does not support dimension_separator"
-)
-class TestEncodeDimensionSeparator:
-    @pytest.mark.parametrize("dimension_separator", [None, "/"])
-    def test_directories(self, tmp_path, icf_path, dimension_separator):
-        zarr_path = tmp_path / "zarr"
-        vcf_mod.encode(icf_path, zarr_path, dimension_separator=dimension_separator)
-        # print(zarr_path)
-        chunk_file = zarr_path / "call_genotype" / "0" / "0" / "0"
-        assert chunk_file.exists()
-
-    def test_files(self, tmp_path, icf_path):
-        zarr_path = tmp_path / "zarr"
-        vcf_mod.encode(icf_path, zarr_path, dimension_separator=".")
-        chunk_file = zarr_path / "call_genotype" / "0.0.0"
-        assert chunk_file.exists()
-
-    @pytest.mark.parametrize("dimension_separator", ["\\", "X", []])
-    def test_bad_value(self, tmp_path, icf_path, dimension_separator):
-        zarr_path = tmp_path / "zarr"
-        with pytest.raises(ValueError, match="dimension_separator must be either"):
-            vcf_mod.encode(icf_path, zarr_path, dimension_separator=dimension_separator)
 
 
 class TestSchemaChunkSize:

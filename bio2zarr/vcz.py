@@ -699,7 +699,6 @@ class VcfZarrWriter:
         )
 
     def init_array(self, root, schema, array_spec, variants_dim_size):
-        kwargs = dict(zarr_utils.ZARR_FORMAT_KWARGS)
         filters = (
             array_spec.filters
             if array_spec.filters is not None
@@ -713,16 +712,11 @@ class VcfZarrWriter:
         )
         compressor = numcodecs.get_codec(compressor)
         if array_spec.dtype == zarr_utils.STRING_DTYPE_NAME:
-            if zarr_utils.zarr_v3():
-                filters = [*list(filters), numcodecs.VLenUTF8()]
-            else:
-                kwargs["object_codec"] = numcodecs.VLenUTF8()
+            filters = [*list(filters), numcodecs.VLenUTF8()]
 
-        if zarr_utils.zarr_v3():
-            # see https://github.com/zarr-developers/zarr-python/issues/3197
-            kwargs["fill_value"] = None
-        else:
-            kwargs["dimension_separator"] = self.metadata.dimension_separator
+        kwargs = dict(zarr_utils.ZARR_FORMAT_KWARGS)
+        # see https://github.com/zarr-developers/zarr-python/issues/3197
+        kwargs["fill_value"] = None
 
         shape = schema.get_shape(array_spec.dimensions)
         # Truncate the variants dimension if max_variant_chunks was specified
@@ -1181,9 +1175,6 @@ class VcfZarrIndexer:
                 c_start_idx = c_end_idx + 1
 
         index = np.array(index, dtype=pos.dtype)
-        kwargs = {}
-        if not zarr_utils.zarr_v3():
-            kwargs["dimension_separator"] = "/"
         zarr_utils.create_group_array(
             root,
             "region_index",
@@ -1197,7 +1188,6 @@ class VcfZarrIndexer:
                 "region_index_values",
                 "region_index_fields",
             ],
-            **kwargs,
         )
 
         logger.info("Consolidating Zarr metadata")
