@@ -1,6 +1,8 @@
 import logging
 import os
 
+import zarr
+
 logger = logging.getLogger(__name__)
 
 # Use zarr format v2 by default even when running with zarr-python v3
@@ -24,9 +26,13 @@ def first_dim_iter(z):
         yield from z.blocks[chunk]
 
 
-def zarr_exists(path):
-    # NOTE: this is too strict, we should support more general Zarrs, see #276
-    return (path / ".zmetadata").exists() or (path / "zarr.json").exists()
+def vcf_zarr_exists(path):
+    """Tests if a VCF Zarr store exists at the given path."""
+    if (path / ".zgroup").exists() or (path / "zarr.json").exists():
+        root = zarr.open(path, mode="r")
+        return "vcf_zarr_version" in root.attrs
+    else:
+        return False
 
 
 def create_group_array(

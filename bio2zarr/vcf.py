@@ -16,7 +16,7 @@ from typing import Any
 import numcodecs
 import numpy as np
 
-from bio2zarr.zarr_utils import STRING_DTYPE_NAME, zarr_exists
+from bio2zarr.zarr_utils import STRING_DTYPE_NAME, vcf_zarr_exists
 
 from . import constants, core, provenance, vcf_utils, vcz
 
@@ -1598,7 +1598,7 @@ def inspect(path):
         raise ValueError(f"Path not found: {path}")
     if (path / "metadata.json").exists():
         obj = IntermediateColumnarFormat(path)
-    elif zarr_exists(path):
+    elif vcf_zarr_exists(path):
         obj = vcz.VcfZarr(path)
     else:
         raise ValueError(f"{path} not in ICF or VCF Zarr format")
@@ -1632,6 +1632,7 @@ def convert(
     local_alleles=None,
     show_progress=False,
     icf_path=None,
+    consolidate_metadata=True,
 ):
     """
     Convert the VCF data at the specified list of paths
@@ -1659,6 +1660,7 @@ def convert(
             worker_processes=worker_processes,
             show_progress=show_progress,
             local_alleles=local_alleles,
+            consolidate_metadata=consolidate_metadata,
         )
 
 
@@ -1680,6 +1682,7 @@ def encode(
     local_alleles=None,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
+    consolidate_metadata=True,
 ):
     # Rough heuristic to split work up enough to keep utilisation high
     target_num_partitions = max(1, worker_processes * 4)
@@ -1700,8 +1703,8 @@ def encode(
         show_progress=show_progress,
         max_memory=max_memory,
     )
-    vzw.finalise(show_progress)
-    vzw.create_index()
+    vzw.finalise(show_progress, consolidate_metadata=consolidate_metadata)
+    vzw.create_index(consolidate_metadata=consolidate_metadata)
 
 
 def encode_init(

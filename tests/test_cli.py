@@ -35,6 +35,7 @@ DEFAULT_ENCODE_ARGS = dict(
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     max_memory=None,
     show_progress=True,
+    consolidate_metadata=True,
 )
 
 DEFAULT_DENCODE_INIT_ARGS = dict(
@@ -61,6 +62,7 @@ DEFAULT_CONVERT_ARGS = dict(
     show_progress=True,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     local_alleles=False,
+    consolidate_metadata=True,
 )
 
 DEFAULT_TSKIT_CONVERT_ARGS = dict(
@@ -76,6 +78,7 @@ DEFAULT_PLINK_CONVERT_ARGS = dict(
     samples_chunk_size=None,
     show_progress=True,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
+    consolidate_metadata=True,
 )
 
 
@@ -601,6 +604,7 @@ class TestWithMocks:
         assert len(result.stderr) == 0
         args = dict(DEFAULT_CONVERT_ARGS)
         args["show_progress"] = progress
+        args["consolidate_metadata"] = True
         mocked.assert_called_once_with(
             (self.vcf_path,),
             "zarr_path",
@@ -635,6 +639,7 @@ class TestWithMocks:
         assert len(result.stderr) == 0
         args = dict(DEFAULT_PLINK_CONVERT_ARGS)
         args["show_progress"] = progress
+        args["consolidate_metadata"] = True
         mocked.assert_called_once_with("in", "out", **args)
 
     @pytest.mark.parametrize("response", ["y", "Y", "yes"])

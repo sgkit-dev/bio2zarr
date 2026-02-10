@@ -311,6 +311,7 @@ def convert(
     samples_chunk_size=None,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
+    consolidate_metadata=True,
 ):
     plink_format = PlinkFormat(prefix)
     schema_instance = plink_format.generate_schema(
@@ -330,5 +331,5 @@ def convert(
         worker_processes=worker_processes,
         show_progress=show_progress,
     )
-    vzw.finalise(show_progress)
-    vzw.create_index()
+    vzw.finalise(show_progress, consolidate_metadata=consolidate_metadata)
+    vzw.create_index(consolidate_metadata=consolidate_metadata)
