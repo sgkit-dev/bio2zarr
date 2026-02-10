@@ -1,8 +1,6 @@
 import logging
 import os
 
-import zarr
-
 logger = logging.getLogger(__name__)
 
 # Use zarr format v2 by default even when running with zarr-python v3
@@ -14,20 +12,10 @@ except Exception:
     ZARR_FORMAT = 2
 
 
-def zarr_v3() -> bool:
-    return zarr.__version__ >= "3"
-
-
-if zarr_v3():
-    ZARR_FORMAT_KWARGS = dict(zarr_format=ZARR_FORMAT)
-    # In zarr-python v3 strings are stored as string arrays (T) with itemsize 16
-    STRING_DTYPE_NAME = "T"
-    STRING_ITEMSIZE = 16
-else:
-    ZARR_FORMAT_KWARGS = dict()
-    # In zarr-python v2 strings are stored as object arrays (O) with itemsize 8
-    STRING_DTYPE_NAME = "O"
-    STRING_ITEMSIZE = 8
+ZARR_FORMAT_KWARGS = dict(zarr_format=ZARR_FORMAT)
+# In zarr-python v3 strings are stored as string arrays (T) with itemsize 16
+STRING_DTYPE_NAME = "T"
+STRING_ITEMSIZE = 16
 
 
 # See discussion in https://github.com/zarr-developers/zarr-python/issues/2529
