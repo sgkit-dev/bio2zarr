@@ -81,7 +81,7 @@ class TestParallelWorkManager:
             for j in range(total):
                 pwm.submit(frozenset, range(j))
             results = set(pwm.results_as_completed())
-            assert results == set(frozenset(range(j)) for j in range(total))
+            assert results == {frozenset(range(j)) for j in range(total)}
 
     @pytest.mark.parametrize("total", [1, 10, 20])
     @pytest.mark.parametrize("workers", [1, 2, 3])
