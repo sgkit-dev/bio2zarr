@@ -387,13 +387,15 @@ class TestSmallExample:
         ds2 = load_dataset(out)
         assert_dataset_equal(ds, ds2, drop_vars=["region_index"])
 
-    def test_inspect(self, tmp_path):
+    @pytest.mark.parametrize("consolidate_metadata", [True, False])
+    def test_inspect(self, tmp_path, consolidate_metadata):
         # TODO pretty weak test, we should be doing this better somewhere else
         out = tmp_path / "example.vcf.zarr"
         vcf_mod.convert(
             [self.data_path],
             out,
             variants_chunk_size=3,
+            consolidate_metadata=consolidate_metadata,
         )
         data = vcf_mod.inspect(out)
         assert len(data) > 0
