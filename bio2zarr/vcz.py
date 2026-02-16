@@ -1012,8 +1012,6 @@ class VcfZarrWriter:
                 pwm.submit(self.finalise_array, field.name)
         logger.debug(f"Removing {self.wip_path}")
         shutil.rmtree(self.wip_path)
-        logger.info("Consolidating Zarr metadata")
-        zarr.consolidate_metadata(self.path)
 
     #######################
     # index
@@ -1189,6 +1187,3 @@ class VcfZarrIndexer:
                 "region_index_fields",
             ],
         )
-
-        logger.info("Consolidating Zarr metadata")
-        zarr.consolidate_metadata(self.path)
