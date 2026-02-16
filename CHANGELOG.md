@@ -1,3 +1,13 @@
+# 0.1.7 2026-XX-XX
+
+Unreleased
+
+*Breaking changes*
+
+- Consolidated metadata is no longer generated (#450).
+  Consult https://zarr.readthedocs.io/en/stable/user-guide/consolidated_metadata/ for
+  details on how to generate consolidated metadata if required.
+
 # 0.1.7 2026-02-03
 
 *Bug fixes*
@@ -21,10 +31,6 @@
   `bio2zarr.tskit.convert` have been removed; set these via
   `tskit.TreeSequence.map_to_vcf_model` and pass the returned mapping via the
   `model_mapping` parameter.
-
-- Consolidated metadata is no longer generated (#450).
-  Consult https://zarr.readthedocs.io/en/stable/user-guide/consolidated_metadata/ for
-  details on how to generate consolidated metadata if required.
 
 *Maintenance*
 
