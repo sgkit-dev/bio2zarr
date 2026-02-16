@@ -22,6 +22,10 @@
   `tskit.TreeSequence.map_to_vcf_model` and pass the returned mapping via the
   `model_mapping` parameter.
 
+- Consolidated metadata is no longer generated (#450).
+  Consult https://zarr.readthedocs.io/en/stable/user-guide/consolidated_metadata/ for
+  details on how to generate consolidated metadata if required.
+
 *Maintenance*
 
 - Add support for Python 3.13
