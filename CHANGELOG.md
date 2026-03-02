@@ -1,6 +1,9 @@
-# 0.1.7 2026-XX-XX
+# 0.1.8 2026-03-02
 
-Unreleased
+Maintenance release
+
+- Require Zarr Python version 3.1 or greater (#443)
+- Drop support for Python 3.10
 
 *Breaking changes*
 
