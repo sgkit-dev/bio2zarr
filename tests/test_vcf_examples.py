@@ -493,9 +493,7 @@ class TestSmallExample:
         m1[1] = True
         nt.assert_array_equal(m1, ds2["call_genotype_mask"].values)
         p1 = ds["call_genotype_phased"].values
-        # NOTE: Not sure this is the correct behaviour, but testing here anyway
-        # to keep a record that this is what we're doing
-        p1[1] = True
+        p1[1] = False  # missing genotypes are not phased
         nt.assert_array_equal(p1, ds2["call_genotype_phased"].values)
 
     def test_missing_dependency(self, tmp_path):

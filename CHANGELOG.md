@@ -1,3 +1,9 @@
+# Unreleased
+
+*Bug fixes*
+
+- Missing GT incorrectly marked as phased (#454)
+
 # 0.1.8 2026-03-02
 
 Maintenance release
