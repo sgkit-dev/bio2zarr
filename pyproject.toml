@@ -70,7 +70,7 @@ test = [
   "tskit>=1",
   "bed_reader",
   "cyvcf2",
-  "xarray",
+  "xarray<2025.03.1",
   "dask[array]",
 ]
 
