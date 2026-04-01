@@ -1,10 +1,15 @@
 import json
+import sys
 
 import numpy as np
 import numpy.testing as nt
 import pandas as pd
 import pysam
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32", reason="Not supported on Windows"
+)
 import xarray.testing as xt
 import zarr
 
