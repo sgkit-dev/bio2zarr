@@ -148,7 +148,7 @@ def assert_format_val_equal(vcf_val, zarr_val, vcf_type, vcf_number):
 
 @core.requires_optional_dependency("cyvcf2", "vcf")
 def verify(vcf_path, zarr_path, show_progress=False):
-    import cyvcf2
+    import cyvcf2  # noqa: PLC0415
 
     root = zarr.open(store=zarr_path, mode="r")
     pos = root["variant_position"][:]

@@ -139,7 +139,7 @@ def get_compressor_config(array):
     if hasattr(compressor, "get_config"):
         return compressor.get_config()
     else:
-        from zarr.codecs.blosc import BloscCodec
+        from zarr.codecs.blosc import BloscCodec  # noqa: PLC0415
 
         if isinstance(compressor, BloscCodec):
             return compressor._blosc_codec.get_config()
@@ -149,8 +149,8 @@ def get_compressor_config(array):
 
 def _convert_v2_compressor_to_v3_codec(compressor, dtype):
     # import here since this is zarr-python v3 only
-    from zarr.core.dtype import parse_dtype
-    from zarr.metadata.migrate_v3 import _convert_compressor
+    from zarr.core.dtype import parse_dtype  # noqa: PLC0415
+    from zarr.metadata.migrate_v3 import _convert_compressor  # noqa: PLC0415
 
     return _convert_compressor(compressor, parse_dtype(dtype, zarr_format=3))
 
