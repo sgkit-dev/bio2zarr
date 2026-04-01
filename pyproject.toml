@@ -29,6 +29,7 @@ classifiers = [
   "Operating System :: POSIX :: Linux",
   "Operating System :: MacOS",
   "Operating System :: MacOS :: MacOS X",
+  "Operating System :: Microsoft :: Windows",
   "Intended Audience :: Science/Research",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
@@ -62,14 +63,14 @@ test = [
   "click>=8.2.0",
   "hypothesis-vcf",
   "msprime",
-  "pysam",
+  "pysam ; sys_platform != 'win32'",
   "pytest",
   "pytest-coverage",
   "pytest-xdist",
   "tqdm",
   "tskit>=1",
   "bed_reader",
-  "cyvcf2",
+  "cyvcf2 ; sys_platform != 'win32'",
   "xarray<2025.03.1",
   "dask[array]",
 ]
@@ -80,7 +81,7 @@ docs = [
   "jupyter-book<2",
   "sphinx-click",
   "tskit>=1",
-  "cyvcf2",
+  "cyvcf2 ; sys_platform != 'win32'",
 ]
 
 lint = [

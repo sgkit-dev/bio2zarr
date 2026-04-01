@@ -1,6 +1,12 @@
 import shutil
+import sys
 
 import pysam
+import pytest
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32", reason="Not supported on Windows"
+)
 from hypothesis import HealthCheck, given, note, settings
 from hypothesis_vcf import vcf
 

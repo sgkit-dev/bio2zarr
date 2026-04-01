@@ -35,13 +35,17 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-14, ubuntu-latest]
+        os: [macos-14, ubuntu-latest, windows-latest]
         python-version: ["3.11", "3.12", "3.13"]
         exclude:
-          # Just run macos tests on one Python version
+          # Just run macos and windows tests on one Python version
           - os: macos-14
             python-version: "3.12"
           - os: macos-14
+            python-version: "3.13"
+          - os: windows-latest
+            python-version: "3.12"
+          - os: windows-latest
             python-version: "3.13"
     steps:
       - uses: actions/checkout@v4.2.2
@@ -60,13 +64,16 @@ jobs:
         run: |
           uv run bio2zarr --help
       - name: Run basic vcf2zarr example
+        if: runner.os != 'Windows'
         run: |
           uv run python -m bio2zarr vcf2zarr convert tests/data/vcf/sample.vcf.gz sample.vcz -f
       - name: Run two-pass vcf2zarr example
+        if: runner.os != 'Windows'
         run: |
           uv run python -m bio2zarr vcf2zarr explode tests/data/vcf/sample.vcf.gz sample.icf -f
           uv run python -m bio2zarr vcf2zarr encode sample.icf sample.vcz -f
       - name: Run distributed explode example
+        if: runner.os != 'Windows'
         run: |
           uv run python -m bio2zarr vcf2zarr dexplode-init tests/data/vcf/sample.vcf.gz sample.icf -fn 3
           uv run python -m bio2zarr vcf2zarr dexplode-partition sample.icf 0
@@ -74,6 +81,7 @@ jobs:
           uv run python -m bio2zarr vcf2zarr dexplode-partition sample.icf 2
           uv run python -m bio2zarr vcf2zarr dexplode-finalise sample.icf
       - name: Run distributed encode example
+        if: runner.os != 'Windows'
         run: |
           uv run python -m bio2zarr vcf2zarr dencode-init sample.icf sample.vcz -fn 3 --variants-chunk-size=3
           uv run python -m bio2zarr vcf2zarr dencode-partition sample.vcz 0

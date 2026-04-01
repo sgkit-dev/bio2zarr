@@ -1,8 +1,14 @@
+import sys
+
 import msprime
 import numpy as np
 import numpy.testing as nt
 import pysam
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32", reason="Not supported on Windows"
+)
 
 from bio2zarr import vcf as vcf_mod
 from tests.utils import load_dataset
