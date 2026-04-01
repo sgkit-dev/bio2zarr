@@ -397,7 +397,7 @@ class VcfIndexType(Enum):
 class VcfFile(contextlib.AbstractContextManager):
     @core.requires_optional_dependency("cyvcf2", "vcf")
     def __init__(self, vcf_path, index_path=None):
-        import cyvcf2
+        import cyvcf2  # noqa: PLC0415
 
         self.vcf = None
         self.file_type = None

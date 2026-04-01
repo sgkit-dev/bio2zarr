@@ -120,7 +120,7 @@ line-length = 88
 indent-width = 4
 
 [tool.ruff.lint]
-select = ["E", "F", "B", "W", "I", "N", "UP", "A", "PT"]
+select = ["E", "F", "B", "W", "I", "N", "UP", "A", "PT", "PLC0415"]
 #Allow uppercase names for e.g. call_AD
 #Don't add strict=False to zips (B905)
 ignore = ["N806", "N802", "A001", "A002", "B905", "RUF"]

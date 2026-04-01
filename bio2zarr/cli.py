@@ -681,7 +681,7 @@ def convert_tskit(
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)
 
-    import tskit
+    import tskit  # noqa: PLC0415
 
     ts = tskit.load(ts_path)
     model_mapping = ts.map_to_vcf_model(

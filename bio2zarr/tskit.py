@@ -17,7 +17,7 @@ class TskitFormat(vcz.Source):
         *,
         model_mapping=None,
     ):
-        import tskit
+        import tskit  # noqa: PLC0415
 
         self._path = None
         # Future versions here will need to deal with the complexities of
