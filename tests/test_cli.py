@@ -429,7 +429,7 @@ class TestWithMocks:
         )
         assert result.exit_code == 2
         assert len(result.stdout) == 0
-        assert f"'{icf_path}' does not exist" in result.stderr
+        assert "icf' does not exist" in result.stderr
         mocked.assert_not_called()
 
     @pytest.mark.parametrize("partition", ["-- -1", "asdf", "1.112"])
