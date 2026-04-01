@@ -1,16 +1,16 @@
 import shutil
 import sys
 
-import pysam
 import pytest
+
+if sys.platform == "win32":
+    pytest.skip("Not supported on Windows", allow_module_level=True)
+
+import pysam
 from hypothesis import HealthCheck, given, note, settings
 from hypothesis_vcf import vcf
 
 from bio2zarr import vcf as vcf_mod
-
-pytestmark = pytest.mark.skipif(
-    sys.platform == "win32", reason="Not supported on Windows"
-)
 
 
 # Make sure POS starts at 1, since CSI indexing doesn't seem to support zero-based
