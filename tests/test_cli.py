@@ -12,6 +12,8 @@ import tskit
 from bio2zarr import __main__ as main
 from bio2zarr import cli, core, provenance
 
+IS_WINDOWS = sys.platform == "win32"
+
 DEFAULT_EXPLODE_ARGS = dict(
     column_chunk_size=64,
     compressor=None,
@@ -102,6 +104,7 @@ def assert_vcf_model_mapping_equal(actual, expected):
     assert actual.isolated_as_missing == expected.isolated_as_missing
 
 
+@pytest.mark.skipif(IS_WINDOWS, reason="FIXME mocks not working on windows")
 class TestWithMocks:
     vcf_path = "tests/data/vcf/sample.vcf.gz"
 
@@ -842,7 +845,7 @@ class TestWithMocks:
         )
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="VCF support requires cyvcf2")
+@pytest.mark.skipif(IS_WINDOWS, reason="VCF support requires cyvcf2")
 class TestVcfEndToEnd:
     vcf_path = "tests/data/vcf/sample.vcf.gz"
 
@@ -1030,7 +1033,7 @@ class TestBadPaths:
         assert "Invalid value for" in result.stderr
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="VCF support requires cyvcf2")
+@pytest.mark.skipif(IS_WINDOWS, reason="VCF support requires cyvcf2")
 class TestVcfPartition:
     path = "tests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz"
     paths = (path, "tests/data/vcf/1kg_2020_chrM.vcf.gz")
