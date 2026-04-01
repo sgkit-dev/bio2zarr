@@ -1,5 +1,6 @@
 import dataclasses
 import json
+import sys
 from unittest import mock
 
 import click.testing as ct
@@ -841,6 +842,7 @@ class TestWithMocks:
         )
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="VCF support requires cyvcf2")
 class TestVcfEndToEnd:
     vcf_path = "tests/data/vcf/sample.vcf.gz"
 
@@ -1028,6 +1030,7 @@ class TestBadPaths:
         assert "Invalid value for" in result.stderr
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="VCF support requires cyvcf2")
 class TestVcfPartition:
     path = "tests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz"
     paths = (path, "tests/data/vcf/1kg_2020_chrM.vcf.gz")

@@ -1,6 +1,7 @@
 import collections
 import pathlib
 import re
+import sys
 from unittest import mock
 
 import numpy as np
@@ -11,6 +12,10 @@ import xarray.testing as xt
 from bio2zarr import constants, provenance, vcz_verification
 from bio2zarr import vcf as vcf_mod
 from tests.utils import load_dataset
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32", reason="VCF support requires cyvcf2"
+)
 
 
 def assert_dataset_equal(ds1, ds2, drop_vars=None):
