@@ -258,7 +258,7 @@ dev = [
     { name = "bed-reader" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "cyvcf2" },
-    { name = "dask", extras = ["array"], specifier = ">=2022.1.0,<=2024.8.0" },
+    { name = "dask", extras = ["array"] },
     { name = "hypothesis-vcf" },
     { name = "jupyter-book", specifier = "<2" },
     { name = "msprime" },
@@ -273,7 +273,7 @@ dev = [
     { name = "tskit", specifier = ">=1" },
     { name = "twine" },
     { name = "validate-pyproject", extras = ["all"] },
-    { name = "xarray", specifier = "<2025.3.1" },
+    { name = "xarray" },
 ]
 docs = [
     { name = "asciinema-automation" },
@@ -295,7 +295,7 @@ test = [
     { name = "bed-reader" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "cyvcf2" },
-    { name = "dask", extras = ["array"], specifier = ">=2022.1.0,<=2024.8.0" },
+    { name = "dask", extras = ["array"] },
     { name = "hypothesis-vcf" },
     { name = "msprime" },
     { name = "pysam" },
@@ -304,7 +304,7 @@ test = [
     { name = "pytest-xdist" },
     { name = "tqdm" },
     { name = "tskit", specifier = ">=1" },
-    { name = "xarray", specifier = "<2025.3.1" },
+    { name = "xarray" },
 ]
 
 [[package]]
@@ -711,7 +711,7 @@ wheels = [
 
 [[package]]
 name = "dask"
-version = "2024.8.0"
+version = "2026.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -723,9 +723,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "toolz" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1f/2e/568a422d907745a3a897a732c83d05a3923d8cfa2511a6abea2a0e19994e/dask-2024.8.0.tar.gz", hash = "sha256:f1fec39373d2f101bc045529ad4e9b30e34e6eb33b7aa0fa7073aec7b1bf9eee", size = 9895684, upload-time = "2024-08-06T20:23:54.464Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d7/2a/5d8cc1579590af86576dde890254440e478c7174b93a02095ecfc2e6ba38/dask-2026.3.0.tar.gz", hash = "sha256:f7d96c8274e8a900d217c1ff6ea8d1bbf0b4c2c21e74a409644498d925eb8f85", size = 11000710, upload-time = "2026-03-18T07:10:14.945Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/db/47/136a5dd68a33089f96f8aa1178ccd545d325ec9ab2bb42a3038711a935c0/dask-2024.8.0-py3-none-any.whl", hash = "sha256:250ea3df30d4a25958290eec4f252850091c6cfaed82d098179c3b25bba18309", size = 1233681, upload-time = "2024-08-06T20:23:42.258Z" },
+    { url = "https://files.pythonhosted.org/packages/4a/f3/00bb1e867fba351e2d784170955713bee200c43ea306c59f30bd7e748192/dask-2026.3.0-py3-none-any.whl", hash = "sha256:be614b9242b0b38288060fb2d7696125946469c98a1c30e174883fd199e0428d", size = 1485630, upload-time = "2026-03-18T07:10:12.832Z" },
 ]
 
 [package.optional-dependencies]
@@ -3037,16 +3037,16 @@ wheels = [
 
 [[package]]
 name = "xarray"
-version = "2025.3.0"
+version = "2026.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "packaging" },
     { name = "pandas" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8a/8c/e56820a2c682834d8fb4a940956cd41b9f2532fee9692bfaf43b14f33c6e/xarray-2025.3.0.tar.gz", hash = "sha256:531cf6d64e6ab54c19239930a840654f1a79d2140e9f0d11d1e8d69dcc581d0f", size = 3292399, upload-time = "2025-03-20T04:50:58.903Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0f/03/e3353b72e518574b32993989d8f696277bf878e9d508c7dd22e86c0dab5b/xarray-2026.2.0.tar.gz", hash = "sha256:978b6acb018770554f8fd964af4eb02f9bcc165d4085dbb7326190d92aa74bcf", size = 3111388, upload-time = "2026-02-13T22:20:50.18Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/91/19/5dbac77ca82f009f8267d0e7cca4fd3be2a435d83ed98f6f8b9c5cb1747e/xarray-2025.3.0-py3-none-any.whl", hash = "sha256:022b7eac5ebc26d70d34211de732ec1a15127a40455f9492acdde7fbe5bbf091", size = 1270849, upload-time = "2025-03-20T04:50:56.457Z" },
+    { url = "https://files.pythonhosted.org/packages/99/92/545eb2ca17fc0e05456728d7e4378bfee48d66433ae3b7e71948e46826fb/xarray-2026.2.0-py3-none-any.whl", hash = "sha256:e927d7d716ea71dea78a13417970850a640447d8dd2ceeb65c5687f6373837c9", size = 1405358, upload-time = "2026-02-13T22:20:47.847Z" },
 ]
 
 [[package]]
