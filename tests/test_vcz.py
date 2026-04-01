@@ -4,19 +4,19 @@ import sys
 import numpy as np
 import numpy.testing as nt
 import pandas as pd
-import pysam
 import pytest
 import xarray.testing as xt
 import zarr
+
+if sys.platform == "win32":
+    pytest.skip("Not supported on Windows", allow_module_level=True)
+
+import pysam
 
 from bio2zarr import core, vcz
 from bio2zarr import vcf as vcf_mod
 from bio2zarr.zarr_utils import STRING_ITEMSIZE, get_compressor_config
 from tests.utils import load_dataset
-
-pytestmark = pytest.mark.skipif(
-    sys.platform == "win32", reason="Not supported on Windows"
-)
 
 
 @pytest.fixture(scope="module")

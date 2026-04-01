@@ -1,17 +1,17 @@
 import sys
 
-import msprime
 import numpy as np
 import numpy.testing as nt
-import pysam
 import pytest
+
+if sys.platform == "win32":
+    pytest.skip("Not supported on Windows", allow_module_level=True)
+
+import msprime
+import pysam
 
 from bio2zarr import vcf as vcf_mod
 from tests.utils import load_dataset
-
-pytestmark = pytest.mark.skipif(
-    sys.platform == "win32", reason="Not supported on Windows"
-)
 
 
 def run_simulation(num_samples=2, ploidy=1, seed=42, sequence_length=100_000):
