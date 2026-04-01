@@ -5,10 +5,10 @@ import pytest
 
 if sys.platform == "win32":
     pytest.skip("Not supported on Windows", allow_module_level=True)
-
-import pysam
-from hypothesis import HealthCheck, given, note, settings
-from hypothesis_vcf import vcf
+else:
+    import pysam
+    from hypothesis import HealthCheck, given, note, settings
+    from hypothesis_vcf import vcf
 
 from bio2zarr import vcf as vcf_mod
 
