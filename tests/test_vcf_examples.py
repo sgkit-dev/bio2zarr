@@ -1132,11 +1132,11 @@ def test_by_validating(name, tmp_path):
 @pytest.mark.parametrize(
     ("source", "suffix", "files"),
     [
-        ("sample.vcf.gz", "3.split", ["19:1-.vcf.gz", "20.vcf.gz", "X.vcf.gz"]),
-        ("sample.vcf.gz", "3.split", ["20.vcf.gz", "19:1-.vcf.gz", "X.vcf.gz"]),
-        ("out_of_order_contigs.vcf.gz", "2.split", ["A.vcf.gz", "B:1-.vcf.gz"]),
-        ("out_of_order_contigs.vcf.gz", "2.split", ["A.bcf", "B:1-.bcf"]),
-        ("out_of_order_contigs.vcf.gz", "2.split", ["A.vcf.gz", "B:1-.bcf"]),
+        ("sample.vcf.gz", "3.split", ["19_1-.vcf.gz", "20.vcf.gz", "X.vcf.gz"]),
+        ("sample.vcf.gz", "3.split", ["20.vcf.gz", "19_1-.vcf.gz", "X.vcf.gz"]),
+        ("out_of_order_contigs.vcf.gz", "2.split", ["A.vcf.gz", "B_1-.vcf.gz"]),
+        ("out_of_order_contigs.vcf.gz", "2.split", ["A.bcf", "B_1-.bcf"]),
+        ("out_of_order_contigs.vcf.gz", "2.split", ["A.vcf.gz", "B_1-.bcf"]),
     ],
 )
 def test_by_validating_split(source, suffix, files, tmp_path):
@@ -1149,7 +1149,7 @@ def test_by_validating_split(source, suffix, files, tmp_path):
 
 def test_split_explode(tmp_path):
     paths = [
-        "tests/data/vcf/sample.vcf.gz.3.split/19:1-.vcf.gz",
+        "tests/data/vcf/sample.vcf.gz.3.split/19_1-.vcf.gz",
         "tests/data/vcf/sample.vcf.gz.3.split/20.vcf.gz",
         "tests/data/vcf/sample.vcf.gz.3.split/X.vcf.gz",
     ]
