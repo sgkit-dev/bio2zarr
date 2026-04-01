@@ -27,7 +27,7 @@ jobs:
         run: uv sync --locked --group docs --no-default-groups
 
       - name: Install bash kernel
-        run: uv run python -m bash_kernel.install
+        run: uv run --group docs --no-default-groups python -m bash_kernel.install
 
       - name: Install bcftools
         run: |

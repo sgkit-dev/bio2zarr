@@ -25,15 +25,15 @@ sample.vcf.gz:
 
 _static/vcf2zarr_convert.cast: sample.vcf.gz
 	rm -fR sample.vcz
-	uv run --project=.. --group docs asciinema-automation -aa '$(ASCIINEMA_ARGS)' -d cast_scripts/vcf2zarr_convert.sh $@
+	uv run --project=.. --group docs --no-default-groups asciinema-automation -aa '$(ASCIINEMA_ARGS)' -d cast_scripts/vcf2zarr_convert.sh $@
 	cat _static/vcf2zarr_convert.log
-	asciinema play _static/vcf2zarr_convert.cast
+	uv run --project=.. --group docs --no-default-groups asciinema play _static/vcf2zarr_convert.cast
 	cp -R sample.vcz vcf2zarr
 
 # TODO rename this cast
 _static/vcf2zarr_explode.cast: sample.vcf.gz
 	rm -Rf sample.icf sample.vcz
-	uv run --project=.. --group docs asciinema-automation -aa '$(ASCIINEMA_ARGS)' -d cast_scripts/vcf2zarr_explode.sh $@
+	uv run --project=.. --group docs --no-default-groups asciinema-automation -aa '$(ASCIINEMA_ARGS)' -d cast_scripts/vcf2zarr_explode.sh $@
 	cat _static/vcf2zarr_explode.log
-	asciinema play _static/vcf2zarr_explode.cast
+	uv run --project=.. --group docs --no-default-groups asciinema play _static/vcf2zarr_explode.cast
 	cp -R sample.icf sample.vcz vcf2zarr
