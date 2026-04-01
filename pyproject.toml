@@ -70,8 +70,8 @@ test = [
   "tskit>=1",
   "bed_reader",
   "cyvcf2",
-  "xarray<2025.03.1",
-  "dask[array]>=2022.01.0,<=2024.8.0",
+  "xarray",
+  "dask[array]",
 ]
 
 docs = [
