@@ -51,7 +51,15 @@ tskit2zarr = "bio2zarr.cli:tskit2zarr_main"
 plink2zarr = "bio2zarr.cli:plink2zarr_main"
 
 [project.optional-dependencies]
-dev = [
+tskit = ["tskit>=1"]
+vcf = ["cyvcf2"]
+all = [
+  "tskit>=1",
+  "cyvcf2"
+]
+
+[dependency-groups]
+test = [
   "click>=8.2.0",
   "hypothesis-vcf",
   "msprime",
@@ -64,13 +72,33 @@ dev = [
   "bed_reader",
   "cyvcf2",
   "xarray<2025.03.1",
-  "dask[array]>=2022.01.0,<=2024.8.0"
+  "dask[array]>=2022.01.0,<=2024.8.0",
 ]
-tskit = ["tskit>=1"]
-vcf = ["cyvcf2"]
-all = [
+
+docs = [
+  "asciinema-automation",
+  "bash_kernel",
+  "jupyter-book<2",
+  "sphinx-click",
   "tskit>=1",
-  "cyvcf2"
+  "cyvcf2",
+]
+
+lint = [
+  "ruff==0.15.1",
+  "prek==0.3.3",
+]
+
+packaging = [
+  "twine",
+  "validate-pyproject[all]",
+]
+
+dev = [
+  {include-group = "test"},
+  {include-group = "docs"},
+  {include-group = "lint"},
+  {include-group = "packaging"},
 ]
 
 [tool.setuptools]

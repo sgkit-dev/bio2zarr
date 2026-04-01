@@ -1,0 +1,40 @@
+# The prek configuration defining linting requirements. This
+# setup is optimised for long-term stability and determinism,
+# and therefore only uses either "builtin" rules or "local"
+# rules implementing lint workflows.  We do not use any remote
+# workflow repos.
+
+[[repos]]
+repo = "builtin"
+hooks = [
+    { id = "check-added-large-files" },
+    { id = "check-merge-conflict" },
+    { id = "mixed-line-ending" },
+    { id = "check-case-conflict" },
+    { id = "check-yaml" },
+    { id = "check-toml" },
+]
+
+[[repos]]
+repo = "local"
+hooks = [
+  {
+    id = "ruff-check",
+    name = "ruff check",
+    language = "system",
+    entry = "uv run --only-group=lint ruff check --fix --force-exclude",
+    types = ["python"],
+  },
+]
+
+[[repos]]
+repo = "local"
+hooks = [
+  {
+    id = "ruff-format",
+    name = "ruff format",
+    language = "system",
+    entry = "uv run --only-group=lint ruff format --force-exclude",
+    types = ["python"],
+  },
+]

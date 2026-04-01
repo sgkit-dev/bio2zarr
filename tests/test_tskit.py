@@ -100,7 +100,7 @@ def insert_branch_sites(ts, m=1):
 
 
 class TestSimpleTs:
-    @pytest.fixture()
+    @pytest.fixture
     def conversion(self, tmp_path):
         ts = simple_ts()
         zarr_path = tmp_path / "test_output.vcz"
@@ -195,16 +195,16 @@ class TestSimpleTs:
 class TestTskitFormat:
     """Unit tests for TskitFormat without using full conversion."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def fx_simple_ts(self):
         return simple_ts(add_individuals=True)
 
-    @pytest.fixture()
+    @pytest.fixture
     def fx_ts_2_diploids(self):
         ts = msprime.sim_ancestry(2, sequence_length=10, random_seed=42)
         return add_mutations(ts)
 
-    @pytest.fixture()
+    @pytest.fixture
     def fx_ts_isolated_samples(self):
         tables = tskit.Tree.generate_balanced(2, span=10).tree_sequence.dump_tables()
         # This also tests sample nodes that are not a single block at

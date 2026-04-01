@@ -118,8 +118,7 @@ class BedReader:
         bytes_to_read = chunk_size * self.bytes_per_variant
 
         logger.debug(
-            f"Reading {chunk_size} variants ({bytes_to_read} bytes) "
-            f"from {self.path}"
+            f"Reading {chunk_size} variants ({bytes_to_read} bytes) from {self.path}"
         )
 
         # TODO make it possible to read sequentially from the same file handle,

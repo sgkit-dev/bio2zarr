@@ -347,9 +347,9 @@ class TestSimulatedExample:
         # Verify mapping between variant_contig and contig_id
         # For each unique contig index, check at least one corresponding variant exists
         for i, contig in enumerate(ds.contig_id.values):
-            assert np.any(
-                ds.variant_contig.values == i
-            ), f"No variants found for contig {contig}"
+            assert np.any(ds.variant_contig.values == i), (
+                f"No variants found for contig {contig}"
+            )
 
     # @pytest.mark.xfail
     @pytest.mark.parametrize(
