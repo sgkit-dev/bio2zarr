@@ -14,31 +14,24 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     steps:
-      - name: Cancel Previous Runs
-        uses: styfle/cancel-workflow-action@0.12.1
+      - uses: actions/checkout@v4.2.2
         with:
-          access_token: ${{ github.token }}
+          fetch-depth: 0
 
-      - uses: actions/checkout@v3
-
-      - uses: actions/setup-python@v4
+      - name: Install uv and set the python version
+        uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.11"
-          cache: 'pip'
 
-      - name: Create venv and install deps
-        run: |
-          pip install --upgrade pip wheel
-          pip install -r docs/requirements.txt
-          python3 -m bash_kernel.install
+      - name: Install docs dependencies
+        run: uv sync --locked --group docs
+
+      - name: Install bash kernel
+        run: uv run python -m bash_kernel.install
 
       - name: Install bcftools
         run: |
-          sudo apt-get install bcftools jq
-
-      - name: Install package
-        run: |
-          python3 -m pip install '.[all]'
+          sudo apt-get update && sudo apt-get install -y bcftools jq
 
       - name: Build Docs
         run: |

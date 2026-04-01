@@ -1,4 +1,0 @@
-asciinema-automation
-bash_kernel
-jupyter-book<2
-sphinx-click

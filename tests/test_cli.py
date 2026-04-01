@@ -904,7 +904,7 @@ class TestVcfEndToEnd:
         assert result.exit_code == 0
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"mkschema {icf_path} --variants-chunk-size=3 " "--samples-chunk-size=2",
+            f"mkschema {icf_path} --variants-chunk-size=3 --samples-chunk-size=2",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
