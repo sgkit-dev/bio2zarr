@@ -106,6 +106,7 @@ packages = ["bio2zarr"]
 
 [tool.setuptools_scm]
 version_file = "bio2zarr/_version.py"
+local_scheme = "no-local-version"
 
 [tool.pytest.ini_options]
 testpaths = "tests"
