@@ -24,7 +24,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install docs dependencies
-        run: uv sync --locked --group docs
+        run: uv sync --locked --group docs --no-default-groups
 
       - name: Install bash kernel
         run: uv run python -m bash_kernel.install
