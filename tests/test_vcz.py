@@ -10,8 +10,8 @@ import zarr
 
 if sys.platform == "win32":
     pytest.skip("Not supported on Windows", allow_module_level=True)
-
-import pysam
+else:
+    import pysam
 
 from bio2zarr import core, vcz
 from bio2zarr import vcf as vcf_mod

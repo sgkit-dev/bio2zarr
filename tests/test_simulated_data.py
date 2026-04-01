@@ -1,17 +1,14 @@
 import sys
 
+import msprime
 import numpy as np
 import numpy.testing as nt
 import pytest
 
-if sys.platform == "win32":
-    pytest.skip("Not supported on Windows", allow_module_level=True)
-
-import msprime
-import pysam
-
 from bio2zarr import vcf as vcf_mod
 from tests.utils import load_dataset
+
+IS_WINDOWS = sys.platform == "win32"
 
 
 def run_simulation(num_samples=2, ploidy=1, seed=42, sequence_length=100_000):
@@ -52,6 +49,8 @@ def write_vcf(ts, vcf_path, contig_id="1", indexed=False):
     with open(vcf_path, "w") as f:
         ts.write_vcf(f, contig_id=contig_id)
     if indexed:
+        import pysam  # noqa PLC0415
+
         # This also compresses the input file
         pysam.tabix_index(str(vcf_path), preset="vcf")
         vcf_path = vcf_path.with_suffix(vcf_path.suffix + ".gz")
@@ -102,6 +101,7 @@ class TestTskitRoundTripVcf:
             dss = ds.sel(variants=(contig, slice(0, None)))
             assert_ts_ds_equal(tss[contig_id], dss)
 
+    @pytest.mark.skipif(IS_WINDOWS, reason="pysam not available")
     @pytest.mark.parametrize("indexed", [True, False])
     def test_indexed(self, indexed, tmp_path):
         ts = run_simulation(num_samples=12, seed=34)
@@ -111,6 +111,7 @@ class TestTskitRoundTripVcf:
         ds = load_dataset(out)
         assert_ts_ds_equal(ts, ds)
 
+    @pytest.mark.skipif(IS_WINDOWS, reason="pysam not available")
     @pytest.mark.parametrize("num_contigs", [2, 3, 6])
     def test_mixed_indexed(self, num_contigs, tmp_path):
         contig_ids = [f"x{j}" for j in range(num_contigs)]
