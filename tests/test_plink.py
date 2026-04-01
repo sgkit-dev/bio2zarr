@@ -1,4 +1,5 @@
 import os.path
+import sys
 
 import bed_reader
 import numpy as np
@@ -542,6 +543,7 @@ class TestMultipleContigs:
         )
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="VCF support requires cyvcf2")
 @pytest.mark.parametrize(
     "prefix",
     [

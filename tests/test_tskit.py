@@ -1,3 +1,4 @@
+import sys
 from unittest import mock
 
 import msprime
@@ -501,6 +502,7 @@ class TestTskitFormat:
         assert call_genotype_spec.dtype == "i4"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="VCF support requires cyvcf2")
 @pytest.mark.parametrize(
     "ts",
     [

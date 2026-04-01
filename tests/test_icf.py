@@ -1,5 +1,6 @@
 import pickle
 import shutil
+import sys
 
 import numcodecs
 import numpy as np
@@ -9,6 +10,10 @@ import pytest
 from bio2zarr import provenance, vcf_utils, vcz
 from bio2zarr import vcf as vcf_mod
 from bio2zarr.zarr_utils import STRING_DTYPE_NAME
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32", reason="VCF support requires cyvcf2"
+)
 
 
 class TestSmallExample:

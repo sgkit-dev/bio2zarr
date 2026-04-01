@@ -1,11 +1,16 @@
 import pathlib
 import shutil
+import sys
 
 import numpy as np
 import pytest
 
 from bio2zarr import vcf_utils
 from bio2zarr.vcf_utils import RECORD_COUNT_UNKNOWN
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32", reason="VCF support requires cyvcf2"
+)
 
 data_path = pathlib.Path("tests/data/vcf/")
 
