@@ -6,12 +6,12 @@ import numpy.testing as nt
 import pysam
 import pytest
 
+from bio2zarr import vcf as vcf_mod
+from tests.utils import load_dataset
+
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32", reason="Not supported on Windows"
 )
-
-from bio2zarr import vcf as vcf_mod
-from tests.utils import load_dataset
 
 
 def run_simulation(num_samples=2, ploidy=1, seed=42, sequence_length=100_000):
