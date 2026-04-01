@@ -104,7 +104,6 @@ def assert_vcf_model_mapping_equal(actual, expected):
     assert actual.isolated_as_missing == expected.isolated_as_missing
 
 
-@pytest.mark.skipif(IS_WINDOWS, reason="FIXME mocks not working on windows")
 class TestWithMocks:
     vcf_path = "tests/data/vcf/sample.vcf.gz"
 
@@ -115,7 +114,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"explode {self.vcf_path} {icf_path} {flag}",
+            ["explode", self.vcf_path, str(icf_path), flag],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -132,7 +131,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"explode {self.vcf_path} {icf_path} -C {compressor}",
+            ["explode", self.vcf_path, str(icf_path), "-C", compressor],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -155,7 +154,15 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dexplode-init {self.vcf_path} {icf_path} -n 1 -C {compressor}",
+            [
+                "dexplode-init",
+                self.vcf_path,
+                str(icf_path),
+                "-n",
+                "1",
+                "-C",
+                compressor,
+            ],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -179,7 +186,7 @@ class TestWithMocks:
         icf_path = tmp_path / "icf"
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"explode {self.vcf_path} {icf_path} --compressor {compressor}",
+            ["explode", self.vcf_path, str(icf_path), "--compressor", compressor],
             catch_exceptions=False,
         )
         assert result.exit_code == 2
@@ -192,7 +199,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"explode {self.vcf_path} {self.vcf_path} {icf_path}",
+            ["explode", self.vcf_path, self.vcf_path, str(icf_path)],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -210,7 +217,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"explode {self.vcf_path} {icf_path}",
+            ["explode", self.vcf_path, str(icf_path)],
             catch_exceptions=False,
             input=response,
         )
@@ -231,7 +238,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"encode {icf_path} {zarr_path}",
+            ["encode", str(icf_path), str(zarr_path)],
             catch_exceptions=False,
             input=response,
         )
@@ -250,7 +257,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"explode {self.vcf_path} {icf_path} {force_arg}",
+            ["explode", self.vcf_path, str(icf_path), force_arg],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -270,7 +277,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"encode {icf_path} {zarr_path} {force_arg}",
+            ["encode", str(icf_path), str(zarr_path), force_arg],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -288,7 +295,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"explode no_such_file {icf_path}",
+            ["explode", "no_such_file", str(icf_path)],
             catch_exceptions=False,
         )
         assert result.exit_code == 2
@@ -304,7 +311,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"explode {self.vcf_path} {icf_path}",
+            ["explode", self.vcf_path, str(icf_path)],
             catch_exceptions=False,
             input=response,
         )
@@ -318,7 +325,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"explode {self.vcf_path} no_such_file {icf_path}",
+            ["explode", self.vcf_path, "no_such_file", str(icf_path)],
             catch_exceptions=False,
         )
         assert result.exit_code == 2
@@ -333,7 +340,7 @@ class TestWithMocks:
         icf_path = tmp_path / "icf"
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dexplode-init {self.vcf_path} {icf_path} -n 5 {flag}",
+            ["dexplode-init", self.vcf_path, str(icf_path), "-n", "5", flag],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -357,7 +364,7 @@ class TestWithMocks:
         icf_path = tmp_path / "icf"
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dexplode-init {self.vcf_path} {icf_path} -n {num_partitions}",
+            ["dexplode-init", self.vcf_path, str(icf_path), "-n", num_partitions],
             catch_exceptions=False,
         )
         assert result.exit_code == 2
@@ -370,7 +377,7 @@ class TestWithMocks:
         icf_path = tmp_path / "icf"
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dexplode-init {self.vcf_path} {icf_path}",
+            ["dexplode-init", self.vcf_path, str(icf_path)],
             catch_exceptions=False,
         )
         assert result.exit_code == 2
@@ -384,7 +391,7 @@ class TestWithMocks:
         icf_path.mkdir()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dexplode-partition {icf_path} 1",
+            ["dexplode-partition", str(icf_path), "1"],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -401,7 +408,7 @@ class TestWithMocks:
         icf_path.mkdir()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dexplode-partition {icf_path} 1 --one-based",
+            ["dexplode-partition", str(icf_path), "1", "--one-based"],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -417,7 +424,7 @@ class TestWithMocks:
         icf_path = tmp_path / "icf"
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dexplode-partition {icf_path} 1",
+            ["dexplode-partition", str(icf_path), "1"],
             catch_exceptions=False,
         )
         assert result.exit_code == 2
@@ -433,7 +440,7 @@ class TestWithMocks:
         icf_path.mkdir()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dexplode-partition {icf_path} {partition}",
+            ["dexplode-partition", str(icf_path)] + partition.split(),
             catch_exceptions=False,
         )
         assert result.exit_code == 2
@@ -445,7 +452,9 @@ class TestWithMocks:
     def test_vcf_dexplode_finalise(self, mocked, tmp_path):
         runner = ct.CliRunner()
         result = runner.invoke(
-            cli.vcf2zarr_main, f"dexplode-finalise {tmp_path}", catch_exceptions=False
+            cli.vcf2zarr_main,
+            ["dexplode-finalise", str(tmp_path)],
+            catch_exceptions=False,
         )
         assert result.exit_code == 0
         assert len(result.stdout) == 0
@@ -456,7 +465,7 @@ class TestWithMocks:
     def test_inspect(self, mocked, tmp_path):
         runner = ct.CliRunner()
         result = runner.invoke(
-            cli.vcf2zarr_main, f"inspect {tmp_path}", catch_exceptions=False
+            cli.vcf2zarr_main, ["inspect", str(tmp_path)], catch_exceptions=False
         )
         assert result.exit_code == 0
         assert result.stdout == "\n"
@@ -468,7 +477,12 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"mkschema {tmp_path} --variants-chunk-size=3 --samples-chunk-size=4",
+            [
+                "mkschema",
+                str(tmp_path),
+                "--variants-chunk-size=3",
+                "--samples-chunk-size=4",
+            ],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -488,7 +502,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"encode {icf_path} {zarr_path} {flag}",
+            ["encode", str(icf_path), str(zarr_path), flag],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -511,7 +525,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dencode-init {icf_path} {zarr_path} -n 10 {flag}",
+            ["dencode-init", str(icf_path), str(zarr_path), "-n", "10", flag],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -534,7 +548,7 @@ class TestWithMocks:
         zarr_path = tmp_path / "zarr"
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dencode-init {icf_path} {zarr_path}",
+            ["dencode-init", str(icf_path), str(zarr_path)],
             catch_exceptions=False,
         )
         assert result.exit_code == 2
@@ -548,7 +562,7 @@ class TestWithMocks:
         zarr_path.mkdir()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dencode-partition {zarr_path} 1",
+            ["dencode-partition", str(zarr_path), "1"],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -565,7 +579,7 @@ class TestWithMocks:
         zarr_path.mkdir()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dencode-partition {zarr_path} 1 --one-based",
+            ["dencode-partition", str(zarr_path), "1", "--one-based"],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -581,7 +595,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"dencode-finalise {tmp_path} {flag}",
+            ["dencode-finalise", str(tmp_path), flag],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -597,7 +611,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"convert {self.vcf_path} zarr_path {flag}",
+            ["convert", self.vcf_path, "zarr_path", flag],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -619,7 +633,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"convert {self.vcf_path} {zarr_path}",
+            ["convert", self.vcf_path, str(zarr_path)],
             catch_exceptions=False,
             input=response,
         )
@@ -649,7 +663,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"convert {self.vcf_path} {zarr_path}",
+            ["convert", self.vcf_path, str(zarr_path)],
             catch_exceptions=False,
             input=response,
         )
@@ -670,7 +684,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.tskit2zarr_main,
-            f"convert {ts_path} {zarr_path} {flag}",
+            ["convert", ts_path, str(zarr_path), flag],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -699,7 +713,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.tskit2zarr_main,
-            f"convert {ts_path} {zarr_path}",
+            ["convert", ts_path, str(zarr_path)],
             catch_exceptions=False,
             input=response,
         )
@@ -725,7 +739,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.tskit2zarr_main,
-            f"convert {ts_path} {zarr_path}",
+            ["convert", ts_path, str(zarr_path)],
             catch_exceptions=False,
             input=response,
         )
@@ -744,7 +758,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.tskit2zarr_main,
-            f"convert {ts_path} {zarr_path} {force_arg}",
+            ["convert", ts_path, str(zarr_path), force_arg],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -767,8 +781,20 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.tskit2zarr_main,
-            f"convert {ts_path} {zarr_path} --contig-id chr1 "
-            "--isolated-as-missing -l 100 -w 50 -p 4",
+            [
+                "convert",
+                ts_path,
+                str(zarr_path),
+                "--contig-id",
+                "chr1",
+                "--isolated-as-missing",
+                "-l",
+                "100",
+                "-w",
+                "50",
+                "-p",
+                "4",
+            ],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -793,7 +819,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.plink2zarr_main,
-            f"convert {prefix} {zarr_path}",
+            ["convert", prefix, str(zarr_path)],
             catch_exceptions=False,
             input=response,
         )
@@ -815,7 +841,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.plink2zarr_main,
-            f"convert {prefix} {zarr_path}",
+            ["convert", prefix, str(zarr_path)],
             catch_exceptions=False,
             input=response,
         )
@@ -832,7 +858,7 @@ class TestWithMocks:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.plink2zarr_main,
-            f"convert {prefix} {zarr_path} {force_arg}",
+            ["convert", prefix, str(zarr_path), force_arg],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
