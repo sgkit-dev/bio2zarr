@@ -960,13 +960,14 @@ class VcfZarrWriter:
             store=self.wip_partition_array_path(partition_index, "call_genotype"),
             mode="r",
         )
-        for genotypes in core.first_dim_slice_iter(
-            gt_array, partition.start, partition.stop
-        ):
-            # TODO check is this the correct semantics when we are padding
-            # with mixed ploidies?
-            j = gt_mask.next_buffer_row()
-            gt_mask.buff[j] = genotypes < 0
+        if gt_array.shape[1] > 0:  # has samples
+            for genotypes in core.first_dim_slice_iter(
+                gt_array, partition.start, partition.stop
+            ):
+                # TODO check is this the correct semantics when we are padding
+                # with mixed ploidies?
+                j = gt_mask.next_buffer_row()
+                gt_mask.buff[j] = genotypes < 0
         self.finalise_partition_array(partition_index, gt_mask)
 
     def encode_local_alleles_partition(self, partition_index):
