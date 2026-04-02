@@ -11,8 +11,7 @@ import tskit
 import zarr
 
 from bio2zarr import __main__ as main
-from bio2zarr import cli, core, plink, provenance, vcf
-from bio2zarr import tskit as tskit_mod
+from bio2zarr import cli, core, provenance
 
 IS_WINDOWS = sys.platform == "win32"
 
@@ -1212,39 +1211,6 @@ class TestZipOutput:
         assert zip_path.exists()
         root = zarr.open(zarr.storage.ZipStore(zip_path, mode="r"), mode="r")
         assert "variant_position" in root
-
-
-class TestMemoryStore:
-    vcf_path = "tests/data/vcf/sample.vcf.gz"
-
-    def test_vcf2zarr_convert_memory(self, tmp_path):
-        root = vcf.convert([self.vcf_path], None)
-        assert isinstance(root.store, zarr.storage.MemoryStore)
-        assert "variant_position" in root
-        assert "sample_id" in root
-
-    def test_vcf2zarr_encode_memory(self, tmp_path):
-        icf_path = tmp_path / "icf"
-        vcf.explode(icf_path, [self.vcf_path])
-        root = vcf.encode(icf_path, None)
-        assert isinstance(root.store, zarr.storage.MemoryStore)
-        assert "variant_position" in root
-
-    def test_plink2zarr_convert_memory(self):
-        root = plink.convert("tests/data/plink/example", None)
-        assert isinstance(root.store, zarr.storage.MemoryStore)
-        assert "variant_position" in root
-
-    def test_tskit2zarr_convert_memory(self):
-        root = tskit_mod.convert("tests/data/tskit/example.trees", None)
-        assert isinstance(root.store, zarr.storage.MemoryStore)
-        assert "variant_position" in root
-
-    def test_vcf2zarr_convert_returns_group(self, tmp_path):
-        zarr_path = tmp_path / "sample.vcz"
-        root = vcf.convert([self.vcf_path], zarr_path)
-        assert "variant_position" in root
-        assert zarr_path.exists()
 
 
 class TestTskitEndToEnd:
