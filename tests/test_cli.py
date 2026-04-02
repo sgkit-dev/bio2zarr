@@ -1165,3 +1165,15 @@ def test_version(cmd):
     result = runner.invoke(cmd, ["--version"], catch_exceptions=False)
     s = f"version {provenance.__version__}\n"
     assert result.stdout.endswith(s)
+
+
+def test_main_entry_point():
+    """Test that 'bio2zarr' console script entry point works without
+    import errors (e.g. stdlib module shadowing)."""
+    runner = ct.CliRunner()
+    result = runner.invoke(main.bio2zarr, ["--help"], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert "vcf2zarr" in result.stdout
+    assert "plink2zarr" in result.stdout
+    assert "tskit2zarr" in result.stdout
+    assert "vcfpartition" in result.stdout
