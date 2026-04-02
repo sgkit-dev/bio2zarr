@@ -1,5 +1,6 @@
 import sys
 
+import numpy as np
 import pytest
 import zarr
 
@@ -95,3 +96,79 @@ class TestTskitConvert:
         assert isinstance(root.store, zarr.storage.ZipStore)
         for name in EXPECTED_TSKIT_ARRAYS:
             assert name in root
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="VCF support requires cyvcf2")
+class TestVcfConvertMode:
+    vcf_path = "tests/data/vcf/sample.vcf.gz"
+
+    def test_default_mode_is_read_only(self):
+        root = vcf.convert([self.vcf_path])
+        assert root.read_only
+
+    def test_mode_r_is_read_only(self):
+        root = vcf.convert([self.vcf_path], mode="r")
+        assert root.read_only
+
+    def test_mode_rplus_is_writable(self):
+        root = vcf.convert([self.vcf_path], mode="r+")
+        assert not root.read_only
+        root.create_array("test", data=np.array([1, 2, 3]))
+        assert "test" in root
+
+    def test_mode_rplus_directory(self, tmp_path):
+        zarr_path = tmp_path / "sample.vcz"
+        root = vcf.convert([self.vcf_path], zarr_path, mode="r+")
+        assert not root.read_only
+        root.create_array("test", data=np.array([1, 2, 3]))
+        assert "test" in root
+
+    def test_encode_mode_rplus(self, tmp_path):
+        icf_path = tmp_path / "icf"
+        vcf.explode(icf_path, [self.vcf_path])
+        root = vcf.encode(icf_path, mode="r+")
+        assert not root.read_only
+        root.create_array("test", data=np.array([1, 2, 3]))
+        assert "test" in root
+
+
+class TestPlinkConvertMode:
+    plink_path = "tests/data/plink/example"
+
+    def test_default_mode_is_read_only(self):
+        root = plink.convert(self.plink_path)
+        assert root.read_only
+
+    def test_mode_rplus_is_writable(self):
+        root = plink.convert(self.plink_path, mode="r+")
+        assert not root.read_only
+        root.create_array("test", data=np.array([1, 2, 3]))
+        assert "test" in root
+
+    def test_mode_rplus_directory(self, tmp_path):
+        zarr_path = tmp_path / "sample.vcz"
+        root = plink.convert(self.plink_path, zarr_path, mode="r+")
+        assert not root.read_only
+        root.create_array("test", data=np.array([1, 2, 3]))
+        assert "test" in root
+
+
+class TestTskitConvertMode:
+    ts_path = "tests/data/tskit/example.trees"
+
+    def test_default_mode_is_read_only(self):
+        root = tskit_mod.convert(self.ts_path)
+        assert root.read_only
+
+    def test_mode_rplus_is_writable(self):
+        root = tskit_mod.convert(self.ts_path, mode="r+")
+        assert not root.read_only
+        root.create_array("test", data=np.array([1, 2, 3]))
+        assert "test" in root
+
+    def test_mode_rplus_directory(self, tmp_path):
+        zarr_path = tmp_path / "sample.vcz"
+        root = tskit_mod.convert(self.ts_path, zarr_path, mode="r+")
+        assert not root.read_only
+        root.create_array("test", data=np.array([1, 2, 3]))
+        assert "test" in root

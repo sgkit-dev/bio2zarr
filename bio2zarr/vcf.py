@@ -1636,6 +1636,7 @@ def convert(
     vcfs,
     vcz_path=None,
     *,
+    mode="r",
     variants_chunk_size=None,
     samples_chunk_size=None,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
@@ -1659,6 +1660,10 @@ def convert(
           archive readable via :class:`zarr.storage.ZipStore`. The
           intermediate directory is removed.
         - **Otherwise**: write directly to the given directory path.
+    mode : str
+        Mode in which the returned :class:`zarr.Group` is opened.
+        Use ``"r"`` (default) for read-only access or ``"r+"`` for
+        read-write access.
     variants_chunk_size : int, optional
         Number of variants per chunk. If None, a default is used.
     samples_chunk_size : int, optional
@@ -1695,6 +1700,7 @@ def convert(
         return encode(
             icf_path,
             vcz_path,
+            mode=mode,
             variants_chunk_size=variants_chunk_size,
             samples_chunk_size=samples_chunk_size,
             worker_processes=worker_processes,
@@ -1721,8 +1727,9 @@ def encode(
     local_alleles=None,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
+    mode="r",
 ):
-    with vcz.open_zarr(zarr_path) as zr:
+    with vcz.open_zarr(zarr_path, mode=mode) as zr:
         # Rough heuristic to split work up enough to keep utilisation high
         target_num_partitions = max(1, worker_processes * 4)
         encode_init(

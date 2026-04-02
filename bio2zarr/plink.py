@@ -305,6 +305,7 @@ def convert(
     prefix,
     out=None,
     *,
+    mode="r",
     variants_chunk_size=None,
     samples_chunk_size=None,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
@@ -327,6 +328,10 @@ def convert(
           archive readable via :class:`zarr.storage.ZipStore`. The
           intermediate directory is removed.
         - **Otherwise**: write directly to the given directory path.
+    mode : str
+        Mode in which the returned :class:`zarr.Group` is opened.
+        Use ``"r"`` (default) for read-only access or ``"r+"`` for
+        read-write access.
     variants_chunk_size : int, optional
         Number of variants per chunk. If None, a default is used.
     samples_chunk_size : int, optional
@@ -351,6 +356,7 @@ def convert(
         plink_format,
         schema,
         out,
+        mode=mode,
         worker_processes=worker_processes,
         show_progress=show_progress,
     )

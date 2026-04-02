@@ -612,6 +612,7 @@ def encode(
     schema,
     zarr_path=None,
     *,
+    mode="r",
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
 ):
@@ -619,9 +620,32 @@ def encode(
 
     Takes a source format instance and schema, and runs the full encode
     pipeline: init, encode partitions, finalise, and create index.
+
+    Parameters
+    ----------
+    source_format : object
+        The source format instance to encode.
+    schema : object
+        The schema describing the encoding layout.
+    zarr_path : str, Path, or None
+        Output path for the Zarr store. None for in-memory, ``.zip``
+        suffix for a zip archive, otherwise a directory.
+    mode : str
+        Mode in which the returned :class:`zarr.Group` is opened.
+        Use ``"r"`` (default) for read-only access or ``"r+"`` for
+        read-write access.
+    worker_processes : int
+        Number of worker processes for parallel encoding.
+    show_progress : bool
+        If True, display a progress bar.
+
+    Returns
+    -------
+    zarr.Group
+        The root group of the Zarr store containing the encoded data.
     """
     source_type = type(source_format)
-    with open_zarr(zarr_path) as zr:
+    with open_zarr(zarr_path, mode=mode) as zr:
         vzw = VcfZarrWriter(source_type, zr.dir)
         # Rough heuristic to split work up enough to keep utilisation high
         target_num_partitions = max(1, worker_processes * 4)
