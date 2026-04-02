@@ -2,13 +2,15 @@
 
 *New features*
 
-- Add zip VCZ output support to CLI and Python APIs.
+- Add zip VCZ output support to CLI and Python APIs (#462).
 
-- Add in-memory VCZ output to Python API; ``convert()`` functions 
-  (``vcf``, ``plink``, ``tskit``) and ``vcf.encode()`` now return a 
-  ``zarr.Group``.
+- Add in-memory VCZ output to Python API; ``convert()`` functions
+  (``vcf``, ``plink``, ``tskit``) and ``vcf.encode()`` now return a
+  ``zarr.Group`` (#462).
 
-- Add ``plink2zarr`` Python API documentation.
+- Add ``plink2zarr`` Python API documentation (#462).
+
+- Preliminary Windows support for tskit and plink conversion (#460)
 
 *Bug fixes*
 
