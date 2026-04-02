@@ -303,7 +303,7 @@ class PlinkFormat(vcz.Source):
 
 def convert(
     prefix,
-    out,
+    out=None,
     *,
     variants_chunk_size=None,
     samples_chunk_size=None,
@@ -311,24 +311,14 @@ def convert(
     show_progress=False,
 ):
     plink_format = PlinkFormat(prefix)
-    schema_instance = plink_format.generate_schema(
+    schema = plink_format.generate_schema(
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
     )
-    dir_path, is_zip = vcz.strip_zip_suffix(out)
-    vzw = vcz.VcfZarrWriter(PlinkFormat, dir_path)
-    # Rough heuristic to split work up enough to keep utilisation high
-    target_num_partitions = max(1, worker_processes * 4)
-    vzw.init(
+    return vcz.encode(
         plink_format,
-        target_num_partitions=target_num_partitions,
-        schema=schema_instance,
-    )
-    vzw.encode_all_partitions(
+        schema,
+        out,
         worker_processes=worker_processes,
         show_progress=show_progress,
     )
-    vzw.finalise(show_progress)
-    vzw.create_index()
-    if is_zip:
-        vcz.zip_zarr(dir_path, out)
