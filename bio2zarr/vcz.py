@@ -1,10 +1,12 @@
 import abc
+import contextlib
 import dataclasses
 import json
 import logging
 import os
 import pathlib
 import shutil
+import tempfile
 import zipfile
 
 import numcodecs
@@ -533,14 +535,6 @@ class VcfZarrWriteSummary(core.JsonDataclass):
     max_encoding_memory: str
 
 
-def strip_zip_suffix(path):
-    """If path ends with .zip, return (path_without_zip, True), else (path, False)."""
-    p = pathlib.Path(path)
-    if p.suffix == ".zip":
-        return p.with_suffix(""), True
-    return p, False
-
-
 def zip_zarr(dir_path, zip_path):
     """Create a zip archive of a zarr directory store and remove the directory."""
     dir_path = pathlib.Path(dir_path)
@@ -550,6 +544,84 @@ def zip_zarr(dir_path, zip_path):
             if file.is_file():
                 zf.write(file, file.relative_to(dir_path))
     shutil.rmtree(dir_path)
+
+
+def dir_to_memory_store(dir_path, mode="r"):
+    """Copy a zarr directory store into a MemoryStore and return the opened group."""
+    store = zarr.storage.MemoryStore()
+    for dirpath, _, filenames in os.walk(dir_path):
+        for fname in filenames:
+            fpath = pathlib.Path(dirpath) / fname
+            key = str(fpath.relative_to(dir_path))
+            with open(fpath, "rb") as f:
+                content = f.read()
+            store.set_sync(key, zarr.core.buffer.cpu.Buffer.from_bytes(content))
+    return zarr.open(store=store, mode=mode)
+
+
+@dataclasses.dataclass
+class ZarrWriteResult:
+    dir: pathlib.Path
+    root: zarr.Group | None = None
+
+
+@contextlib.contextmanager
+def open_zarr(zarr_path, mode="r"):
+    """Context manager that resolves zarr_path to a working directory path.
+
+    Yields a ZarrWriteResult whose ``dir`` field is the directory to write to.
+    On exit, ``root`` is set to the final zarr group opened with the given mode.
+
+    - zarr_path is None: uses temp dir, root is a MemoryStore-backed group
+    - zarr_path ends with .zip: strips suffix, root is a ZipStore-backed group
+    - otherwise: uses path directly, root is a directory-backed group
+    """
+    if zarr_path is None:
+        with tempfile.TemporaryDirectory(prefix="bio2zarr_") as tmp:
+            result = ZarrWriteResult(dir=pathlib.Path(tmp) / "zarr")
+            yield result
+            result.root = dir_to_memory_store(result.dir, mode=mode)
+    elif pathlib.Path(zarr_path).suffix == ".zip":
+        result = ZarrWriteResult(dir=pathlib.Path(zarr_path).with_suffix(""))
+        yield result
+        zip_zarr(result.dir, zarr_path)
+        result.root = zarr.open(zarr.storage.ZipStore(zarr_path, mode="r"), mode=mode)
+    else:
+        result = ZarrWriteResult(dir=pathlib.Path(zarr_path))
+        yield result
+        result.root = zarr.open(result.dir, mode=mode)
+
+
+def encode(
+    source_format,
+    schema,
+    zarr_path=None,
+    *,
+    worker_processes=core.DEFAULT_WORKER_PROCESSES,
+    show_progress=False,
+):
+    """Encode a source format object into a Zarr store.
+
+    Takes a source format instance and schema, and runs the full encode
+    pipeline: init, encode partitions, finalise, and create index.
+    """
+    source_type = type(source_format)
+    with open_zarr(zarr_path) as zr:
+        vzw = VcfZarrWriter(source_type, zr.dir)
+        # Rough heuristic to split work up enough to keep utilisation high
+        target_num_partitions = max(1, worker_processes * 4)
+        vzw.init(
+            source_format,
+            target_num_partitions=target_num_partitions,
+            schema=schema,
+        )
+        vzw.encode_all_partitions(
+            worker_processes=worker_processes,
+            show_progress=show_progress,
+        )
+        vzw.finalise(show_progress)
+        vzw.create_index()
+    return zr.root
 
 
 class VcfZarrWriter:

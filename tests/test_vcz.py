@@ -1,5 +1,6 @@
 import json
 import sys
+import zipfile
 
 import numpy as np
 import numpy.testing as nt
@@ -977,3 +978,96 @@ def test_create_index_errors(tmp_path):
     )
     with pytest.raises(ValueError, match="Cannot create index"):
         vzw.create_index()
+
+
+def _create_test_zarr(path):
+    """Create a minimal zarr store at path for testing."""
+    root = zarr.open(store=path, mode="w", zarr_format=2)
+    root.attrs["test_attr"] = "hello"
+    root.create_array("data", data=np.array([1, 2, 3]))
+    return root
+
+
+class TestZipZarr:
+    def test_creates_valid_zip(self, tmp_path):
+        dir_path = tmp_path / "store"
+        zip_path = tmp_path / "store.zip"
+        _create_test_zarr(dir_path)
+        vcz.zip_zarr(dir_path, zip_path)
+        assert zip_path.exists()
+        assert not dir_path.exists()
+        root = zarr.open(zarr.storage.ZipStore(zip_path, mode="r"), mode="r")
+        assert root.attrs["test_attr"] == "hello"
+        nt.assert_array_equal(root["data"][:], [1, 2, 3])
+
+    def test_uses_zip_stored(self, tmp_path):
+        dir_path = tmp_path / "store"
+        zip_path = tmp_path / "store.zip"
+        _create_test_zarr(dir_path)
+        vcz.zip_zarr(dir_path, zip_path)
+        with zipfile.ZipFile(zip_path) as zf:
+            for info in zf.infolist():
+                assert info.compress_type == zipfile.ZIP_STORED
+
+
+class TestDirToMemoryStore:
+    def test_copies_data(self, tmp_path):
+        dir_path = tmp_path / "store"
+        _create_test_zarr(dir_path)
+        root = vcz.dir_to_memory_store(dir_path)
+        assert isinstance(root.store, zarr.storage.MemoryStore)
+        assert root.attrs["test_attr"] == "hello"
+        nt.assert_array_equal(root["data"][:], [1, 2, 3])
+
+    def test_mode_parameter(self, tmp_path):
+        dir_path = tmp_path / "store"
+        _create_test_zarr(dir_path)
+        root = vcz.dir_to_memory_store(dir_path, mode="r+")
+        assert not root.store.read_only
+
+    def test_default_mode_read_only(self, tmp_path):
+        dir_path = tmp_path / "store"
+        _create_test_zarr(dir_path)
+        root = vcz.dir_to_memory_store(dir_path)
+        assert root.read_only
+
+
+class TestOpenZarr:
+    def test_directory_path(self, tmp_path):
+        zarr_path = tmp_path / "store"
+        with vcz.open_zarr(zarr_path) as zr:
+            assert zr.dir == zarr_path
+            assert zr.root is None
+            _create_test_zarr(zr.dir)
+        assert zr.root is not None
+        assert zr.root.attrs["test_attr"] == "hello"
+        nt.assert_array_equal(zr.root["data"][:], [1, 2, 3])
+
+    def test_zip_path(self, tmp_path):
+        zip_path = tmp_path / "store.zip"
+        with vcz.open_zarr(zip_path) as zr:
+            assert zr.dir == tmp_path / "store"
+            _create_test_zarr(zr.dir)
+        assert zip_path.exists()
+        assert not zr.dir.exists()
+        assert isinstance(zr.root.store, zarr.storage.ZipStore)
+        nt.assert_array_equal(zr.root["data"][:], [1, 2, 3])
+
+    def test_none_path(self):
+        with vcz.open_zarr(None) as zr:
+            assert zr.dir.parent.exists()
+            _create_test_zarr(zr.dir)
+        assert isinstance(zr.root.store, zarr.storage.MemoryStore)
+        nt.assert_array_equal(zr.root["data"][:], [1, 2, 3])
+
+    def test_none_path_temp_dir_cleaned_up(self):
+        with vcz.open_zarr(None) as zr:
+            temp_parent = zr.dir.parent
+            _create_test_zarr(zr.dir)
+        assert not temp_parent.exists()
+
+    def test_mode_parameter(self, tmp_path):
+        zarr_path = tmp_path / "store"
+        with vcz.open_zarr(zarr_path, mode="r+") as zr:
+            _create_test_zarr(zr.dir)
+        assert not zr.root.read_only

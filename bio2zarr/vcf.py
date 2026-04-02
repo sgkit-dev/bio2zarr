@@ -1634,7 +1634,7 @@ def mkschema(
 
 def convert(
     vcfs,
-    vcz_path,
+    vcz_path=None,
     *,
     variants_chunk_size=None,
     samples_chunk_size=None,
@@ -1661,7 +1661,7 @@ def convert(
             worker_processes=worker_processes,
             show_progress=show_progress,
         )
-        encode(
+        return encode(
             icf_path,
             vcz_path,
             variants_chunk_size=variants_chunk_size,
@@ -1680,7 +1680,7 @@ def temp_icf_path(prefix=None):
 
 def encode(
     icf_path,
-    zarr_path,
+    zarr_path=None,
     schema_path=None,
     variants_chunk_size=None,
     samples_chunk_size=None,
@@ -1691,30 +1691,29 @@ def encode(
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
 ):
-    dir_path, is_zip = vcz.strip_zip_suffix(zarr_path)
-    # Rough heuristic to split work up enough to keep utilisation high
-    target_num_partitions = max(1, worker_processes * 4)
-    encode_init(
-        icf_path,
-        dir_path,
-        target_num_partitions,
-        schema_path=schema_path,
-        variants_chunk_size=variants_chunk_size,
-        samples_chunk_size=samples_chunk_size,
-        local_alleles=local_alleles,
-        max_variant_chunks=max_variant_chunks,
-        dimension_separator=dimension_separator,
-    )
-    vzw = vcz.VcfZarrWriter(IntermediateColumnarFormat, dir_path)
-    vzw.encode_all_partitions(
-        worker_processes=worker_processes,
-        show_progress=show_progress,
-        max_memory=max_memory,
-    )
-    vzw.finalise(show_progress)
-    vzw.create_index()
-    if is_zip:
-        vcz.zip_zarr(dir_path, zarr_path)
+    with vcz.open_zarr(zarr_path) as zr:
+        # Rough heuristic to split work up enough to keep utilisation high
+        target_num_partitions = max(1, worker_processes * 4)
+        encode_init(
+            icf_path,
+            zr.dir,
+            target_num_partitions,
+            schema_path=schema_path,
+            variants_chunk_size=variants_chunk_size,
+            samples_chunk_size=samples_chunk_size,
+            local_alleles=local_alleles,
+            max_variant_chunks=max_variant_chunks,
+            dimension_separator=dimension_separator,
+        )
+        vzw = vcz.VcfZarrWriter(IntermediateColumnarFormat, zr.dir)
+        vzw.encode_all_partitions(
+            worker_processes=worker_processes,
+            show_progress=show_progress,
+            max_memory=max_memory,
+        )
+        vzw.finalise(show_progress)
+        vzw.create_index()
+    return zr.root
 
 
 def encode_init(

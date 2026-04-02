@@ -247,7 +247,7 @@ class TskitFormat(vcz.Source):
 
 def convert(
     ts_or_path,
-    vcz_path,
+    vcz_path=None,
     *,
     model_mapping=None,
     variants_chunk_size=None,
@@ -274,24 +274,14 @@ def convert(
         ts_or_path,
         model_mapping=model_mapping,
     )
-    schema_instance = tskit_format.generate_schema(
+    schema = tskit_format.generate_schema(
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
     )
-    dir_path, is_zip = vcz.strip_zip_suffix(vcz_path)
-    vzw = vcz.VcfZarrWriter(TskitFormat, dir_path)
-    # Rough heuristic to split work up enough to keep utilisation high
-    target_num_partitions = max(1, worker_processes * 4)
-    vzw.init(
+    return vcz.encode(
         tskit_format,
-        target_num_partitions=target_num_partitions,
-        schema=schema_instance,
-    )
-    vzw.encode_all_partitions(
+        schema,
+        vcz_path,
         worker_processes=worker_processes,
         show_progress=show_progress,
     )
-    vzw.finalise(show_progress)
-    vzw.create_index()
-    if is_zip:
-        vcz.zip_zarr(dir_path, vcz_path)
