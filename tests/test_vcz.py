@@ -995,7 +995,7 @@ class TestZipZarr:
         _create_test_zarr(dir_path)
         vcz.zip_zarr(dir_path, zip_path)
         assert zip_path.exists()
-        assert not dir_path.exists()
+        assert dir_path.exists()
         root = zarr.open(zarr.storage.ZipStore(zip_path, mode="r"), mode="r")
         assert root.attrs["test_attr"] == "hello"
         nt.assert_array_equal(root["data"][:], [1, 2, 3])

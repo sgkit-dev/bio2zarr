@@ -1644,10 +1644,41 @@ def convert(
     icf_path=None,
 ):
     """
-    Convert the VCF data at the specified list of paths
-    to VCF Zarr format stored at the specified path.
+    Convert VCF file(s) to VCF Zarr format.
 
-    .. todo:: Document parameters
+    Parameters
+    ----------
+    vcfs : list of str or Path
+        Paths to the VCF/BCF files to convert.
+    vcz_path : str, Path, or None
+        Output path for the Zarr store. The output format depends on the value:
+
+        - **None**: write to a temporary directory and return an in-memory
+          :class:`zarr.storage.MemoryStore`-backed group.
+        - **Ends with .zip**: write to a directory, then package as a zip
+          archive readable via :class:`zarr.storage.ZipStore`. The
+          intermediate directory is removed.
+        - **Otherwise**: write directly to the given directory path.
+    variants_chunk_size : int, optional
+        Number of variants per chunk. If None, a default is used.
+    samples_chunk_size : int, optional
+        Number of samples per chunk. If None, a default is used.
+    worker_processes : int
+        Number of worker processes for parallel encoding. 0 (the default)
+        means use the main process only.
+    local_alleles : int, optional
+        Maximum number of local alleles for the LAA encoding. If None,
+        standard allele encoding is used.
+    show_progress : bool
+        If True, display a progress bar during conversion.
+    icf_path : str, Path, or None
+        Path for the intermediate columnar format (ICF) data. If None,
+        a temporary directory is used and cleaned up automatically.
+
+    Returns
+    -------
+    zarr.Group
+        The root group of the Zarr store containing the converted data.
     """
     if icf_path is None:
         cm = temp_icf_path(prefix="vcf2zarr")

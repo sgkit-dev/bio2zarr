@@ -5,7 +5,7 @@ Basic usage:
 ```python
 import bio2zarr.tskit as ts2z
 
-ts2z.convert(ts_path, vcz_path, worker_processes=8)
+root = ts2z.convert(ts_path, vcz_path, worker_processes=8)
 ```
 
 This will convert the [tskit](https://tskit.dev) tree sequence stored
@@ -27,7 +27,7 @@ to return the required mapping:
 model_mapping = ts.map_to_vcf_model(
     individuals=[0, 1], contig_id="chr1", isolated_as_missing=True
 )
-ts2z.convert(ts, vcz_path, model_mapping=model_mapping)
+root = ts2z.convert(ts, vcz_path, model_mapping=model_mapping)
 ```
 
 
