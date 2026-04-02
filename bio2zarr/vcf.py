@@ -1691,11 +1691,12 @@ def encode(
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
 ):
+    dir_path, is_zip = vcz.strip_zip_suffix(zarr_path)
     # Rough heuristic to split work up enough to keep utilisation high
     target_num_partitions = max(1, worker_processes * 4)
     encode_init(
         icf_path,
-        zarr_path,
+        dir_path,
         target_num_partitions,
         schema_path=schema_path,
         variants_chunk_size=variants_chunk_size,
@@ -1704,7 +1705,7 @@ def encode(
         max_variant_chunks=max_variant_chunks,
         dimension_separator=dimension_separator,
     )
-    vzw = vcz.VcfZarrWriter(IntermediateColumnarFormat, zarr_path)
+    vzw = vcz.VcfZarrWriter(IntermediateColumnarFormat, dir_path)
     vzw.encode_all_partitions(
         worker_processes=worker_processes,
         show_progress=show_progress,
@@ -1712,6 +1713,8 @@ def encode(
     )
     vzw.finalise(show_progress)
     vzw.create_index()
+    if is_zip:
+        vcz.zip_zarr(dir_path, zarr_path)
 
 
 def encode_init(

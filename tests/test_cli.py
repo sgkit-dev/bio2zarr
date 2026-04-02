@@ -8,6 +8,7 @@ import numcodecs
 import numpy as np
 import pytest
 import tskit
+import zarr
 
 from bio2zarr import __main__ as main
 from bio2zarr import cli, core, provenance
@@ -1142,6 +1143,74 @@ class TestVcfPartition:
             "20:933890-\ttests/data/vcf/NA12878.prod.chr20snippet.g.vcf.gz",
             "chrM:26-\ttests/data/vcf/1kg_2020_chrM.vcf.gz",
         ]
+
+
+class TestZipOutput:
+    vcf_path = "tests/data/vcf/sample.vcf.gz"
+
+    def test_vcf2zarr_convert_zip(self, tmp_path):
+        zip_path = tmp_path / "sample.vcz.zip"
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.vcf2zarr_main,
+            f"convert {self.vcf_path} {zip_path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert zip_path.exists()
+        # The intermediate directory should have been removed
+        assert not zip_path.with_suffix("").exists()
+        root = zarr.open(zarr.storage.ZipStore(zip_path, mode="r"), mode="r")
+        assert "variant_position" in root
+        assert "sample_id" in root
+
+    def test_vcf2zarr_encode_zip(self, tmp_path):
+        icf_path = tmp_path / "icf"
+        zip_path = tmp_path / "sample.vcz.zip"
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.vcf2zarr_main,
+            f"explode {self.vcf_path} {icf_path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        result = runner.invoke(
+            cli.vcf2zarr_main,
+            f"encode {icf_path} {zip_path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert zip_path.exists()
+        root = zarr.open(zarr.storage.ZipStore(zip_path, mode="r"), mode="r")
+        assert "variant_position" in root
+
+    def test_plink2zarr_convert_zip(self, tmp_path):
+        plink_path = "tests/data/plink/example"
+        zip_path = tmp_path / "sample.vcz.zip"
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.plink2zarr_main,
+            f"convert {plink_path} {zip_path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert zip_path.exists()
+        root = zarr.open(zarr.storage.ZipStore(zip_path, mode="r"), mode="r")
+        assert "variant_position" in root
+
+    def test_tskit2zarr_convert_zip(self, tmp_path):
+        ts_path = "tests/data/tskit/example.trees"
+        zip_path = tmp_path / "sample.vcz.zip"
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.tskit2zarr_main,
+            f"convert {ts_path} {zip_path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert zip_path.exists()
+        root = zarr.open(zarr.storage.ZipStore(zip_path, mode="r"), mode="r")
+        assert "variant_position" in root
 
 
 class TestTskitEndToEnd:
