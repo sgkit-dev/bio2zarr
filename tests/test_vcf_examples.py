@@ -274,6 +274,7 @@ class TestSmallExample:
         root = vcf_mod.convert([path])
         ds2 = load_dataset(root)
         assert len(ds2["sample_id"]) == 0
+        assert "call_genotype" not in ds2
         for field_name in ds:
             if field_name != "sample_id" and not field_name.startswith("call_"):
                 xt.assert_equal(ds[field_name], ds2[field_name])
