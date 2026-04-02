@@ -279,6 +279,13 @@ class TestSmallExample:
             if field_name != "sample_id" and not field_name.startswith("call_"):
                 xt.assert_equal(ds[field_name], ds2[field_name])
 
+    def test_set_ploidy_fails(self):
+        path = "tests/data/vcf/sample.vcf.gz"
+        with pytest.raises(
+            ValueError, match="Ploidy was set to 1, but max ploidy in data was 2"
+        ):
+            vcf_mod.convert([path], ploidy=1)
+
     @pytest.mark.skipif(
         True,
         reason="Zarr chunks ignored when reading arrays with StringDType: https://github.com/pydata/xarray/issues/11054",
