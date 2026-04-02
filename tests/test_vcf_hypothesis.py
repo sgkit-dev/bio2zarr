@@ -2,15 +2,14 @@ import shutil
 import sys
 
 import pytest
-
-if sys.platform == "win32":
-    pytest.skip("Not supported on Windows", allow_module_level=True)
-else:
-    import pysam
-    from hypothesis import HealthCheck, given, note, settings
-    from hypothesis_vcf import vcf
+from hypothesis import HealthCheck, given, note, settings
+from hypothesis_vcf import vcf
 
 from bio2zarr import vcf as vcf_mod
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32", reason="VCF support requires cyvcf2"
+)
 
 
 # Make sure POS starts at 1, since CSI indexing doesn't seem to support zero-based
@@ -30,6 +29,9 @@ def test_hypothesis_generated_vcf(tmp_path, vcf_string):
     # make sure outputs don't exist (from previous hypothesis example)
     shutil.rmtree(str(icf_path), ignore_errors=True)
     shutil.rmtree(str(zarr_path), ignore_errors=True)
+
+    # NOTE: importing here to avoid problems with Windows.
+    import pysam  # noqa PLC0415
 
     # create a tabix index for the VCF,
     # using CSI since POS can exceed range supported by TBI
