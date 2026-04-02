@@ -3,14 +3,17 @@ from pathlib import Path
 from typing import Any
 
 import xarray as xr
+import zarr
 
 
 def load_dataset(
-    store: str | Path | MutableMapping[str, bytes],
+    store: str | Path | MutableMapping[str, bytes] | zarr.Group,
     storage_options: dict[str, str] | None = None,
     **kwargs: Any,
 ) -> xr.Dataset:
     """Load an Xarray dataset from Zarr storage."""
+    if isinstance(store, zarr.Group):
+        store = store.store
 
     ds: xr.Dataset = xr.open_zarr(
         store, storage_options=storage_options, concat_characters=False, **kwargs

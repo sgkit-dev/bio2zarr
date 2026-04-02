@@ -205,7 +205,6 @@ class TestSchemaEncode:
         ("cname", "clevel", "shuffle"), [("lz4", 1, 0), ("zlib", 7, 1), ("zstd", 4, 2)]
     )
     def test_codec(self, tmp_path, icf_path, cname, clevel, shuffle):
-        zarr_path = tmp_path / "zarr"
         icf = vcf_mod.IntermediateColumnarFormat(icf_path)
         schema = icf.generate_schema()
         field_changed = False
@@ -219,8 +218,7 @@ class TestSchemaEncode:
         schema_path = tmp_path / "schema"
         with open(schema_path, "w") as f:
             f.write(schema.asjson())
-        vcf_mod.encode(icf_path, zarr_path, schema_path=schema_path)
-        root = zarr.open(zarr_path)
+        root = vcf_mod.encode(icf_path, schema_path=schema_path)
         for array_spec in schema.fields:
             a = root[array_spec.name]
             if array_spec.compressor is not None:
@@ -231,28 +229,24 @@ class TestSchemaEncode:
 
     @pytest.mark.parametrize("dtype", ["i4", "i8"])
     def test_genotype_dtype(self, tmp_path, icf_path, dtype):
-        zarr_path = tmp_path / "zarr"
         icf = vcf_mod.IntermediateColumnarFormat(icf_path)
         schema = icf.generate_schema()
         schema.field_map()["call_genotype"].dtype = dtype
         schema_path = tmp_path / "schema"
         with open(schema_path, "w") as f:
             f.write(schema.asjson())
-        vcf_mod.encode(icf_path, zarr_path, schema_path=schema_path)
-        root = zarr.open(zarr_path)
+        root = vcf_mod.encode(icf_path, schema_path=schema_path)
         assert root["call_genotype"].dtype == dtype
 
     @pytest.mark.parametrize("dtype", ["i4", "i8"])
     def test_region_index_dtype(self, tmp_path, icf_path, dtype):
-        zarr_path = tmp_path / "zarr"
         icf = vcf_mod.IntermediateColumnarFormat(icf_path)
         schema = icf.generate_schema()
         schema.field_map()["variant_position"].dtype = dtype
         schema_path = tmp_path / "schema"
         with open(schema_path, "w") as f:
             f.write(schema.asjson())
-        vcf_mod.encode(icf_path, zarr_path, schema_path=schema_path)
-        root = zarr.open(zarr_path)
+        root = vcf_mod.encode(icf_path, schema_path=schema_path)
         assert root["variant_position"].dtype == dtype
         assert root["region_index"].dtype == dtype
 
