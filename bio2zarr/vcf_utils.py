@@ -13,7 +13,7 @@ import humanfriendly
 import numpy as np
 
 from bio2zarr import core
-from bio2zarr.typing import PathType
+from bio2zarr._typing import PathType
 
 logger = logging.getLogger(__name__)
 

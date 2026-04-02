@@ -56,6 +56,9 @@ jobs:
       - name: Install test dependencies
         run: uv sync --locked --group test --no-default-groups
 
+      - name: Test console script entry point
+        run: |
+          uv run bio2zarr --help
       - name: Run basic vcf2zarr example
         run: |
           uv run python -m bio2zarr vcf2zarr convert tests/data/vcf/sample.vcf.gz sample.vcz -f
@@ -164,6 +167,10 @@ jobs:
           uv venv cli-test
           uv pip install --python=cli-test dist/*.whl
 
+      - name: Check bio2zarr CLI
+        run: |
+          ./cli-test/bin/bio2zarr --help
+          ./cli-test/bin/python -m bio2zarr --help
       - name: Check vcf2zarr CLI
         run: |
           ./cli-test/bin/vcf2zarr --help
