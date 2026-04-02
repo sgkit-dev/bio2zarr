@@ -1123,7 +1123,8 @@ class IntermediateColumnarFormat(vcz.Source):
                 ploidy = max_ploidy
             elif ploidy < max_ploidy:
                 raise ValueError(
-                    f"Ploidy was set to {ploidy}, but max ploidy in data was {max_ploidy}"
+                    f"Ploidy was set to {ploidy}, "
+                    f"but max ploidy in data was {max_ploidy}"
                 )
 
             # NOTE: it's not clear why we're computing this, when we must have had
