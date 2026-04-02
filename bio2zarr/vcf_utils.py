@@ -13,7 +13,6 @@ import humanfriendly
 import numpy as np
 
 from bio2zarr import core
-from bio2zarr._typing import PathType
 
 logger = logging.getLogger(__name__)
 
@@ -197,12 +196,14 @@ def get_first_locus_in_bin(csi: CSIIndex, bin: int) -> int:
     return (bin - first_bin_on_level) * (max_span // level_size) + 1
 
 
-def read_csi(file: PathType, storage_options: dict[str, str] | None = None) -> CSIIndex:
+def read_csi(
+    file: str | pathlib.Path, storage_options: dict[str, str] | None = None
+) -> CSIIndex:
     """Parse a CSI file into a `CSIIndex` object.
 
     Parameters
     ----------
-    file : PathType
+    file : str | Path
         The path to the CSI file.
 
     Returns
@@ -312,13 +313,13 @@ class TabixIndex:
 
 
 def read_tabix(
-    file: PathType, storage_options: dict[str, str] | None = None
+    file: str | pathlib.Path, storage_options: dict[str, str] | None = None
 ) -> TabixIndex:
     """Parse a tabix file into a `TabixIndex` object.
 
     Parameters
     ----------
-    file : PathType
+    file : str | Path
         The path to the tabix file.
 
     Returns
