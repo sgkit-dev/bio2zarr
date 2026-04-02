@@ -1,6 +1,6 @@
 import click
 
-from . import cli
+from bio2zarr import cli
 
 
 @cli.version

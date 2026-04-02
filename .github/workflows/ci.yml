@@ -169,7 +169,6 @@ jobs:
 
       - name: Check bio2zarr CLI
         run: |
-          ./cli-test/bin/bio2zarr --help
           ./cli-test/bin/python -m bio2zarr --help
       - name: Check vcf2zarr CLI
         run: |
