@@ -165,11 +165,9 @@ class TestSmallExample:
         return path.with_suffix("")
 
     @pytest.fixture(scope="class")
-    def ds(self, tmp_path_factory, bed_path):
-        tmp_path = tmp_path_factory.mktemp("data")
-        zarr_path = tmp_path / "example.plink.zarr"
-        plink.convert(bed_path, zarr_path)
-        return load_dataset(zarr_path)
+    def ds(self, bed_path):
+        root = plink.convert(bed_path)
+        return load_dataset(root)
 
     def test_genotypes(self, ds):
         call_genotype = ds.call_genotype.values
@@ -226,11 +224,10 @@ class TestExample:
     """
 
     @pytest.fixture(scope="class")
-    def ds(self, tmp_path_factory):
+    def ds(self):
         path = "tests/data/plink/example"
-        out = tmp_path_factory.mktemp("data") / "example.plink.zarr"
-        plink.convert(path, out)
-        return load_dataset(out)
+        root = plink.convert(path)
+        return load_dataset(root)
 
     def test_sample_ids(self, ds):
         nt.assert_array_equal(ds.sample_id, [f"ind{j}" for j in range(10)])
@@ -290,11 +287,10 @@ class TestExample:
 
 class TestSimulatedExample:
     @pytest.fixture(scope="class")
-    def ds(self, tmp_path_factory):
+    def ds(self):
         path = "tests/data/plink/plink_sim_10s_100v_10pmiss"
-        out = tmp_path_factory.mktemp("data") / "example.plink.zarr"
-        plink.convert(path, out)
-        return load_dataset(out)
+        root = plink.convert(path)
+        return load_dataset(root)
 
     def test_genotypes(self, ds):
         # Validate a few randomly selected individual calls

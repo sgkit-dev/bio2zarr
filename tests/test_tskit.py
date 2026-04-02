@@ -7,7 +7,6 @@ import numpy.testing as nt
 import pytest
 import tskit
 import xarray.testing as xt
-import zarr
 
 from bio2zarr import tskit as tsk
 from bio2zarr import vcf
@@ -102,11 +101,9 @@ def insert_branch_sites(ts, m=1):
 
 class TestSimpleTs:
     @pytest.fixture
-    def conversion(self, tmp_path):
+    def conversion(self):
         ts = simple_ts()
-        zarr_path = tmp_path / "test_output.vcz"
-        tsk.convert(ts, zarr_path)
-        zroot = zarr.open(zarr_path, mode="r")
+        zroot = tsk.convert(ts)
         return ts, zroot
 
     def test_position(self, conversion):
@@ -525,14 +522,11 @@ def test_against_tskit_vcf_output(ts, tmp_path):
     with open(vcf_path, "w") as f:
         ts.write_vcf(f)
 
-    tskit_zarr = tmp_path / "tskit.zarr"
-    vcf_zarr = tmp_path / "vcf.zarr"
-    tsk.convert(ts, tskit_zarr, worker_processes=0)
-
-    vcf.convert([vcf_path], vcf_zarr, worker_processes=0)
-    ds1 = load_dataset(tskit_zarr).drop_vars("contig_length")
+    tskit_root = tsk.convert(ts, worker_processes=0)
+    vcf_root = vcf.convert([vcf_path], worker_processes=0)
+    ds1 = load_dataset(tskit_root).drop_vars("contig_length")
     ds2 = (
-        load_dataset(vcf_zarr)
+        load_dataset(vcf_root)
         .drop_dims("filters")
         .drop_vars(
             ["variant_id", "variant_id_mask", "variant_quality", "contig_length"]
@@ -569,7 +563,6 @@ def assert_ts_ds_equal(ts, ds, ploidy=2):
 def test_workers(tmp_path, worker_processes):
     ts = msprime.sim_ancestry(10, sequence_length=1000, random_seed=42)
     ts = add_mutations(ts)
-    out = tmp_path / "tskit.zarr"
-    tsk.convert(ts, out, worker_processes=worker_processes)
-    ds = load_dataset(out)
+    root = tsk.convert(ts, worker_processes=worker_processes)
+    ds = load_dataset(root)
     assert_ts_ds_equal(ts, ds)

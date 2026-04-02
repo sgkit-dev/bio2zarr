@@ -65,9 +65,8 @@ class TestTskitRoundTripVcf:
     def test_ploidy(self, ploidy, tmp_path):
         ts = run_simulation(ploidy=ploidy)
         vcf_path = write_vcf(ts, tmp_path / "sim.vcf")
-        out = tmp_path / "example.vcf.zarr"
-        vcf_mod.convert([vcf_path], out)
-        ds = load_dataset(out)
+        root = vcf_mod.convert([vcf_path])
+        ds = load_dataset(root)
         assert_ts_ds_equal(ts, ds, ploidy)
 
     @pytest.mark.parametrize(
@@ -86,9 +85,8 @@ class TestTskitRoundTripVcf:
         self.validate_tss_vcf_list(contig_ids, tss, vcfs, tmp_path)
 
     def validate_tss_vcf_list(self, contig_ids, tss, vcfs, tmp_path):
-        out = tmp_path / "example.vcf.zarr"
-        vcf_mod.convert(vcfs, out)
-        ds = load_dataset(out).set_index(
+        root = vcf_mod.convert(vcfs)
+        ds = load_dataset(root).set_index(
             variants=("variant_contig", "variant_position")
         )
         assert ds.sizes["ploidy"] == 1
@@ -108,9 +106,8 @@ class TestTskitRoundTripVcf:
     def test_indexed(self, indexed, tmp_path):
         ts = run_simulation(num_samples=12, seed=34)
         vcf_path = write_vcf(ts, tmp_path / "sim.vcf", indexed=indexed)
-        out = tmp_path / "example.vcf.zarr"
-        vcf_mod.convert([vcf_path], out)
-        ds = load_dataset(out)
+        root = vcf_mod.convert([vcf_path])
+        ds = load_dataset(root)
         assert_ts_ds_equal(ts, ds)
 
     @pytest.mark.parametrize("num_contigs", [2, 3, 6])
