@@ -37,9 +37,7 @@ icf_path = click.argument(
     "icf_path", type=click.Path(exists=True, file_okay=False, dir_okay=True)
 )
 
-new_zarr_path = click.argument(
-    "zarr_path", type=click.Path(file_okay=False, dir_okay=True)
-)
+new_zarr_path = click.argument("zarr_path", type=click.Path())
 
 zarr_path = click.argument(
     "zarr_path", type=click.Path(exists=True, file_okay=False, dir_okay=True)

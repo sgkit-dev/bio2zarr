@@ -5,6 +5,7 @@ import logging
 import os
 import pathlib
 import shutil
+import zipfile
 
 import numcodecs
 import numpy as np
@@ -530,6 +531,25 @@ class VcfZarrWriteSummary(core.JsonDataclass):
     num_variants: int
     num_chunks: int
     max_encoding_memory: str
+
+
+def strip_zip_suffix(path):
+    """If path ends with .zip, return (path_without_zip, True), else (path, False)."""
+    p = pathlib.Path(path)
+    if p.suffix == ".zip":
+        return p.with_suffix(""), True
+    return p, False
+
+
+def zip_zarr(dir_path, zip_path):
+    """Create a zip archive of a zarr directory store and remove the directory."""
+    dir_path = pathlib.Path(dir_path)
+    zip_path = pathlib.Path(zip_path)
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
+        for file in sorted(dir_path.rglob("*")):
+            if file.is_file():
+                zf.write(file, file.relative_to(dir_path))
+    shutil.rmtree(dir_path)
 
 
 class VcfZarrWriter:

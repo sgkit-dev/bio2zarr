@@ -1,5 +1,4 @@
 import logging
-import pathlib
 
 import numpy as np
 
@@ -279,8 +278,8 @@ def convert(
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
     )
-    zarr_path = pathlib.Path(vcz_path)
-    vzw = vcz.VcfZarrWriter(TskitFormat, zarr_path)
+    dir_path, is_zip = vcz.strip_zip_suffix(vcz_path)
+    vzw = vcz.VcfZarrWriter(TskitFormat, dir_path)
     # Rough heuristic to split work up enough to keep utilisation high
     target_num_partitions = max(1, worker_processes * 4)
     vzw.init(
@@ -294,3 +293,5 @@ def convert(
     )
     vzw.finalise(show_progress)
     vzw.create_index()
+    if is_zip:
+        vcz.zip_zarr(dir_path, vcz_path)
