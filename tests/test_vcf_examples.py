@@ -585,7 +585,26 @@ class TestWithGtHeaderNoGenotypes:
         return load_dataset(root)
 
     def test_gts(self, ds):
-        assert "call_genotype" not in ds
+        # ploidy dim defaults to 1 when no samples
+        assert ds.call_genotype.shape == (26, 0, 1)
+        assert ds.call_genotype_mask.shape == (26, 0, 1)
+        assert ds.call_genotype_phased.shape == (26, 0)
+
+
+class TestWithGtHeaderNoGenotypesWithPloidy:
+    data_path = "tests/data/vcf/sample_no_genotypes_with_gt_header.vcf.gz"
+
+    @pytest.fixture(scope="class")
+    def ds(self, tmp_path_factory):
+        out = tmp_path_factory.mktemp("data") / "example.vcf.zarr"
+        vcf_mod.convert([self.data_path], out, ploidy=2, worker_processes=0)
+        return load_dataset(out)
+
+    def test_gts(self, ds):
+        # ploidy dim matches value in convert
+        assert ds.call_genotype.shape == (26, 0, 2)
+        assert ds.call_genotype_mask.shape == (26, 0, 2)
+        assert ds.call_genotype_phased.shape == (26, 0)
 
 
 class TestChr22Example:

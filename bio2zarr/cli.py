@@ -160,6 +160,13 @@ local_alleles = click.option(
     help="Use local allele fields to reduce the storage requirements of the output.",
 )
 
+ploidy = click.option(
+    "--ploidy",
+    type=int,
+    default=None,
+    help=("Set the ploidy dimension explicitly."),
+)
+
 
 def setup_logging(verbosity):
     level = "WARNING"
@@ -339,7 +346,8 @@ def inspect(path, verbose):
 @variants_chunk_size
 @samples_chunk_size
 @local_alleles
-def mkschema(icf_path, variants_chunk_size, samples_chunk_size, local_alleles):
+@ploidy
+def mkschema(icf_path, variants_chunk_size, samples_chunk_size, local_alleles, ploidy):
     """
     Generate a schema for zarr encoding
     """
@@ -355,6 +363,7 @@ def mkschema(icf_path, variants_chunk_size, samples_chunk_size, local_alleles):
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
         local_alleles=local_alleles,
+        ploidy=ploidy,
     )
 
 

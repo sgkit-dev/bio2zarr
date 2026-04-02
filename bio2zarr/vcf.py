@@ -1097,7 +1097,11 @@ class IntermediateColumnarFormat(vcz.Source):
                 yield vcz.VariantData(variant_length[0], alleles, gt, phased)
 
     def generate_schema(
-        self, variants_chunk_size=None, samples_chunk_size=None, local_alleles=None
+        self,
+        variants_chunk_size=None,
+        samples_chunk_size=None,
+        local_alleles=None,
+        ploidy=None,
     ):
         if local_alleles is None:
             local_alleles = False
@@ -1112,10 +1116,10 @@ class IntermediateColumnarFormat(vcz.Source):
                 has_g_field = True
                 max_genotypes = max(max_genotypes, field.summary.max_number)
 
-        ploidy = None
         genotypes_size = None
         if self.gt_field is not None:
-            ploidy = max(self.gt_field.summary.max_number - 1, 1)
+            if ploidy is None:
+                ploidy = max(self.gt_field.summary.max_number - 1, 1)
             # NOTE: it's not clear why we're computing this, when we must have had
             # at least one number=G field to require it anyway?
             genotypes_size = math.comb(max_alleles + ploidy - 1, ploidy)
@@ -1218,7 +1222,7 @@ class IntermediateColumnarFormat(vcz.Source):
                 continue
             array_specs.append(spec_from_field(field))
 
-        if self.gt_field is not None and self.num_samples > 0:
+        if self.gt_field is not None:
             array_specs.append(
                 vcz.ZarrArraySpec(
                     name="call_genotype_phased",
@@ -1622,12 +1626,14 @@ def mkschema(
     variants_chunk_size=None,
     samples_chunk_size=None,
     local_alleles=None,
+    ploidy=None,
 ):
     store = IntermediateColumnarFormat(if_path)
     spec = store.generate_schema(
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
         local_alleles=local_alleles,
+        ploidy=ploidy,
     )
     out.write(spec.asjson())
 
@@ -1641,6 +1647,7 @@ def convert(
     samples_chunk_size=None,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     local_alleles=None,
+    ploidy=None,
     show_progress=False,
     icf_path=None,
 ):
@@ -1706,6 +1713,7 @@ def convert(
             worker_processes=worker_processes,
             show_progress=show_progress,
             local_alleles=local_alleles,
+            ploidy=ploidy,
         )
 
 
@@ -1725,6 +1733,7 @@ def encode(
     dimension_separator=None,
     max_memory=None,
     local_alleles=None,
+    ploidy=None,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
     mode="r",
@@ -1740,6 +1749,7 @@ def encode(
             variants_chunk_size=variants_chunk_size,
             samples_chunk_size=samples_chunk_size,
             local_alleles=local_alleles,
+            ploidy=ploidy,
             max_variant_chunks=max_variant_chunks,
             dimension_separator=dimension_separator,
         )
@@ -1763,6 +1773,7 @@ def encode_init(
     variants_chunk_size=None,
     samples_chunk_size=None,
     local_alleles=None,
+    ploidy=None,
     max_variant_chunks=None,
     dimension_separator=None,
     max_memory=None,
@@ -1775,6 +1786,7 @@ def encode_init(
             variants_chunk_size=variants_chunk_size,
             samples_chunk_size=samples_chunk_size,
             local_alleles=local_alleles,
+            ploidy=ploidy,
         )
     else:
         logger.info(f"Reading schema from {schema_path}")
