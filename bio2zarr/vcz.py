@@ -536,27 +536,41 @@ class VcfZarrWriteSummary(core.JsonDataclass):
 
 
 def zip_zarr(dir_path, zip_path):
-    """Create a zip archive of a zarr directory store and remove the directory."""
+    """Create a zip archive of a zarr directory store."""
     dir_path = pathlib.Path(dir_path)
     zip_path = pathlib.Path(zip_path)
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
         for file in sorted(dir_path.rglob("*")):
             if file.is_file():
                 zf.write(file, file.relative_to(dir_path))
-    shutil.rmtree(dir_path)
 
 
 def dir_to_memory_store(dir_path, mode="r"):
-    """Copy a zarr directory store into a MemoryStore and return the opened group."""
-    store = zarr.storage.MemoryStore()
-    for dirpath, _, filenames in os.walk(dir_path):
-        for fname in filenames:
-            fpath = pathlib.Path(dirpath) / fname
-            key = str(fpath.relative_to(dir_path))
-            with open(fpath, "rb") as f:
-                content = f.read()
-            store.set_sync(key, zarr.core.buffer.cpu.Buffer.from_bytes(content))
-    return zarr.open(store=store, mode=mode)
+    """Copy a zarr directory store into a MemoryStore and return the opened group.
+
+    Uses zarr's async store API (LocalStore.get / MemoryStore.set) to copy data
+    between stores. This avoids constructing Buffer objects directly, which would
+    require reaching into zarr.core.buffer.cpu — a submodule that isn't part of
+    zarr's documented public API. The async approach uses only public store
+    interfaces (LocalStore, MemoryStore, default_buffer_prototype) and lets zarr
+    handle buffer types internally.
+
+    Zarr 3.x does not yet implement copy_store(), so this manual copy is needed.
+    If a public store-to-store copy is added in a future zarr release, this
+    function should be replaced with it.
+    """
+    src = zarr.storage.LocalStore(dir_path, read_only=True)
+    dst = zarr.storage.MemoryStore()
+
+    async def _copy():
+        proto = zarr.core.buffer.default_buffer_prototype()
+        async for key in src.list_prefix(""):
+            val = await src.get(key, proto)
+            if val is not None:
+                await dst.set(key, val)
+
+    zarr.core.sync.sync(_copy())
+    return zarr.open(store=dst, mode=mode)
 
 
 @dataclasses.dataclass
@@ -585,6 +599,7 @@ def open_zarr(zarr_path, mode="r"):
         result = ZarrWriteResult(dir=pathlib.Path(zarr_path).with_suffix(""))
         yield result
         zip_zarr(result.dir, zarr_path)
+        shutil.rmtree(result.dir)
         result.root = zarr.open(zarr.storage.ZipStore(zarr_path, mode="r"), mode=mode)
     else:
         result = ZarrWriteResult(dir=pathlib.Path(zarr_path))

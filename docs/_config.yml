@@ -44,3 +44,4 @@ sphinx:
     intersphinx_mapping:
       python: ["https://docs.python.org/3/", null]
       tskit: ["https://tskit.dev/tskit/docs/stable", null]
+      zarr: ["https://zarr.readthedocs.io/en/stable/", null]

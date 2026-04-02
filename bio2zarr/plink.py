@@ -310,6 +310,38 @@ def convert(
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
 ):
+    """
+    Convert a PLINK fileset to VCF Zarr format.
+
+    Parameters
+    ----------
+    prefix : str or Path
+        Path prefix for the PLINK fileset (i.e. the shared prefix of the
+        .bed, .bim, and .fam files).
+    out : str, Path, or None
+        Output path for the Zarr store. The output format depends on the value:
+
+        - **None**: write to a temporary directory and return an in-memory
+          :class:`zarr.storage.MemoryStore`-backed group.
+        - **Ends with .zip**: write to a directory, then package as a zip
+          archive readable via :class:`zarr.storage.ZipStore`. The
+          intermediate directory is removed.
+        - **Otherwise**: write directly to the given directory path.
+    variants_chunk_size : int, optional
+        Number of variants per chunk. If None, a default is used.
+    samples_chunk_size : int, optional
+        Number of samples per chunk. If None, a default is used.
+    worker_processes : int
+        Number of worker processes for parallel encoding. 0 (the default)
+        means use the main process only.
+    show_progress : bool
+        If True, display a progress bar during conversion.
+
+    Returns
+    -------
+    zarr.Group
+        The root group of the Zarr store containing the converted data.
+    """
     plink_format = PlinkFormat(prefix)
     schema = plink_format.generate_schema(
         variants_chunk_size=variants_chunk_size,

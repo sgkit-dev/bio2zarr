@@ -257,9 +257,39 @@ def convert(
 ):
     """
     Convert a :class:`tskit.TreeSequence` (or path to a tree sequence
-    file) to VCF Zarr format stored at the specified path.
+    file) to VCF Zarr format.
 
-    .. todo:: Document parameters
+    Parameters
+    ----------
+    ts_or_path : tskit.TreeSequence, str, or Path
+        A tree sequence object or path to a tree sequence file.
+    vcz_path : str, Path, or None
+        Output path for the Zarr store. The output format depends on the value:
+
+        - **None**: write to a temporary directory and return an in-memory
+          :class:`zarr.storage.MemoryStore`-backed group.
+        - **Ends with .zip**: write to a directory, then package as a zip
+          archive readable via :class:`zarr.storage.ZipStore`. The
+          intermediate directory is removed.
+        - **Otherwise**: write directly to the given directory path.
+    model_mapping : dict, optional
+        A mapping returned by :meth:`tskit.TreeSequence.map_to_vcf_model`
+        controlling how the tree sequence data model is mapped to VCF.
+        If None, ``map_to_vcf_model`` is called with default parameters.
+    variants_chunk_size : int, optional
+        Number of variants per chunk. If None, a default is used.
+    samples_chunk_size : int, optional
+        Number of samples per chunk. If None, a default is used.
+    worker_processes : int
+        Number of worker processes for parallel encoding. 0 (the default)
+        means use the main process only.
+    show_progress : bool
+        If True, display a progress bar during conversion.
+
+    Returns
+    -------
+    zarr.Group
+        The root group of the Zarr store containing the converted data.
     """
     # FIXME there's some tricky details here in how we're handling
     # parallelism that we'll need to tackle properly, and maybe

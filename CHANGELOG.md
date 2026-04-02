@@ -1,6 +1,19 @@
 # Unreleased
 
+*New features*
+
+- Add zip VCZ output support to CLI and Python APIs.
+
+- Add in-memory VCZ output to Python API; ``convert()`` functions 
+  (``vcf``, ``plink``, ``tskit``) and ``vcf.encode()`` now return a 
+  ``zarr.Group``.
+
+- Add ``plink2zarr`` Python API documentation.
+
 *Bug fixes*
+
+- Fix stdlib ``typing`` module shadowing caused by ``bio2zarr/typing.py``,
+  which broke the ``bio2zarr`` console script entry point (#461).
 
 - Missing GT incorrectly marked as phased (#454)
 
