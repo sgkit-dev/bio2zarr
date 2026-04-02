@@ -7,7 +7,6 @@ import os
 import pathlib
 import shutil
 import tempfile
-import zipfile
 
 import numcodecs
 import numpy as np
@@ -535,44 +534,6 @@ class VcfZarrWriteSummary(core.JsonDataclass):
     max_encoding_memory: str
 
 
-def zip_zarr(dir_path, zip_path):
-    """Create a zip archive of a zarr directory store."""
-    dir_path = pathlib.Path(dir_path)
-    zip_path = pathlib.Path(zip_path)
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
-        for file in sorted(dir_path.rglob("*")):
-            if file.is_file():
-                zf.write(file, file.relative_to(dir_path))
-
-
-def dir_to_memory_store(dir_path, mode="r"):
-    """Copy a zarr directory store into a MemoryStore and return the opened group.
-
-    Uses zarr's async store API (LocalStore.get / MemoryStore.set) to copy data
-    between stores. This avoids constructing Buffer objects directly, which would
-    require reaching into zarr.core.buffer.cpu — a submodule that isn't part of
-    zarr's documented public API. The async approach uses only public store
-    interfaces (LocalStore, MemoryStore, default_buffer_prototype) and lets zarr
-    handle buffer types internally.
-
-    Zarr 3.x does not yet implement copy_store(), so this manual copy is needed.
-    If a public store-to-store copy is added in a future zarr release, this
-    function should be replaced with it.
-    """
-    src = zarr.storage.LocalStore(dir_path, read_only=True)
-    dst = zarr.storage.MemoryStore()
-
-    async def _copy():
-        proto = zarr.core.buffer.default_buffer_prototype()
-        async for key in src.list_prefix(""):
-            val = await src.get(key, proto)
-            if val is not None:
-                await dst.set(key, val)
-
-    zarr.core.sync.sync(_copy())
-    return zarr.open(store=dst, mode=mode)
-
-
 @dataclasses.dataclass
 class ZarrWriteResult:
     dir: pathlib.Path
@@ -594,11 +555,11 @@ def open_zarr(zarr_path, mode="r"):
         with tempfile.TemporaryDirectory(prefix="bio2zarr_") as tmp:
             result = ZarrWriteResult(dir=pathlib.Path(tmp) / "zarr")
             yield result
-            result.root = dir_to_memory_store(result.dir, mode=mode)
+            result.root = zarr_utils.dir_to_memory_store(result.dir, mode=mode)
     elif pathlib.Path(zarr_path).suffix == ".zip":
         result = ZarrWriteResult(dir=pathlib.Path(zarr_path).with_suffix(""))
         yield result
-        zip_zarr(result.dir, zarr_path)
+        zarr_utils.zip_zarr(result.dir, zarr_path)
         shutil.rmtree(result.dir)
         result.root = zarr.open(zarr.storage.ZipStore(zarr_path, mode="r"), mode=mode)
     else:
