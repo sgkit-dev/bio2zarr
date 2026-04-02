@@ -1148,12 +1148,13 @@ class TestVcfPartition:
 class TestZipOutput:
     vcf_path = "tests/data/vcf/sample.vcf.gz"
 
+    @pytest.mark.skipif(IS_WINDOWS, reason="VCF support requires cyvcf2")
     def test_vcf2zarr_convert_zip(self, tmp_path):
         zip_path = tmp_path / "sample.vcz.zip"
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"convert {self.vcf_path} {zip_path}",
+            ["convert", self.vcf_path, str(zip_path)],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -1164,19 +1165,20 @@ class TestZipOutput:
         assert "variant_position" in root
         assert "sample_id" in root
 
+    @pytest.mark.skipif(IS_WINDOWS, reason="VCF support requires cyvcf2")
     def test_vcf2zarr_encode_zip(self, tmp_path):
         icf_path = tmp_path / "icf"
         zip_path = tmp_path / "sample.vcz.zip"
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"explode {self.vcf_path} {icf_path}",
+            ["explode", self.vcf_path, str(icf_path)],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"encode {icf_path} {zip_path}",
+            ["encode", str(icf_path), str(zip_path)],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -1190,7 +1192,7 @@ class TestZipOutput:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.plink2zarr_main,
-            f"convert {plink_path} {zip_path}",
+            ["convert", plink_path, str(zip_path)],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -1204,7 +1206,7 @@ class TestZipOutput:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.tskit2zarr_main,
-            f"convert {ts_path} {zip_path}",
+            ["convert", ts_path, str(zip_path)],
             catch_exceptions=False,
         )
         assert result.exit_code == 0

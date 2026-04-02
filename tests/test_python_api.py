@@ -1,3 +1,6 @@
+import sys
+
+import pytest
 import zarr
 
 from bio2zarr import plink, vcf
@@ -7,7 +10,10 @@ EXPECTED_VCF_ARRAYS = ["variant_position", "sample_id", "call_genotype"]
 EXPECTED_PLINK_ARRAYS = ["variant_position", "sample_id", "call_genotype"]
 EXPECTED_TSKIT_ARRAYS = ["variant_position", "sample_id", "call_genotype"]
 
+IS_WINDOWS = sys.platform == "win32"
 
+
+@pytest.mark.skipif(IS_WINDOWS, reason="VCF support requires cyvcf2")
 class TestVcfConvert:
     vcf_path = "tests/data/vcf/sample.vcf.gz"
 
