@@ -1118,8 +1118,14 @@ class IntermediateColumnarFormat(vcz.Source):
 
         genotypes_size = None
         if self.gt_field is not None:
+            max_ploidy = max(self.gt_field.summary.max_number - 1, 1)
             if ploidy is None:
-                ploidy = max(self.gt_field.summary.max_number - 1, 1)
+                ploidy = max_ploidy
+            elif ploidy < max_ploidy:
+                raise ValueError(
+                    f"Ploidy was set to {ploidy}, but max ploidy in data was {max_ploidy}"
+                )
+
             # NOTE: it's not clear why we're computing this, when we must have had
             # at least one number=G field to require it anyway?
             genotypes_size = math.comb(max_alleles + ploidy - 1, ploidy)

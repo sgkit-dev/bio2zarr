@@ -164,7 +164,10 @@ ploidy = click.option(
     "--ploidy",
     type=int,
     default=None,
-    help=("Set the ploidy dimension explicitly."),
+    help=(
+        "Set the ploidy dimension explicitly. Must be at least "
+        "the maximum ploidy that occurs in the data."
+    ),
 )
 
 
