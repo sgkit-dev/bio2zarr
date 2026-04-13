@@ -97,14 +97,17 @@ def create_empty_group_array(
 ):
     """Create an empty array within a group."""
     if ZARR_FORMAT == 2:
-        array = group.empty(
+        v2_kwargs = {**kwargs}
+        v2_kwargs.pop("zarr_format", None)
+        if compressor is not None:
+            v2_kwargs["compressors"] = [compressor]
+        array = group.create_array(
             name=name,
             shape=shape,
             dtype=dtype,
             chunks=chunks,
-            compressor=compressor,
             filters=filters,
-            **kwargs,
+            **v2_kwargs,
         )
         if dimension_names is not None:
             array.attrs["_ARRAY_DIMENSIONS"] = dimension_names
