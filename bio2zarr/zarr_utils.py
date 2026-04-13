@@ -131,17 +131,10 @@ def create_empty_group_array(
 
 
 def get_compressor(array):
-    try:
-        # zarr format v2: compressor (singular)
-        return array.compressor
-    except TypeError as e:
-        # zarr format v3: compressors (plural)
-        compressors = array.compressors
-        if len(compressors) > 1:
-            raise ValueError(
-                f"Only one compressor is supported but found {compressors}"
-            ) from e
-        return compressors[0] if len(compressors) == 1 else None
+    compressors = array.compressors
+    if len(compressors) > 1:
+        raise ValueError(f"Only one compressor is supported but found {compressors}")
+    return compressors[0] if len(compressors) == 1 else None
 
 
 def get_compressor_config(array):
