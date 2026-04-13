@@ -57,9 +57,8 @@ def create_group_array(
         if compressor is not None:
             v2_kwargs["compressors"] = [compressor]
         if data is not None:
-            np_dtype = np.dtypes.StringDType() if dtype == "str" else dtype
             array = group.create_array(
-                name, data=np.asarray(data, dtype=np_dtype), **v2_kwargs
+                name, data=np.asarray(data, dtype=dtype), **v2_kwargs
             )
         else:
             array = group.create_array(name, shape=shape, dtype=dtype, **v2_kwargs)
