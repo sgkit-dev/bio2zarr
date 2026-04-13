@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 # Storage format (zarr v2 vs v3) is chosen at runtime via the
 # BIO2ZARR_ZARR_FORMAT env var. The underlying zarr-python library is always
 # v3 (>=3.1); this flag only controls which on-disk format we write.
-# NOTE: v3 storage was introduced for experimentation and is not envisaged
-# as a long-term interface.
+# NOTE: this inferface for v3 storage was introduced for experimentation and
+# is not envisaged as a long-term interface.
 try:
     ZARR_FORMAT = int(os.environ.get("BIO2ZARR_ZARR_FORMAT", "2"))
 except ValueError:
@@ -60,15 +60,14 @@ def create_group_array(
 ):
     """Create an array within a group."""
     new_kwargs = {**kwargs}
+    compressors = None
     if ZARR_FORMAT == 2:
-        compressors = [compressor] if compressor is not None else None
+        if compressor is not None:
+            compressors = [compressor]
     else:
         new_kwargs.pop("zarr_format", None)
-        compressors = (
-            [_convert_v2_compressor_to_v3_codec(compressor, dtype)]
-            if compressor is not None
-            else None
-        )
+        if compressor is not None:
+            compressors = [_convert_v2_compressor_to_v3_codec(compressor, dtype)]
     if compressors is not None:
         new_kwargs["compressors"] = compressors
 
