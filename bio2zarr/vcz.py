@@ -740,7 +740,7 @@ class VcfZarrWriter:
             "sample_id",
             data=[sample.id for sample in samples],
             shape=len(samples),
-            dtype="str",
+            dtype=zarr_utils.STRING_DTYPE_NAME,
             compressor=DEFAULT_ZARR_COMPRESSOR,
             chunks=(self.schema.get_chunks(["samples"])[0],),
             dimension_names=["samples"],
@@ -754,7 +754,7 @@ class VcfZarrWriter:
             "contig_id",
             data=[contig.id for contig in contigs],
             shape=len(contigs),
-            dtype="str",
+            dtype=zarr_utils.STRING_DTYPE_NAME,
             compressor=DEFAULT_ZARR_COMPRESSOR,
             dimension_names=["contigs"],
         )
@@ -776,7 +776,7 @@ class VcfZarrWriter:
             "filter_id",
             data=[filt.id for filt in filters],
             shape=len(filters),
-            dtype="str",
+            dtype=zarr_utils.STRING_DTYPE_NAME,
             compressor=DEFAULT_ZARR_COMPRESSOR,
             dimension_names=["filters"],
         )
@@ -785,7 +785,7 @@ class VcfZarrWriter:
             "filter_description",
             data=[filt.description for filt in filters],
             shape=len(filters),
-            dtype="str",
+            dtype=zarr_utils.STRING_DTYPE_NAME,
             compressor=DEFAULT_ZARR_COMPRESSOR,
             dimension_names=["filters"],
         )
