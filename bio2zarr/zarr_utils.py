@@ -3,6 +3,7 @@ import os
 import pathlib
 import zipfile
 
+import numpy as np
 import zarr
 
 logger = logging.getLogger(__name__)
@@ -50,14 +51,18 @@ def create_group_array(
 ):
     """Create an array within a group."""
     if ZARR_FORMAT == 2:
-        array = group.array(
-            name,
-            data=data,
-            shape=shape,
-            dtype=dtype,
-            compressor=compressor,
-            **kwargs,
-        )
+        # create_array rejects data together with shape/dtype; when data is
+        # provided, let it infer shape/dtype from the array.
+        v2_kwargs = {**kwargs}
+        if compressor is not None:
+            v2_kwargs["compressors"] = [compressor]
+        if data is not None:
+            np_dtype = np.dtypes.StringDType() if dtype == "str" else dtype
+            array = group.create_array(
+                name, data=np.asarray(data, dtype=np_dtype), **v2_kwargs
+            )
+        else:
+            array = group.create_array(name, shape=shape, dtype=dtype, **v2_kwargs)
         if dimension_names is not None:
             array.attrs["_ARRAY_DIMENSIONS"] = dimension_names
         return array
