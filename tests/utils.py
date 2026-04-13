@@ -16,7 +16,11 @@ def load_dataset(
         store = store.store
 
     ds: xr.Dataset = xr.open_zarr(
-        store, storage_options=storage_options, concat_characters=False, **kwargs
+        store,
+        storage_options=storage_options,
+        concat_characters=False,
+        consolidated=False,
+        **kwargs,
     )  # type: ignore[no-untyped-call]
     for v in ds:
         # Workaround for https://github.com/pydata/xarray/issues/4386
