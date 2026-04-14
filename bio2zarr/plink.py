@@ -4,7 +4,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from bio2zarr import constants, core, vcz
+from bio2zarr import constants, core, vcz, zarr_utils
 from bio2zarr.zarr_utils import STRING_DTYPE_NAME
 
 logger = logging.getLogger(__name__)
@@ -280,21 +280,21 @@ class PlinkFormat(vcz.Source):
                 dtype="bool",
                 dimensions=["variants", "samples"],
                 description=None,
-                compressor=vcz.DEFAULT_ZARR_COMPRESSOR_BOOL.get_config(),
+                compressor=dict(zarr_utils.DEFAULT_COMPRESSOR_BOOL_CONFIG),
             ),
             vcz.ZarrArraySpec(
                 name="call_genotype",
                 dtype="i1",
                 dimensions=["variants", "samples", "ploidy"],
                 description=None,
-                compressor=vcz.DEFAULT_ZARR_COMPRESSOR_GENOTYPES.get_config(),
+                compressor=dict(zarr_utils.DEFAULT_COMPRESSOR_GENOTYPES_CONFIG),
             ),
             vcz.ZarrArraySpec(
                 name="call_genotype_mask",
                 dtype="bool",
                 dimensions=["variants", "samples", "ploidy"],
                 description=None,
-                compressor=vcz.DEFAULT_ZARR_COMPRESSOR_BOOL.get_config(),
+                compressor=dict(zarr_utils.DEFAULT_COMPRESSOR_BOOL_CONFIG),
             ),
         ]
         schema_instance.fields = array_specs

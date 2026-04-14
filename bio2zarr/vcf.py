@@ -18,7 +18,7 @@ import numpy as np
 
 from bio2zarr.zarr_utils import STRING_DTYPE_NAME, vcf_zarr_exists
 
-from . import constants, core, provenance, vcf_utils, vcz
+from . import constants, core, provenance, vcf_utils, vcz, zarr_utils
 
 logger = logging.getLogger(__name__)
 
@@ -1169,7 +1169,7 @@ class IntermediateColumnarFormat(vcz.Source):
 
         def fixed_field_spec(name, dtype, source=None, dimensions=("variants",)):
             compressor = (
-                vcz.DEFAULT_ZARR_COMPRESSOR_BOOL.get_config()
+                dict(zarr_utils.DEFAULT_COMPRESSOR_BOOL_CONFIG)
                 if dtype == "bool"
                 else None
             )
@@ -1236,7 +1236,7 @@ class IntermediateColumnarFormat(vcz.Source):
                     dtype="bool",
                     dimensions=["variants", "samples"],
                     description="",
-                    compressor=vcz.DEFAULT_ZARR_COMPRESSOR_BOOL.get_config(),
+                    compressor=dict(zarr_utils.DEFAULT_COMPRESSOR_BOOL_CONFIG),
                 )
             )
             array_specs.append(
@@ -1245,7 +1245,7 @@ class IntermediateColumnarFormat(vcz.Source):
                     dtype=self.gt_field.smallest_dtype(),
                     dimensions=["variants", "samples", "ploidy"],
                     description="",
-                    compressor=vcz.DEFAULT_ZARR_COMPRESSOR_GENOTYPES.get_config(),
+                    compressor=dict(zarr_utils.DEFAULT_COMPRESSOR_GENOTYPES_CONFIG),
                 )
             )
             array_specs.append(
@@ -1254,7 +1254,7 @@ class IntermediateColumnarFormat(vcz.Source):
                     dtype="bool",
                     dimensions=["variants", "samples", "ploidy"],
                     description="",
-                    compressor=vcz.DEFAULT_ZARR_COMPRESSOR_BOOL.get_config(),
+                    compressor=dict(zarr_utils.DEFAULT_COMPRESSOR_BOOL_CONFIG),
                 )
             )
 

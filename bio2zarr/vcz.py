@@ -19,13 +19,6 @@ logger = logging.getLogger(__name__)
 ZARR_SCHEMA_FORMAT_VERSION = "0.6"
 DEFAULT_VARIANT_CHUNK_SIZE = 1000
 DEFAULT_SAMPLE_CHUNK_SIZE = 10_000
-DEFAULT_ZARR_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7)
-DEFAULT_ZARR_COMPRESSOR_GENOTYPES = numcodecs.Blosc(
-    cname="zstd", clevel=7, shuffle=numcodecs.Blosc.BITSHUFFLE
-)
-DEFAULT_ZARR_COMPRESSOR_BOOL = numcodecs.Blosc(
-    cname="zstd", clevel=7, shuffle=numcodecs.Blosc.BITSHUFFLE
-)
 
 _fixed_field_descriptions = {
     "variant_contig": "An identifier from the reference genome or an angle-bracketed ID"
@@ -329,7 +322,7 @@ class VcfZarrSchema(core.JsonDataclass):
         self.fields = fields
         defaults = defaults.copy() if defaults is not None else {}
         if defaults.get("compressor", None) is None:
-            defaults["compressor"] = DEFAULT_ZARR_COMPRESSOR.get_config()
+            defaults["compressor"] = dict(zarr_utils.DEFAULT_COMPRESSOR_CONFIG)
         if defaults.get("filters", None) is None:
             defaults["filters"] = []
         self.defaults = defaults
@@ -741,7 +734,7 @@ class VcfZarrWriter:
             data=[sample.id for sample in samples],
             shape=len(samples),
             dtype=zarr_utils.STRING_DTYPE_NAME,
-            compressor=DEFAULT_ZARR_COMPRESSOR,
+            compressor=zarr_utils.DEFAULT_COMPRESSOR,
             chunks=(self.schema.get_chunks(["samples"])[0],),
             dimension_names=["samples"],
         )
@@ -755,7 +748,7 @@ class VcfZarrWriter:
             data=[contig.id for contig in contigs],
             shape=len(contigs),
             dtype=zarr_utils.STRING_DTYPE_NAME,
-            compressor=DEFAULT_ZARR_COMPRESSOR,
+            compressor=zarr_utils.DEFAULT_COMPRESSOR,
             dimension_names=["contigs"],
         )
         if all(contig.length is not None for contig in contigs):
@@ -765,7 +758,7 @@ class VcfZarrWriter:
                 data=[contig.length for contig in contigs],
                 shape=len(contigs),
                 dtype=np.int64,
-                compressor=DEFAULT_ZARR_COMPRESSOR,
+                compressor=zarr_utils.DEFAULT_COMPRESSOR,
                 dimension_names=["contigs"],
             )
 
@@ -777,7 +770,7 @@ class VcfZarrWriter:
             data=[filt.id for filt in filters],
             shape=len(filters),
             dtype=zarr_utils.STRING_DTYPE_NAME,
-            compressor=DEFAULT_ZARR_COMPRESSOR,
+            compressor=zarr_utils.DEFAULT_COMPRESSOR,
             dimension_names=["filters"],
         )
         zarr_utils.create_group_array(
@@ -786,7 +779,7 @@ class VcfZarrWriter:
             data=[filt.description for filt in filters],
             shape=len(filters),
             dtype=zarr_utils.STRING_DTYPE_NAME,
-            compressor=DEFAULT_ZARR_COMPRESSOR,
+            compressor=zarr_utils.DEFAULT_COMPRESSOR,
             dimension_names=["filters"],
         )
 
@@ -802,7 +795,7 @@ class VcfZarrWriter:
             if array_spec.compressor is not None
             else schema.defaults["compressor"]
         )
-        compressor = numcodecs.get_codec(compressor)
+        compressor = zarr_utils.make_compressor(compressor)
         if array_spec.dtype == zarr_utils.STRING_DTYPE_NAME:
             filters = [*list(filters), numcodecs.VLenUTF8()]
 
@@ -1273,7 +1266,9 @@ class VcfZarrIndexer:
             shape=index.shape,
             chunks=index.shape,
             dtype=index.dtype,
-            compressor=numcodecs.Blosc("zstd", clevel=9, shuffle=0),
+            compressor=zarr_utils.make_compressor(
+                {"id": "blosc", "cname": "zstd", "clevel": 9, "shuffle": 0}
+            ),
             fill_value=None,
             dimension_names=[
                 "region_index_values",
