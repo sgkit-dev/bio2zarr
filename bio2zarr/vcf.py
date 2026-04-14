@@ -320,7 +320,8 @@ def scan_vcfs(
         results = list(pwm.results_as_completed())
 
     # Sort to make the ordering deterministic
-    results.sort(key=lambda t: t[0].partitions[0].vcf_path)
+    if len(results[0][0].partitions) > 0:
+        results.sort(key=lambda t: t[0].partitions[0].vcf_path)
     # We just take the first header, assuming the others
     # are compatible.
     all_partitions = []
@@ -673,6 +674,8 @@ class IntermediateColumnarFormatField:
     def iter_values(self, start=None, stop=None):
         start = 0 if start is None else start
         stop = self.num_records if stop is None else stop
+        if start == stop:
+            return
         start_partition = (
             np.searchsorted(self.partition_record_index, start, side="right") - 1
         )

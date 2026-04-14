@@ -478,6 +478,8 @@ class VcfZarrPartition:
 
     @staticmethod
     def generate_partitions(num_records, chunk_size, num_partitions, max_chunks=None):
+        if num_records == 0:
+            return [VcfZarrPartition(0, 0)]
         num_chunks = int(np.ceil(num_records / chunk_size))
         if max_chunks is not None:
             num_chunks = min(num_chunks, max_chunks)
@@ -1173,15 +1175,22 @@ class VcfZarr:
         arrays = [(a.nbytes_stored(), a) for _, a in self.root.arrays()]
         arrays.sort(key=lambda x: x[0])
         for stored, array in reversed(arrays):
+            nchunks = array.nchunks
+            if nchunks == 0:
+                chunk_size = "0"
+                avg_chunk_stored = "0"
+            else:
+                chunk_size = core.display_size(array.nbytes / nchunks)
+                avg_chunk_stored = core.display_size(int(stored / nchunks))
             d = {
                 "name": array.name,
                 "dtype": str(array.dtype),
                 "stored": core.display_size(stored),
                 "size": core.display_size(array.nbytes),
                 "ratio": core.display_number(array.nbytes / stored),
-                "nchunks": str(array.nchunks),
-                "chunk_size": core.display_size(array.nbytes / array.nchunks),
-                "avg_chunk_stored": core.display_size(int(stored / array.nchunks)),
+                "nchunks": str(nchunks),
+                "chunk_size": chunk_size,
+                "avg_chunk_stored": avg_chunk_stored,
                 "shape": str(array.shape),
                 "chunk_shape": str(array.chunks),
                 "compressor": str(zarr_utils.get_compressor(array)),
@@ -1243,7 +1252,7 @@ class VcfZarrIndexer:
                 )
                 c_start_idx = c_end_idx + 1
 
-        index = np.array(index, dtype=pos.dtype)
+        index = np.array(index, dtype=pos.dtype).reshape(-1, 6)
         zarr_utils.create_group_array(
             root,
             "region_index",

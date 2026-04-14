@@ -36,6 +36,10 @@
 
 *Bug fixes*
 
+- ``vcf2zarr convert`` now accepts VCFs with zero variant records
+  (plain, tabix-indexed, or CSI-indexed), producing a valid empty
+  VCZ instead of crashing with an unrelated error (#478).
+
 - Fix stdlib ``typing`` module shadowing caused by ``bio2zarr/typing.py``,
   which broke the ``bio2zarr`` console script entry point (#461).
 

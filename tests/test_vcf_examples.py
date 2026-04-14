@@ -1,6 +1,7 @@
 import collections
 import pathlib
 import re
+import shutil
 import sys
 from unittest import mock
 
@@ -8,6 +9,7 @@ import numpy as np
 import numpy.testing as nt
 import pytest
 import xarray.testing as xt
+import zarr
 
 from bio2zarr import constants, provenance, vcz_verification
 from bio2zarr import vcf as vcf_mod
@@ -1253,3 +1255,66 @@ class TestOutOfOrderFields:
     def test_call_DPs(self, ds):
         nt.assert_array_equal(ds["call_DP"], [[5], [-1], [5]])
         nt.assert_array_equal(ds["call_DP2"], [[1], [1], [-1]])
+
+
+class TestEmptyVcf:
+    """Empty VCFs (header only, zero variant records) must round-trip."""
+
+    @staticmethod
+    def _stage(tmp_path, index):
+        src = pathlib.Path("tests/data/vcf/empty.vcf.gz")
+        if index == "plain":
+            return pathlib.Path("tests/data/vcf/empty.vcf")
+        dst = tmp_path / "empty.vcf.gz"
+        shutil.copy(src, dst)
+        suffix = ".tbi" if index == "tabix" else ".csi"
+        shutil.copy(
+            src.with_name(src.name + suffix),
+            dst.with_name(dst.name + suffix),
+        )
+        return dst
+
+    # (array name, expected shape, expected dtype kind).
+    # dtype kinds: "i" integer, "f" float, "b" bool, "T" string.
+    _variant_field_specs = [
+        ("variant_NS", (0,), "i"),  # INFO Number=1 Integer
+        ("variant_AF", (0, 1), "f"),  # INFO Number=A Float
+        ("variant_AA", (0,), "T"),  # INFO Number=1 String
+        ("variant_DB", (0,), "b"),  # INFO Number=0 Flag
+    ]
+    _call_field_specs = [
+        ("call_GQ", (0, 1), "i"),  # FORMAT Number=1 Integer
+        ("call_DP", (0, 1), "i"),  # FORMAT Number=1 Integer
+        ("call_HQ", (0, 1, 2), "i"),  # FORMAT Number=2 Integer
+    ]
+
+    @pytest.mark.parametrize("index", ["plain", "tabix", "csi"])
+    def test_convert_round_trip(self, tmp_path, index):
+        vcf_path = self._stage(tmp_path, index)
+        out = tmp_path / "empty.vcz"
+        vcf_mod.convert([vcf_path], out)
+        root = zarr.open(out, mode="r")
+        assert "vcf_zarr_version" in root.attrs
+        assert root["variant_position"].shape == (0,)
+        nt.assert_array_equal(root["sample_id"][:], ["SAMPLE1"])
+        nt.assert_array_equal(root["contig_id"][:], ["1"])
+        assert "PASS" in list(root["filter_id"][:])
+
+        array_names = list(root.array_keys())
+        for name, shape, kind in self._variant_field_specs + self._call_field_specs:
+            assert name in array_names, f"missing {name}"
+            a = root[name]
+            assert a.shape == shape, f"{name}: shape {a.shape} != {shape}"
+            assert a.dtype.kind == kind, (
+                f"{name}: dtype.kind {a.dtype.kind!r} != {kind!r}"
+            )
+
+    @pytest.mark.parametrize("index", ["plain", "tabix", "csi"])
+    def test_inspect(self, tmp_path, index):
+        vcf_path = self._stage(tmp_path, index)
+        out = tmp_path / "empty.vcz"
+        vcf_mod.convert([vcf_path], out)
+        data = vcf_mod.inspect(out)
+        assert len(data) > 0
+        for row in data:
+            assert "name" in row
