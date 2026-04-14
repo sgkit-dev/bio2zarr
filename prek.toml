@@ -38,3 +38,16 @@ hooks = [
     types = ["python"],
   },
 ]
+
+[[repos]]
+repo = "local"
+hooks = [
+  {
+    id = "zizmor",
+    name = "zizmor",
+    language = "system",
+    entry = "uv run --only-group=lint zizmor",
+    files = "^\\.github/workflows/.*\\.ya?ml$",
+    pass_filenames = true,
+  },
+]
