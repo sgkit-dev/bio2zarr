@@ -1738,7 +1738,6 @@ def encode(
     variants_chunk_size=None,
     samples_chunk_size=None,
     max_variant_chunks=None,
-    dimension_separator=None,
     max_memory=None,
     local_alleles=None,
     ploidy=None,
@@ -1759,7 +1758,6 @@ def encode(
             local_alleles=local_alleles,
             ploidy=ploidy,
             max_variant_chunks=max_variant_chunks,
-            dimension_separator=dimension_separator,
         )
         vzw = vcz.VcfZarrWriter(IntermediateColumnarFormat, zr.dir)
         vzw.encode_all_partitions(
@@ -1783,7 +1781,6 @@ def encode_init(
     local_alleles=None,
     ploidy=None,
     max_variant_chunks=None,
-    dimension_separator=None,
     max_memory=None,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
@@ -1810,7 +1807,6 @@ def encode_init(
         icf_store,
         target_num_partitions=target_num_partitions,
         schema=schema_instance,
-        dimension_separator=dimension_separator,
         max_variant_chunks=max_variant_chunks,
     )
 

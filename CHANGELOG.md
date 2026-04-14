@@ -26,6 +26,14 @@
   filesystem inode overhead; they now report the compressed bytes as
   returned by Zarr's ``Array.nbytes_stored()`` (#471).
 
+- Change the metadata format for distributed encode to drop the
+  unused ``dimension_separator`` field. The metadata
+  format version has been bumped from ``0.1`` to ``0.2``: any
+  in-progress distributed ``dencode`` run started with an earlier
+  version will now fail with a format-version-mismatch error at
+  ``dencode-partition``/``dencode-finalise`` time and must be
+  restarted from ``dencode-init``. (#472)
+
 *Bug fixes*
 
 - Fix stdlib ``typing`` module shadowing caused by ``bio2zarr/typing.py``,
