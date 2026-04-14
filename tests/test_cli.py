@@ -1,5 +1,6 @@
 import dataclasses
 import json
+import shutil
 import sys
 from unittest import mock
 
@@ -1280,3 +1281,169 @@ def test_main_entry_point():
     assert "plink2zarr" in result.stdout
     assert "tskit2zarr" in result.stdout
     assert "vcfpartition" in result.stdout
+    assert "zipzarr" in result.stdout
+
+
+def _make_sample_zarr(path):
+    root = zarr.open(store=path, mode="w", zarr_format=2)
+    root.attrs["test_attr"] = "hello"
+    root.create_array("data", data=np.array([1, 2, 3]))
+
+
+class TestZipZarr:
+    def test_zip_roundtrip(self, tmp_path):
+        src = tmp_path / "store.zarr"
+        zip_path = tmp_path / "store.zip"
+        out = tmp_path / "store-out.zarr"
+        _make_sample_zarr(src)
+
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.zipzarr,
+            [str(src), str(zip_path), "-k"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert zip_path.exists()
+        assert src.exists()
+
+        result = runner.invoke(
+            cli.zipzarr,
+            ["-u", "-k", str(zip_path), str(out)],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert zip_path.exists()
+        root = zarr.open(store=out, mode="r")
+        assert root.attrs["test_attr"] == "hello"
+        np.testing.assert_array_equal(root["data"][:], [1, 2, 3])
+
+    def test_zip_refuses_overwrite(self, tmp_path):
+        src = tmp_path / "store.zarr"
+        zip_path = tmp_path / "store.zip"
+        _make_sample_zarr(src)
+        zip_path.write_bytes(b"existing")
+
+        runner = ct.CliRunner()
+        result = runner.invoke(cli.zipzarr, [str(src), str(zip_path)])
+        assert result.exit_code != 0
+        assert "already exists" in result.stderr
+        assert zip_path.read_bytes() == b"existing"
+        assert src.exists()
+
+    def test_zip_force_overwrites(self, tmp_path):
+        src = tmp_path / "store.zarr"
+        zip_path = tmp_path / "store.zip"
+        _make_sample_zarr(src)
+        zip_path.write_bytes(b"existing")
+
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.zipzarr,
+            [str(src), str(zip_path), "--force", "-k"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert zip_path.read_bytes() != b"existing"
+        assert src.exists()
+
+    def test_unzip_force_overwrites_dir(self, tmp_path):
+        src = tmp_path / "store.zarr"
+        zip_path = tmp_path / "store.zip"
+        out = tmp_path / "store-out.zarr"
+        _make_sample_zarr(src)
+        out.mkdir()
+        (out / "stale").write_text("stale")
+
+        runner = ct.CliRunner()
+        runner.invoke(cli.zipzarr, [str(src), str(zip_path), "-k"])
+        result = runner.invoke(
+            cli.zipzarr,
+            ["-u", "-k", str(zip_path), str(out), "--force"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert not (out / "stale").exists()
+
+    @pytest.mark.parametrize("flag", ["-P", "-Q"])
+    def test_progress_flag(self, tmp_path, flag):
+        src = tmp_path / "store.zarr"
+        zip_path = tmp_path / "store.zip"
+        _make_sample_zarr(src)
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.zipzarr,
+            [str(src), str(zip_path), flag, "-k"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert zip_path.exists()
+
+    def test_zip_default_dest_appends_zip(self, tmp_path):
+        src = tmp_path / "store.zarr"
+        _make_sample_zarr(src)
+        runner = ct.CliRunner()
+        result = runner.invoke(cli.zipzarr, [str(src), "-k"], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert (tmp_path / "store.zarr.zip").exists()
+
+    def test_zip_default_deletes_source(self, tmp_path):
+        src = tmp_path / "store.zarr"
+        _make_sample_zarr(src)
+        runner = ct.CliRunner()
+        result = runner.invoke(cli.zipzarr, [str(src)], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert not src.exists()
+        assert (tmp_path / "store.zarr.zip").exists()
+
+    def test_zip_keep_preserves_source(self, tmp_path):
+        src = tmp_path / "store.zarr"
+        _make_sample_zarr(src)
+        runner = ct.CliRunner()
+        result = runner.invoke(cli.zipzarr, [str(src), "-k"], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert src.exists()
+        assert (tmp_path / "store.zarr.zip").exists()
+
+    def test_unzip_default_dest_strips_zip(self, tmp_path):
+        src = tmp_path / "store.zarr"
+        zip_path = tmp_path / "store.zarr.zip"
+        _make_sample_zarr(src)
+        runner = ct.CliRunner()
+        runner.invoke(cli.zipzarr, [str(src), str(zip_path), "--force"])  # deletes src
+        assert not src.exists()
+        assert zip_path.exists()
+
+        result = runner.invoke(
+            cli.zipzarr, ["-u", str(zip_path)], catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        assert not zip_path.exists()
+        root = zarr.open(store=src, mode="r")
+        assert root.attrs["test_attr"] == "hello"
+        np.testing.assert_array_equal(root["data"][:], [1, 2, 3])
+
+    def test_unzip_keep_preserves_zip(self, tmp_path):
+        src = tmp_path / "store.zarr"
+        zip_path = tmp_path / "store.zarr.zip"
+        _make_sample_zarr(src)
+        runner = ct.CliRunner()
+        runner.invoke(cli.zipzarr, [str(src), str(zip_path), "-k"])
+        assert zip_path.exists()
+        shutil.rmtree(src)
+
+        result = runner.invoke(
+            cli.zipzarr, ["-u", "-k", str(zip_path)], catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        assert zip_path.exists()
+        assert src.exists()
+
+    def test_unzip_default_dest_requires_zip_suffix(self, tmp_path):
+        bin_path = tmp_path / "store.bin"
+        bin_path.write_bytes(b"not a zip")
+        runner = ct.CliRunner()
+        result = runner.invoke(cli.zipzarr, ["-u", str(bin_path)])
+        assert result.exit_code != 0
+        assert "does not end in .zip" in result.stderr
+        assert bin_path.exists()

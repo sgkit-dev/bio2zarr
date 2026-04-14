@@ -50,6 +50,52 @@ class TestZipZarr:
             for info in zf.infolist():
                 assert info.compress_type == zipfile.ZIP_STORED
 
+    @pytest.mark.parametrize("show_progress", [True, False])
+    def test_show_progress(self, tmp_path, show_progress):
+        dir_path = tmp_path / "store"
+        zip_path = tmp_path / "store.zip"
+        _create_test_zarr(dir_path)
+        zarr_utils.zip_zarr(dir_path, zip_path, show_progress=show_progress)
+        assert zip_path.exists()
+
+
+class TestUnzipZarr:
+    def test_roundtrip(self, tmp_path):
+        dir_path = tmp_path / "store"
+        zip_path = tmp_path / "store.zip"
+        out_path = tmp_path / "store-out"
+        _create_test_zarr(dir_path)
+        zarr_utils.zip_zarr(dir_path, zip_path)
+        zarr_utils.unzip_zarr(zip_path, out_path)
+        root = zarr.open(store=out_path, mode="r")
+        assert root.attrs["test_attr"] == "hello"
+        nt.assert_array_equal(root["data"][:], [1, 2, 3])
+
+    def test_matches_source_tree(self, tmp_path):
+        dir_path = tmp_path / "store"
+        zip_path = tmp_path / "store.zip"
+        out_path = tmp_path / "store-out"
+        _create_test_zarr(dir_path)
+        zarr_utils.zip_zarr(dir_path, zip_path)
+        zarr_utils.unzip_zarr(zip_path, out_path)
+        src_files = sorted(
+            p.relative_to(dir_path) for p in dir_path.rglob("*") if p.is_file()
+        )
+        out_files = sorted(
+            p.relative_to(out_path) for p in out_path.rglob("*") if p.is_file()
+        )
+        assert src_files == out_files
+
+    @pytest.mark.parametrize("show_progress", [True, False])
+    def test_show_progress(self, tmp_path, show_progress):
+        dir_path = tmp_path / "store"
+        zip_path = tmp_path / "store.zip"
+        out_path = tmp_path / "store-out"
+        _create_test_zarr(dir_path)
+        zarr_utils.zip_zarr(dir_path, zip_path)
+        zarr_utils.unzip_zarr(zip_path, out_path, show_progress=show_progress)
+        assert out_path.exists()
+
 
 class TestDirToMemoryStore:
     def test_copies_data(self, tmp_path):

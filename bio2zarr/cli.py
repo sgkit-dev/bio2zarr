@@ -8,7 +8,7 @@ import coloredlogs
 import numcodecs
 import tabulate
 
-from . import core, plink, provenance, vcf_utils
+from . import core, plink, provenance, vcf_utils, zarr_utils
 from . import tskit as tskit_mod
 from . import vcf as vcf_mod
 
@@ -655,6 +655,71 @@ def vcfpartition(vcfs, verbose, num_partitions, partition_size):
         )
         for region in regions:
             click.echo(f"{region}\t{vcf_path}")
+
+
+@click.command
+@version
+@click.argument("src", type=click.Path(exists=True))
+@click.argument("dest", type=click.Path(), required=False)
+@click.option(
+    "-u",
+    "--unzip",
+    is_flag=True,
+    flag_value=True,
+    help="Unzip SRC (a .zip archive) into DEST (a directory).",
+)
+@click.option(
+    "-k",
+    "--keep",
+    is_flag=True,
+    flag_value=True,
+    help="Keep (don't delete) the source after a successful operation.",
+)
+@force
+@verbose
+@progress
+def zipzarr(src, dest, unzip, keep, force, verbose, progress):
+    """
+    Pack a Zarr directory store into a single .zip archive.
+
+    By default, packages the directory SRC into the .zip file DEST. If DEST
+    is omitted, it defaults to SRC with a ``.zip`` suffix appended.
+
+    With -u/--unzip, the direction is reversed: SRC is a .zip archive and
+    DEST is the directory it should be extracted into. If DEST is omitted,
+    it defaults to SRC with the trailing ``.zip`` stripped.
+
+    On success, SRC is removed (like gzip). Pass -k/--keep to preserve it.
+    zipzarr does not check whether the input is a well-formed Zarr store --
+    it will zip any directory and unzip any archive.
+    """
+    setup_logging(verbose)
+    src_path = pathlib.Path(src)
+    if unzip:
+        if dest is None:
+            if src_path.suffix != ".zip":
+                raise click.UsageError(
+                    f"Cannot derive output path: {src} does not end in .zip. "
+                    "Provide DEST explicitly."
+                )
+            dest = str(src_path.with_suffix(""))
+        check_overwrite_dir(dest, force)
+        logger.info(f"Unzipping {src} -> {dest}")
+        zarr_utils.unzip_zarr(src, dest, show_progress=progress)
+        if not keep:
+            logger.info(f"Removing source {src}")
+            os.remove(src_path)
+    else:
+        if dest is None:
+            dest = f"{src_path}.zip"
+        dest_path = pathlib.Path(dest)
+        if dest_path.exists() and not force:
+            raise click.UsageError(f"{dest} already exists. Use --force to overwrite.")
+        logger.info(f"Zipping {src} -> {dest}")
+        zarr_utils.zip_zarr(src, dest, show_progress=progress)
+        if not keep:
+            logger.info(f"Removing source {src}")
+            shutil.rmtree(src_path)
 
 
 @click.command(name="convert")

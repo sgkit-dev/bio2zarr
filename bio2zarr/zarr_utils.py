@@ -5,6 +5,7 @@ import zipfile
 
 import numcodecs
 import numpy as np
+import tqdm
 import zarr
 from zarr.codecs.blosc import BloscCodec, BloscShuffle
 
@@ -223,14 +224,30 @@ def move_chunks(src_path, dest_path, partition, name):
         os.rename(chunk_file, dest / chunk_file.name)
 
 
-def zip_zarr(dir_path, zip_path):
+def zip_zarr(dir_path, zip_path, *, show_progress=False):
     """Create a zip archive of a zarr directory store."""
     dir_path = pathlib.Path(dir_path)
     zip_path = pathlib.Path(zip_path)
+    files = sorted(p for p in dir_path.rglob("*") if p.is_file())
+    logger.info(f"Zipping {len(files)} files from {dir_path} to {zip_path}")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
-        for file in sorted(dir_path.rglob("*")):
-            if file.is_file():
-                zf.write(file, file.relative_to(dir_path))
+        for file in tqdm.tqdm(
+            files, desc="     Zip", unit=" files", disable=not show_progress
+        ):
+            zf.write(file, file.relative_to(dir_path))
+
+
+def unzip_zarr(zip_path, dir_path, *, show_progress=False):
+    """Extract a zip archive of a zarr directory store."""
+    zip_path = pathlib.Path(zip_path)
+    dir_path = pathlib.Path(dir_path)
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        members = zf.namelist()
+        logger.info(f"Unzipping {len(members)} files from {zip_path} to {dir_path}")
+        for member in tqdm.tqdm(
+            members, desc="   Unzip", unit=" files", disable=not show_progress
+        ):
+            zf.extract(member, dir_path)
 
 
 def dir_to_memory_store(dir_path, mode="r"):
