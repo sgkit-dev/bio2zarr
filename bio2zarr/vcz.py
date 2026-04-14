@@ -1173,10 +1173,8 @@ class VcfZarrWriter:
 
 class VcfZarr:
     def __init__(self, path):
-        if not zarr_utils.vcf_zarr_exists(path):
-            raise ValueError("Not in VcfZarr format")  # NEEDS TEST
-        self.path = path
-        self.root = zarr.open(path, mode="r")
+        self.path = pathlib.Path(path)
+        self.root = zarr_utils.open_vcf_zarr(self.path)
 
     def summary_table(self):
         data = []

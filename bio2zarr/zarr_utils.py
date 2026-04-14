@@ -89,14 +89,23 @@ def first_dim_iter(z):
         yield from z.blocks[chunk]
 
 
-def vcf_zarr_exists(path):
-    """Tests if a VCF Zarr store exists at the given path."""
-    # .zgroup is the zarr v2 group marker; zarr.json is the v3 marker.
-    if (path / ".zgroup").exists() or (path / "zarr.json").exists():
-        root = zarr.open(path, mode="r")
-        return "vcf_zarr_version" in root.attrs
-    else:
-        return False
+def open_vcf_zarr(path):
+    """Open a VCF Zarr store at ``path``, returning the root group.
+
+    ``path`` may be a directory store or a ``.zip`` archive. Raises
+    ``ValueError`` if the path does not hold a VCF Zarr store.
+    """
+    path = pathlib.Path(path)
+    store = path
+    if path.suffix == ".zip":
+        store = zarr.storage.ZipStore(path, mode="r")
+    try:
+        root = zarr.open(store, mode="r")
+    except (OSError, zipfile.BadZipFile) as e:
+        raise ValueError(f"Not in VcfZarr format: {path}") from e
+    if "vcf_zarr_version" not in root.attrs:
+        raise ValueError(f"Not in VcfZarr format: {path}")
+    return root
 
 
 def create_group_array(

@@ -1215,6 +1215,25 @@ class TestZipOutput:
         root = zarr.open(zarr.storage.ZipStore(zip_path, mode="r"), mode="r")
         assert "variant_position" in root
 
+    @pytest.mark.skipif(IS_WINDOWS, reason="VCF support requires cyvcf2")
+    def test_vcf2zarr_inspect_zip(self, tmp_path):
+        zip_path = tmp_path / "sample.vcz.zip"
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.vcf2zarr_main,
+            ["convert", self.vcf_path, str(zip_path)],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        result = runner.invoke(
+            cli.vcf2zarr_main,
+            ["inspect", str(zip_path)],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert "variant_position" in result.output
+        assert "sample_id" in result.output
+
 
 class TestTskitEndToEnd:
     def test_convert(self, tmp_path):

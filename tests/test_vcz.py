@@ -701,6 +701,14 @@ class TestInspect:
         ]
         nt.assert_array_equal(sorted(df["name"]), sorted(fields))
 
+    def test_vcz_zip(self, zarr_path, tmp_path):
+        zip_path = tmp_path / "sample.vcz.zip"
+        zarr_utils.zip_zarr(zarr_path, zip_path)
+        df_dir = pd.DataFrame(vcf_mod.inspect(zarr_path))
+        df_zip = pd.DataFrame(vcf_mod.inspect(zip_path))
+        assert sorted(list(df_zip)) == sorted(list(df_dir))
+        nt.assert_array_equal(sorted(df_zip["name"]), sorted(df_dir["name"]))
+
     @pytest.mark.parametrize("bad_path", ["/NO_WAY", "TTTTTT"])
     def test_no_such_path(self, bad_path):
         with pytest.raises(ValueError, match=f"Path not found: {bad_path}"):
