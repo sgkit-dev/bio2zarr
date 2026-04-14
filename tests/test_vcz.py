@@ -13,7 +13,7 @@ if sys.platform == "win32":
 else:
     import pysam
 
-from bio2zarr import core, vcz
+from bio2zarr import core, vcz, zarr_utils
 from bio2zarr import vcf as vcf_mod
 from bio2zarr.zarr_utils import STRING_ITEMSIZE, get_compressor_config
 from tests.utils import load_dataset
@@ -712,7 +712,7 @@ class TestInspect:
 class TestSchemaDefaults:
     def test_default_compressor_and_filters(self, schema):
         assert "compressor" in schema.defaults
-        assert schema.defaults["compressor"] == vcz.DEFAULT_ZARR_COMPRESSOR.get_config()
+        assert schema.defaults["compressor"] == zarr_utils.DEFAULT_COMPRESSOR_CONFIG
         assert "filters" in schema.defaults
         assert schema.defaults["filters"] == []
 
@@ -753,9 +753,7 @@ class TestSchemaDefaults:
             dimensions={},
             defaults={"filters": [{"id": "delta"}]},
         )
-        assert (
-            schema2.defaults["compressor"] == vcz.DEFAULT_ZARR_COMPRESSOR.get_config()
-        )
+        assert schema2.defaults["compressor"] == zarr_utils.DEFAULT_COMPRESSOR_CONFIG
         assert schema2.defaults["filters"] == [{"id": "delta"}]
 
     def test_defaults_with_encode(self, icf_path, tmp_path):

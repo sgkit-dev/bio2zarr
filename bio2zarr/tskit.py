@@ -2,7 +2,7 @@ import logging
 
 import numpy as np
 
-from bio2zarr import constants, core, vcz
+from bio2zarr import constants, core, vcz, zarr_utils
 from bio2zarr.zarr_utils import STRING_DTYPE_NAME
 
 logger = logging.getLogger(__name__)
@@ -222,7 +222,7 @@ class TskitFormat(vcz.Source):
                 dtype="bool",
                 dimensions=["variants", "samples"],
                 description="Whether the genotype is phased",
-                compressor=vcz.DEFAULT_ZARR_COMPRESSOR_BOOL.get_config(),
+                compressor=dict(zarr_utils.DEFAULT_COMPRESSOR_BOOL_CONFIG),
             ),
             vcz.ZarrArraySpec(
                 source=None,
@@ -230,7 +230,7 @@ class TskitFormat(vcz.Source):
                 dtype=core.min_int_dtype(constants.INT_FILL, max_alleles - 1),
                 dimensions=["variants", "samples", "ploidy"],
                 description="Genotype for each variant and sample",
-                compressor=vcz.DEFAULT_ZARR_COMPRESSOR_GENOTYPES.get_config(),
+                compressor=dict(zarr_utils.DEFAULT_COMPRESSOR_GENOTYPES_CONFIG),
             ),
             vcz.ZarrArraySpec(
                 source=None,
@@ -238,7 +238,7 @@ class TskitFormat(vcz.Source):
                 dtype="bool",
                 dimensions=["variants", "samples", "ploidy"],
                 description="Mask for each genotype call",
-                compressor=vcz.DEFAULT_ZARR_COMPRESSOR_BOOL.get_config(),
+                compressor=dict(zarr_utils.DEFAULT_COMPRESSOR_BOOL_CONFIG),
             ),
         ]
         schema_instance.fields = array_specs

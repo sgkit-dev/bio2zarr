@@ -3,14 +3,10 @@ import os
 import pathlib
 import zipfile
 
+import numcodecs
 import numpy as np
 import zarr
-from zarr.codecs.blosc import BloscCodec
-from zarr.core.dtype import parse_dtype
-
-# Private zarr API: we reuse zarr's own v2→v3 compressor migration rather
-# than re-implementing the mapping from numcodecs codecs to zarr v3 codecs.
-from zarr.metadata.migrate_v3 import _convert_compressor
+from zarr.codecs.blosc import BloscCodec, BloscShuffle
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +25,64 @@ ZARR_FORMAT_KWARGS = dict(zarr_format=ZARR_FORMAT)
 # In zarr-python v3 strings are stored as string arrays (T) with itemsize 16
 STRING_DTYPE_NAME = "T"
 STRING_ITEMSIZE = 16
+
+
+# Canonical, format-independent compressor configs (numcodecs-style dicts).
+# Stored verbatim in schema JSON so a schema written under one ZARR_FORMAT
+# stays readable under the other.
+DEFAULT_COMPRESSOR_CONFIG = {
+    "id": "blosc",
+    "cname": "zstd",
+    "clevel": 7,
+    "shuffle": numcodecs.Blosc.SHUFFLE,
+    "blocksize": 0,
+}
+DEFAULT_COMPRESSOR_BOOL_CONFIG = {
+    "id": "blosc",
+    "cname": "zstd",
+    "clevel": 7,
+    "shuffle": numcodecs.Blosc.BITSHUFFLE,
+    "blocksize": 0,
+}
+DEFAULT_COMPRESSOR_GENOTYPES_CONFIG = {
+    "id": "blosc",
+    "cname": "zstd",
+    "clevel": 7,
+    "shuffle": numcodecs.Blosc.BITSHUFFLE,
+    "blocksize": 0,
+}
+
+_BLOSC_SHUFFLE_V3 = {
+    numcodecs.Blosc.NOSHUFFLE: BloscShuffle.noshuffle,
+    numcodecs.Blosc.SHUFFLE: BloscShuffle.shuffle,
+    numcodecs.Blosc.BITSHUFFLE: BloscShuffle.bitshuffle,
+}
+
+
+def make_compressor(config):
+    """Build a format-correct compressor from a numcodecs-style config dict.
+
+    Returns a numcodecs codec under ZARR_FORMAT==2 and a zarr v3 codec under
+    ZARR_FORMAT==3. Only Blosc is supported, since that is the only
+    compressor bio2zarr produces.
+    """
+    if config.get("id") != "blosc":
+        raise NotImplementedError(
+            f"Only blosc compressors are supported, got {config!r}"
+        )
+    if ZARR_FORMAT == 2:
+        return numcodecs.get_codec(config)
+    return BloscCodec(
+        cname=config["cname"],
+        clevel=config["clevel"],
+        shuffle=_BLOSC_SHUFFLE_V3[config.get("shuffle", numcodecs.Blosc.SHUFFLE)],
+        blocksize=config.get("blocksize", 0),
+    )
+
+
+DEFAULT_COMPRESSOR = make_compressor(DEFAULT_COMPRESSOR_CONFIG)
+DEFAULT_COMPRESSOR_BOOL = make_compressor(DEFAULT_COMPRESSOR_BOOL_CONFIG)
+DEFAULT_COMPRESSOR_GENOTYPES = make_compressor(DEFAULT_COMPRESSOR_GENOTYPES_CONFIG)
 
 
 # See discussion in https://github.com/zarr-developers/zarr-python/issues/2529
@@ -60,20 +114,13 @@ def create_group_array(
 ):
     """Create an array within a group."""
     new_kwargs = {**kwargs}
-    compressors = None
-    if ZARR_FORMAT == 2:
-        if compressor is not None:
-            compressors = [compressor]
-    else:
-        new_kwargs.pop("zarr_format", None)
-        if compressor is not None:
-            compressors = [_convert_v2_compressor_to_v3_codec(compressor, dtype)]
-    if compressors is not None:
-        new_kwargs["compressors"] = compressors
+    if compressor is not None:
+        new_kwargs["compressors"] = [compressor]
 
     # Zarr format v2 rejects dimension_names on create_array; we instead
     # write the xarray _ARRAY_DIMENSIONS attribute after the fact.
     if ZARR_FORMAT == 3:
+        new_kwargs.pop("zarr_format", None)
         new_kwargs["dimension_names"] = dimension_names
 
     # create_array rejects data together with shape/dtype; when data is
@@ -104,16 +151,12 @@ def create_empty_group_array(
     """Create an empty array within a group."""
     new_kwargs = {**kwargs}
     new_kwargs.pop("zarr_format", None)
+    if compressor is not None:
+        new_kwargs["compressors"] = [compressor]
     if ZARR_FORMAT == 2:
-        if compressor is not None:
-            new_kwargs["compressors"] = [compressor]
         # Zarr v2 accepts numcodecs codecs as filters directly.
         new_kwargs["filters"] = filters
     else:
-        if compressor is not None:
-            new_kwargs["compressors"] = [
-                _convert_v2_compressor_to_v3_codec(compressor, dtype)
-            ]
         # Zarr v3 uses its own ArrayArrayCodec objects for filters; the
         # numcodecs filters (e.g. VLenUTF8) are not applicable because v3
         # has native handling for variable-length strings.
@@ -144,10 +187,6 @@ def get_compressor_config(array):
     if isinstance(compressor, BloscCodec):
         return compressor._blosc_codec.get_config()
     raise TypeError(f"Unsupported compressor type: {type(compressor).__name__}")
-
-
-def _convert_v2_compressor_to_v3_codec(compressor, dtype):
-    return _convert_compressor(compressor, parse_dtype(dtype, zarr_format=3))
 
 
 def move_chunks(src_path, dest_path, partition, name):
