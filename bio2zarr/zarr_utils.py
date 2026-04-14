@@ -225,9 +225,6 @@ def move_chunks(src_path, dest_path, partition, name):
             chunk_files = [
                 path for path in src_chunks.iterdir() if not path.name.startswith(".")
             ]
-    # TODO check for a count of then number of files. If we require a
-    # dimension_separator of "/" then we could make stronger assertions
-    # here, as we'd always have num_variant_chunks
     logger.debug(f"Moving {len(chunk_files)} chunks for {name} partition {partition}")
     for chunk_file in chunk_files:
         os.rename(chunk_file, dest / chunk_file.name)

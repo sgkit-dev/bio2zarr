@@ -492,7 +492,7 @@ class VcfZarrPartition:
         return partitions
 
 
-VZW_METADATA_FORMAT_VERSION = "0.1"
+VZW_METADATA_FORMAT_VERSION = "0.2"
 
 
 @dataclasses.dataclass
@@ -500,7 +500,6 @@ class VcfZarrWriterMetadata(core.JsonDataclass):
     format_version: str
     source_path: str
     schema: VcfZarrSchema
-    dimension_separator: str
     partitions: list
     provenance: dict
 
@@ -656,7 +655,6 @@ class VcfZarrWriter:
         *,
         target_num_partitions,
         schema,
-        dimension_separator=None,
         max_variant_chunks=None,
     ):
         self.source = source
@@ -669,16 +667,10 @@ class VcfZarrWriter:
             target_num_partitions,
             max_chunks=max_variant_chunks,
         )
-        # Default to using nested directories following the Zarr v3 default.
-        # This seems to require version 2.17+ to work properly
-        dimension_separator = (
-            "/" if dimension_separator is None else dimension_separator
-        )
         self.metadata = VcfZarrWriterMetadata(
             format_version=VZW_METADATA_FORMAT_VERSION,
             source_path=str(self.source.path),
             schema=schema,
-            dimension_separator=dimension_separator,
             partitions=partitions,
             # Bare minimum here for provenance - see comments above
             provenance={"source": f"bio2zarr-{provenance.__version__}"},
