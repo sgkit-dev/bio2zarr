@@ -289,6 +289,9 @@ class TabixIndex:
     def offsets(self) -> Any:
         # Combine the linear indexes into one stacked array
         linear_indexes = self.linear_indexes
+        if sum(len(li) for li in linear_indexes) == 0:
+            empty = np.array([], dtype=np.int64)
+            return empty, empty, empty
         linear_index = np.hstack([np.array(li) for li in linear_indexes])
 
         # Create file offsets for each element in the linear index
@@ -459,11 +462,16 @@ class VcfFile(contextlib.AbstractContextManager):
             self.sequence_names = self.index.sequence_names
         else:
             assert self.index is None
-            var = next(self.vcf)
-            self.sequence_names = [var.CHROM]
-            self.vcf.close()
-            # There doesn't seem to be a way to reset the iterator
-            self.vcf = cyvcf2.VCF(vcf_path)
+            var = next(self.vcf, None)
+            if var is None:
+                # Empty VCF: fall back to header-declared contigs. Only the
+                # first is used (unindexed files are single-contig).
+                self.sequence_names = self.vcf.seqnames
+            else:
+                self.sequence_names = [var.CHROM]
+                self.vcf.close()
+                # There doesn't seem to be a way to reset the iterator
+                self.vcf = cyvcf2.VCF(vcf_path)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.vcf is not None:
@@ -538,6 +546,9 @@ class VcfFile(contextlib.AbstractContextManager):
 
         if self.index is None:
             return [Region(self.sequence_names[0])]
+
+        if sum(self.index.record_counts) == 0:
+            return []
 
         # Calculate the desired part file boundaries
         file_length = os.stat(self.vcf_path).st_size
