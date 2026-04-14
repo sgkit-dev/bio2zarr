@@ -17,11 +17,14 @@
 
 - Add ancestral allele output (``variant_AA``) to tskit output (#469)
 
+- ``vcf2zarr inspect`` now accepts a ``.vcz.zip`` archive in addition
+  to a directory store (#471).
+
 *Breaking changes*
 
 - The ``stored`` sizes reported by ``vcf2zarr inspect`` no longer include
   filesystem inode overhead; they now report the compressed bytes as
-  returned by Zarr's ``Array.nbytes_stored()``.
+  returned by Zarr's ``Array.nbytes_stored()`` (#471).
 
 *Bug fixes*
 

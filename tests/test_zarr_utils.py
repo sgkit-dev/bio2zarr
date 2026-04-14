@@ -1,3 +1,4 @@
+import re
 import zipfile
 
 import numcodecs
@@ -214,35 +215,81 @@ class TestFirstDimIter:
 
 
 class TestOpenVcfZarr:
-    def test_dir_with_attr(self, tmp_path, zarr_format):
-        path = tmp_path / "store"
+    def _make_vcf_zarr_dir(self, path, zarr_format):
         root = zarr.open_group(path, mode="w", zarr_format=zarr_format)
         root.attrs["vcf_zarr_version"] = "0.2"
+        root.create_array("data", data=np.array([1, 2, 3]))
+        return root
+
+    def test_dir_with_attr_returns_root(self, tmp_path, zarr_format):
+        path = tmp_path / "store"
+        self._make_vcf_zarr_dir(path, zarr_format)
         opened = zarr_utils.open_vcf_zarr(path)
+        assert opened.attrs["vcf_zarr_version"] == "0.2"
+        nt.assert_array_equal(opened["data"][:], [1, 2, 3])
+
+    def test_dir_accepts_string_path(self, tmp_path, zarr_format):
+        path = tmp_path / "store"
+        self._make_vcf_zarr_dir(path, zarr_format)
+        opened = zarr_utils.open_vcf_zarr(str(path))
         assert opened.attrs["vcf_zarr_version"] == "0.2"
 
     def test_dir_without_attr(self, tmp_path, zarr_format):
         path = tmp_path / "store"
         zarr.open_group(path, mode="w", zarr_format=zarr_format)
+        with pytest.raises(
+            ValueError, match=f"Not in VcfZarr format: {re.escape(str(path))}"
+        ):
+            zarr_utils.open_vcf_zarr(path)
+
+    def test_dir_wrong_attr_value_is_still_accepted(self, tmp_path, zarr_format):
+        # The helper only checks for presence, not value. Document that.
+        path = tmp_path / "store"
+        root = zarr.open_group(path, mode="w", zarr_format=zarr_format)
+        root.attrs["vcf_zarr_version"] = ""
+        opened = zarr_utils.open_vcf_zarr(path)
+        assert "vcf_zarr_version" in opened.attrs
+
+    def test_missing_dir_path(self, tmp_path):
+        missing = tmp_path / "nope"
+        with pytest.raises(
+            ValueError,
+            match=f"Not in VcfZarr format: {re.escape(str(missing))}",
+        ) as exc_info:
+            zarr_utils.open_vcf_zarr(missing)
+        assert exc_info.value.__cause__ is not None
+
+    def test_empty_dir(self, tmp_path):
+        path = tmp_path / "empty"
+        path.mkdir()
         with pytest.raises(ValueError, match="Not in VcfZarr format"):
             zarr_utils.open_vcf_zarr(path)
 
-    def test_missing_path(self, tmp_path):
+    def test_regular_file_non_zip(self, tmp_path):
+        path = tmp_path / "not_zarr.txt"
+        path.write_text("just a text file")
         with pytest.raises(ValueError, match="Not in VcfZarr format"):
-            zarr_utils.open_vcf_zarr(tmp_path / "nope")
+            zarr_utils.open_vcf_zarr(path)
 
-    def test_zip_with_attr(self, tmp_path, zarr_format):
+    def test_zip_with_attr_returns_root(self, tmp_path, zarr_format):
         dir_path = tmp_path / "store"
         zip_path = tmp_path / "store.vcz.zip"
-        root = zarr.open_group(dir_path, mode="w", zarr_format=zarr_format)
-        root.attrs["vcf_zarr_version"] = "0.2"
-        root.create_array("data", data=np.array([1, 2, 3]))
+        self._make_vcf_zarr_dir(dir_path, zarr_format)
         zarr_utils.zip_zarr(dir_path, zip_path)
         opened = zarr_utils.open_vcf_zarr(zip_path)
         assert opened.attrs["vcf_zarr_version"] == "0.2"
         nt.assert_array_equal(opened["data"][:], [1, 2, 3])
+        assert isinstance(opened.store, zarr.storage.ZipStore)
 
-    def test_zip_without_attr(self, tmp_path, zarr_format):
+    def test_zip_accepts_string_path(self, tmp_path, zarr_format):
+        dir_path = tmp_path / "store"
+        zip_path = tmp_path / "store.vcz.zip"
+        self._make_vcf_zarr_dir(dir_path, zarr_format)
+        zarr_utils.zip_zarr(dir_path, zip_path)
+        opened = zarr_utils.open_vcf_zarr(str(zip_path))
+        assert opened.attrs["vcf_zarr_version"] == "0.2"
+
+    def test_zip_zarr_without_attr(self, tmp_path, zarr_format):
         dir_path = tmp_path / "store"
         zip_path = tmp_path / "store.zip"
         zarr.open_group(dir_path, mode="w", zarr_format=zarr_format)
@@ -250,18 +297,44 @@ class TestOpenVcfZarr:
         with pytest.raises(ValueError, match="Not in VcfZarr format"):
             zarr_utils.open_vcf_zarr(zip_path)
 
-    def test_bogus_zip(self, tmp_path):
+    def test_zip_no_zarr_inside(self, tmp_path):
+        # Valid zip file, but contains no zarr metadata at all.
         zip_path = tmp_path / "bogus.zip"
         with zipfile.ZipFile(zip_path, "w") as zf:
             zf.writestr("hello.txt", "not a zarr store")
-        with pytest.raises(ValueError, match="Not in VcfZarr format"):
+        with pytest.raises(
+            ValueError,
+            match=f"Not in VcfZarr format: {re.escape(str(zip_path))}",
+        ) as exc_info:
             zarr_utils.open_vcf_zarr(zip_path)
+        assert exc_info.value.__cause__ is not None
 
-    def test_not_a_zip(self, tmp_path):
+    def test_missing_zip_path(self, tmp_path):
+        missing = tmp_path / "nope.zip"
+        with pytest.raises(
+            ValueError,
+            match=f"Not in VcfZarr format: {re.escape(str(missing))}",
+        ) as exc_info:
+            zarr_utils.open_vcf_zarr(missing)
+        assert isinstance(exc_info.value.__cause__, FileNotFoundError)
+
+    def test_not_a_real_zip_file(self, tmp_path):
         bad = tmp_path / "bad.zip"
         bad.write_text("this is not a zip file at all")
-        with pytest.raises(ValueError, match="Not in VcfZarr format"):
+        with pytest.raises(
+            ValueError, match=f"Not in VcfZarr format: {re.escape(str(bad))}"
+        ) as exc_info:
             zarr_utils.open_vcf_zarr(bad)
+        assert isinstance(exc_info.value.__cause__, zipfile.BadZipFile)
+
+    def test_dir_with_zip_suffix(self, tmp_path):
+        # Pathological: a directory whose name ends with ``.zip``.
+        path = tmp_path / "looks_like.zip"
+        path.mkdir()
+        with pytest.raises(
+            ValueError, match=f"Not in VcfZarr format: {re.escape(str(path))}"
+        ):
+            zarr_utils.open_vcf_zarr(path)
 
 
 class TestCreateGroupArray:
