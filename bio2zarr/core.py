@@ -7,8 +7,6 @@ import json
 import logging
 import math
 import multiprocessing
-import os
-import os.path
 import threading
 import time
 
@@ -109,22 +107,6 @@ def first_dim_slice_iter(z, start, stop):
         if stop < chunk_stop:
             slice_stop = stop - chunk_start
         yield from Z[slice_start:slice_stop]
-
-
-def du(path):
-    """
-    Return the total bytes stored at this path.
-    """
-    total = os.path.getsize(path)
-    # pathlib walk method doesn't exist until 3.12 :(
-    for root, dirs, files in os.walk(path):
-        for lst in [dirs, files]:
-            for name in lst:
-                fullname = os.path.join(root, name)
-                size = os.path.getsize(fullname)
-                total += size
-    logger.debug(f"du({path}) = {total}")
-    return total
 
 
 # We set the default number of worker processes to 0 because it avoids

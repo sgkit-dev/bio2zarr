@@ -229,25 +229,6 @@ class TestFirstDimSliceIter:
         assert list(core.first_dim_slice_iter(z, start, stop)) == list(a[start:stop])
 
 
-@pytest.mark.skipif(sys.platform != "linux", reason="Only valid on Linux")
-@pytest.mark.parametrize(
-    ("path", "expected"),
-    [
-        # NOTE: this data is generated using du -sb on a Linux system.
-        # It works in CI on Linux, but it'll probably break at some point.
-        # It's also necessary to update these numbers each time a new data
-        # file gets added
-        # NOTE: removed this after additional plink files broke it in #390.
-        # It's not worth the trouble - see #330
-        # ("tests/data", 5053610),
-        ("tests/data/vcf", 5018640),
-        ("tests/data/vcf/sample.vcf.gz", 1089),
-    ],
-)
-def test_du(path, expected):
-    assert core.du(path) == expected
-
-
 def test_decorator_missing_dependency():
     @core.requires_optional_dependency("non_existent_module", "extras")
     def test_function():

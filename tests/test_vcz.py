@@ -523,6 +523,9 @@ class TestVcfZarrWriterExample:
         assert partition_path.exists()
 
     def test_double_encode_partition(self, icf_path, tmp_path, caplog):
+        def dir_size(p):
+            return sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+
         partition = 1
         zarr_path = tmp_path / "x.zarr"
         vcf_mod.encode_init(icf_path, zarr_path, 3, variants_chunk_size=3)
@@ -530,13 +533,13 @@ class TestVcfZarrWriterExample:
         assert not partition_path.exists()
         vcf_mod.encode_partition(zarr_path, partition)
         assert partition_path.exists()
-        size = core.du(partition_path)
+        size = dir_size(partition_path)
         assert size > 0
         with caplog.at_level("WARNING"):
             vcf_mod.encode_partition(zarr_path, partition)
         assert "Removing existing partition at" in caplog.text
         assert partition_path.exists()
-        assert core.du(partition_path) == size
+        assert dir_size(partition_path) == size
 
     @pytest.mark.parametrize("partition", [-1, 3, 100])
     def test_encode_partition_out_of_range(self, icf_path, tmp_path, partition):
