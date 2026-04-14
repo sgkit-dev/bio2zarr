@@ -1180,7 +1180,7 @@ class VcfZarr:
 
     def summary_table(self):
         data = []
-        arrays = [(core.du(self.path / a.basename), a) for _, a in self.root.arrays()]
+        arrays = [(a.nbytes_stored(), a) for _, a in self.root.arrays()]
         arrays.sort(key=lambda x: x[0])
         for stored, array in reversed(arrays):
             d = {

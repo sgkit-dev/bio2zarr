@@ -17,6 +17,12 @@
 
 - Add ancestral allele output (``variant_AA``) to tskit output (#469)
 
+*Breaking changes*
+
+- The ``stored`` sizes reported by ``vcf2zarr inspect`` no longer include
+  filesystem inode overhead; they now report the compressed bytes as
+  returned by Zarr's ``Array.nbytes_stored()``.
+
 *Bug fixes*
 
 - Fix stdlib ``typing`` module shadowing caused by ``bio2zarr/typing.py``,
