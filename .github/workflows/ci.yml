@@ -104,7 +104,7 @@ jobs:
         run: |
           uv run pytest --cov=bio2zarr
       - name: Upload coverage to Coveralls
-        uses: coverallsapp/github-action@643bc377ffa44ace6394b2b5d0d3950076de9f63  # v2.3.0
+        uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b  # v2.3.6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           # The first coveralls upload will succeed and others seem to fail now.
