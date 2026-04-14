@@ -82,11 +82,6 @@ def make_compressor(config):
     )
 
 
-DEFAULT_COMPRESSOR = make_compressor(DEFAULT_COMPRESSOR_CONFIG)
-DEFAULT_COMPRESSOR_BOOL = make_compressor(DEFAULT_COMPRESSOR_BOOL_CONFIG)
-DEFAULT_COMPRESSOR_GENOTYPES = make_compressor(DEFAULT_COMPRESSOR_GENOTYPES_CONFIG)
-
-
 # See discussion in https://github.com/zarr-developers/zarr-python/issues/2529
 def first_dim_iter(z):
     for chunk in range(z.cdata_shape[0]):
@@ -117,7 +112,7 @@ def create_group_array(
     """Create an array within a group."""
     new_kwargs = {**kwargs}
     if compressor is not None:
-        new_kwargs["compressors"] = [compressor]
+        new_kwargs["compressors"] = [make_compressor(compressor)]
 
     # Zarr format v2 rejects dimension_names on create_array; we instead
     # write the xarray _ARRAY_DIMENSIONS attribute after the fact.
@@ -154,7 +149,7 @@ def create_empty_group_array(
     new_kwargs = {**kwargs}
     new_kwargs.pop("zarr_format", None)
     if compressor is not None:
-        new_kwargs["compressors"] = [compressor]
+        new_kwargs["compressors"] = [make_compressor(compressor)]
     if ZARR_FORMAT == 2:
         # Filter list is interpreted as numcodecs-style config dicts and
         # converted here so callers don't need to import numcodecs.
