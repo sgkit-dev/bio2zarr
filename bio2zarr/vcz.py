@@ -8,7 +8,6 @@ import pathlib
 import shutil
 import tempfile
 
-import numcodecs
 import numpy as np
 import zarr
 
@@ -789,15 +788,11 @@ class VcfZarrWriter:
             if array_spec.filters is not None
             else schema.defaults["filters"]
         )
-        filters = [numcodecs.get_codec(filt) for filt in filters]
-        compressor = (
+        compressor = zarr_utils.make_compressor(
             array_spec.compressor
             if array_spec.compressor is not None
             else schema.defaults["compressor"]
         )
-        compressor = zarr_utils.make_compressor(compressor)
-        if array_spec.dtype == zarr_utils.STRING_DTYPE_NAME:
-            filters = [*list(filters), numcodecs.VLenUTF8()]
 
         kwargs = dict(zarr_utils.ZARR_FORMAT_KWARGS)
         # see https://github.com/zarr-developers/zarr-python/issues/3197

@@ -13,14 +13,11 @@ import threading
 import time
 
 import humanfriendly
-import numcodecs
 import numpy as np
 import tqdm
 import zarr
 
 logger = logging.getLogger(__name__)
-
-numcodecs.blosc.use_threads = False
 
 
 def requires_optional_dependency(module_name, extras_name):

@@ -10,6 +10,8 @@ from zarr.codecs.blosc import BloscCodec, BloscShuffle
 
 logger = logging.getLogger(__name__)
 
+numcodecs.blosc.use_threads = False
+
 # Storage format (zarr v2 vs v3) is chosen at runtime via the
 # BIO2ZARR_ZARR_FORMAT env var. The underlying zarr-python library is always
 # v3 (>=3.1); this flag only controls which on-disk format we write.
@@ -154,8 +156,19 @@ def create_empty_group_array(
     if compressor is not None:
         new_kwargs["compressors"] = [compressor]
     if ZARR_FORMAT == 2:
-        # Zarr v2 accepts numcodecs codecs as filters directly.
-        new_kwargs["filters"] = filters
+        # Filter list is interpreted as numcodecs-style config dicts and
+        # converted here so callers don't need to import numcodecs.
+        # Zarr v2 also requires a VLenUTF8 filter to accompany "T"-dtype
+        # arrays whenever an explicit compressor is supplied; inject it
+        # here so string-array creation is transparent to callers.
+        codecs = []
+        if filters is not None:
+            codecs = [numcodecs.get_codec(f) for f in filters]
+        if dtype == STRING_DTYPE_NAME:
+            codecs.append(numcodecs.VLenUTF8())
+        if len(codecs) == 0:
+            codecs = None
+        new_kwargs["filters"] = codecs
     else:
         # Zarr v3 uses its own ArrayArrayCodec objects for filters; the
         # numcodecs filters (e.g. VLenUTF8) are not applicable because v3
