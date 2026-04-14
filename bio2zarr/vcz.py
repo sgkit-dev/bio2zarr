@@ -733,7 +733,7 @@ class VcfZarrWriter:
             data=[sample.id for sample in samples],
             shape=len(samples),
             dtype=zarr_utils.STRING_DTYPE_NAME,
-            compressor=zarr_utils.DEFAULT_COMPRESSOR,
+            compressor=zarr_utils.DEFAULT_COMPRESSOR_CONFIG,
             chunks=(self.schema.get_chunks(["samples"])[0],),
             dimension_names=["samples"],
         )
@@ -747,7 +747,7 @@ class VcfZarrWriter:
             data=[contig.id for contig in contigs],
             shape=len(contigs),
             dtype=zarr_utils.STRING_DTYPE_NAME,
-            compressor=zarr_utils.DEFAULT_COMPRESSOR,
+            compressor=zarr_utils.DEFAULT_COMPRESSOR_CONFIG,
             dimension_names=["contigs"],
         )
         if all(contig.length is not None for contig in contigs):
@@ -757,7 +757,7 @@ class VcfZarrWriter:
                 data=[contig.length for contig in contigs],
                 shape=len(contigs),
                 dtype=np.int64,
-                compressor=zarr_utils.DEFAULT_COMPRESSOR,
+                compressor=zarr_utils.DEFAULT_COMPRESSOR_CONFIG,
                 dimension_names=["contigs"],
             )
 
@@ -769,7 +769,7 @@ class VcfZarrWriter:
             data=[filt.id for filt in filters],
             shape=len(filters),
             dtype=zarr_utils.STRING_DTYPE_NAME,
-            compressor=zarr_utils.DEFAULT_COMPRESSOR,
+            compressor=zarr_utils.DEFAULT_COMPRESSOR_CONFIG,
             dimension_names=["filters"],
         )
         zarr_utils.create_group_array(
@@ -778,7 +778,7 @@ class VcfZarrWriter:
             data=[filt.description for filt in filters],
             shape=len(filters),
             dtype=zarr_utils.STRING_DTYPE_NAME,
-            compressor=zarr_utils.DEFAULT_COMPRESSOR,
+            compressor=zarr_utils.DEFAULT_COMPRESSOR_CONFIG,
             dimension_names=["filters"],
         )
 
@@ -788,7 +788,7 @@ class VcfZarrWriter:
             if array_spec.filters is not None
             else schema.defaults["filters"]
         )
-        compressor = zarr_utils.make_compressor(
+        compressor = (
             array_spec.compressor
             if array_spec.compressor is not None
             else schema.defaults["compressor"]
@@ -1261,9 +1261,7 @@ class VcfZarrIndexer:
             shape=index.shape,
             chunks=index.shape,
             dtype=index.dtype,
-            compressor=zarr_utils.make_compressor(
-                {"id": "blosc", "cname": "zstd", "clevel": 9, "shuffle": 0}
-            ),
+            compressor={"id": "blosc", "cname": "zstd", "clevel": 9, "shuffle": 0},
             fill_value=None,
             dimension_names=[
                 "region_index_values",

@@ -21,17 +21,6 @@ def group(tmp_path, zarr_format):
     return zarr.open_group(tmp_path / "store", mode="w", zarr_format=zarr_format)
 
 
-@pytest.fixture
-def default_compressor(zarr_format):
-    """Build a compressor that matches the fixture-patched ZARR_FORMAT.
-
-    Can't reuse `zarr_utils.DEFAULT_COMPRESSOR` directly because it was
-    constructed at import time against the original ZARR_FORMAT and is
-    not valid for the other v2/v3 path.
-    """
-    return zarr_utils.make_compressor(zarr_utils.DEFAULT_COMPRESSOR_CONFIG)
-
-
 def _create_test_zarr(path):
     """Create a minimal zarr store at path for testing."""
     root = zarr.open(store=path, mode="w", zarr_format=2)
@@ -157,12 +146,6 @@ class TestDefaultCompressorConstants:
             == numcodecs.Blosc.BITSHUFFLE
         )
 
-    def test_prebuilt_instances_match_import_time_format(self):
-        expected_type = numcodecs.Blosc if zarr_utils.ZARR_FORMAT == 2 else BloscCodec
-        assert isinstance(zarr_utils.DEFAULT_COMPRESSOR, expected_type)
-        assert isinstance(zarr_utils.DEFAULT_COMPRESSOR_BOOL, expected_type)
-        assert isinstance(zarr_utils.DEFAULT_COMPRESSOR_GENOTYPES, expected_type)
-
 
 class TestFirstDimIter:
     def test_iterates_in_order(self, tmp_path):
@@ -239,30 +222,42 @@ class TestCreateGroupArray:
         else:
             assert a.metadata.dimension_names is None
 
-    def test_compressor_passed_through(self, group, zarr_format):
-        compressor = zarr_utils.make_compressor(
-            {"id": "blosc", "cname": "lz4", "clevel": 3, "shuffle": 1}
-        )
+    def test_compressor_dict_converted(self, group, zarr_format):
         a = zarr_utils.create_group_array(
             group,
             "x",
             data=[1, 2, 3],
             shape=3,
             dtype=np.int32,
-            compressor=compressor,
+            compressor={"id": "blosc", "cname": "lz4", "clevel": 3, "shuffle": 1},
         )
         assert len(a.compressors) == 1
+        expected_type = numcodecs.Blosc if zarr_format == 2 else BloscCodec
+        assert isinstance(a.compressors[0], expected_type)
 
 
 class TestCreateEmptyGroupArray:
-    def test_no_filters_non_string(self, group, zarr_format, default_compressor):
+    def test_compressor_dict_converted(self, group, zarr_format):
         a = zarr_utils.create_empty_group_array(
             group,
             "x",
             shape=(4,),
             dtype=np.int32,
             chunks=(2,),
-            compressor=default_compressor,
+            compressor={"id": "blosc", "cname": "lz4", "clevel": 3, "shuffle": 1},
+        )
+        assert len(a.compressors) == 1
+        expected_type = numcodecs.Blosc if zarr_format == 2 else BloscCodec
+        assert isinstance(a.compressors[0], expected_type)
+
+    def test_no_filters_non_string(self, group, zarr_format):
+        a = zarr_utils.create_empty_group_array(
+            group,
+            "x",
+            shape=(4,),
+            dtype=np.int32,
+            chunks=(2,),
+            compressor=zarr_utils.DEFAULT_COMPRESSOR_CONFIG,
         )
         assert a.shape == (4,)
         assert a.dtype == np.int32
@@ -278,20 +273,20 @@ class TestCreateEmptyGroupArray:
             shape=(8,),
             dtype="<i4",
             chunks=(4,),
-            compressor=numcodecs.Blosc(cname="zstd"),
+            compressor=zarr_utils.DEFAULT_COMPRESSOR_CONFIG,
             filters=[{"id": "delta", "dtype": "<i4"}],
         )
         assert len(a.metadata.filters) == 1
         assert isinstance(a.metadata.filters[0], numcodecs.Delta)
 
-    def test_string_dtype_no_user_filters(self, group, zarr_format, default_compressor):
+    def test_string_dtype_no_user_filters(self, group, zarr_format):
         a = zarr_utils.create_empty_group_array(
             group,
             "x",
             shape=(4,),
             dtype=zarr_utils.STRING_DTYPE_NAME,
             chunks=(2,),
-            compressor=default_compressor,
+            compressor=zarr_utils.DEFAULT_COMPRESSOR_CONFIG,
         )
         if zarr_format == 2:
             assert len(a.metadata.filters) == 1
@@ -312,20 +307,20 @@ class TestCreateEmptyGroupArray:
             shape=(4,),
             dtype=zarr_utils.STRING_DTYPE_NAME,
             chunks=(2,),
-            compressor=numcodecs.Blosc(cname="zstd"),
+            compressor=zarr_utils.DEFAULT_COMPRESSOR_CONFIG,
             filters=[{"id": "vlen-utf8"}],
         )
         assert len(a.metadata.filters) == 2
         assert all(isinstance(f, numcodecs.VLenUTF8) for f in a.metadata.filters)
 
-    def test_dimension_names(self, group, zarr_format, default_compressor):
+    def test_dimension_names(self, group, zarr_format):
         a = zarr_utils.create_empty_group_array(
             group,
             "x",
             shape=(3, 2),
             dtype=np.int32,
             chunks=(3, 2),
-            compressor=default_compressor,
+            compressor=zarr_utils.DEFAULT_COMPRESSOR_CONFIG,
             dimension_names=["variants", "samples"],
         )
         if zarr_format == 2:
@@ -333,14 +328,14 @@ class TestCreateEmptyGroupArray:
         else:
             assert a.metadata.dimension_names == ("variants", "samples")
 
-    def test_chunks(self, group, default_compressor):
+    def test_chunks(self, group):
         a = zarr_utils.create_empty_group_array(
             group,
             "x",
             shape=(10,),
             dtype=np.int32,
             chunks=(4,),
-            compressor=default_compressor,
+            compressor=zarr_utils.DEFAULT_COMPRESSOR_CONFIG,
         )
         assert a.chunks == (4,)
 
@@ -350,14 +345,14 @@ class TestGetCompressor:
         a = group.create_array("x", shape=(3,), dtype=np.int32, compressors=None)
         assert zarr_utils.get_compressor(a) is None
 
-    def test_single_compressor(self, group, default_compressor):
+    def test_single_compressor(self, group):
         a = zarr_utils.create_empty_group_array(
             group,
             "x",
             shape=(4,),
             dtype=np.int32,
             chunks=(2,),
-            compressor=default_compressor,
+            compressor=zarr_utils.DEFAULT_COMPRESSOR_CONFIG,
         )
         c = zarr_utils.get_compressor(a)
         assert c is not None
