@@ -121,6 +121,13 @@ class TestSimpleTs:
         assert alleles.dtype.kind == STRING_DTYPE_NAME
         nt.assert_array_equal(alleles, [["A", "TTTT"], ["CCC", "G"], ["G", "AA"]])
 
+    def test_variant_AA(self, conversion):
+        ts, zroot = conversion
+        aa = zroot["variant_AA"][:]
+        assert aa.shape == (3,)
+        assert aa.dtype.kind == STRING_DTYPE_NAME
+        nt.assert_array_equal(aa, ["A", "CCC", "G"])
+
     def test_variant_length(self, conversion):
         ts, zroot = conversion
         lengths = zroot["variant_length"][:]
@@ -178,6 +185,7 @@ class TestSimpleTs:
         assert set(zroot.array_keys()) == {
             "variant_position",
             "variant_allele",
+            "variant_AA",
             "variant_length",
             "contig_length",
             "call_genotype",
@@ -306,6 +314,7 @@ class TestTskitFormat:
         field_names = [field.name for field in schema.fields]
         assert "variant_position" in field_names
         assert "variant_allele" in field_names
+        assert "variant_AA" in field_names
         assert "variant_length" in field_names
         assert "variant_contig" in field_names
         assert "call_genotype" in field_names
@@ -524,7 +533,7 @@ def test_against_tskit_vcf_output(ts, tmp_path):
 
     tskit_root = tsk.convert(ts, worker_processes=0)
     vcf_root = vcf.convert([vcf_path], worker_processes=0)
-    ds1 = load_dataset(tskit_root).drop_vars("contig_length")
+    ds1 = load_dataset(tskit_root).drop_vars(["contig_length", "variant_AA"])
     ds2 = (
         load_dataset(vcf_root)
         .drop_dims("filters")

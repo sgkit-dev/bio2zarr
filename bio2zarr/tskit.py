@@ -98,6 +98,9 @@ class TskitFormat(vcz.Source):
         if field_name == "position":
             for pos in self.vcf_positions[start:stop]:
                 yield int(pos)
+        elif field_name == "ancestral_state":
+            for value in self.ts.sites_ancestral_state[start:stop]:
+                yield str(value)
         else:
             raise ValueError(f"Unknown field {field_name}")
 
@@ -201,6 +204,13 @@ class TskitFormat(vcz.Source):
                 dtype=STRING_DTYPE_NAME,
                 dimensions=["variants", "alleles"],
                 description="Alleles for each variant",
+            ),
+            vcz.ZarrArraySpec(
+                source="ancestral_state",
+                name="variant_AA",
+                dtype=STRING_DTYPE_NAME,
+                dimensions=["variants"],
+                description="Ancestral allele",
             ),
             vcz.ZarrArraySpec(
                 source=None,

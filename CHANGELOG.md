@@ -12,6 +12,8 @@
 
 - Preliminary Windows support for tskit and plink conversion (#460)
 
+- Add ancestral allele output (``variant_AA``) to tskit output (#469)
+
 *Bug fixes*
 
 - Fix stdlib ``typing`` module shadowing caused by ``bio2zarr/typing.py``,
