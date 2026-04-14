@@ -49,6 +49,7 @@ vcf2zarr = "bio2zarr.cli:vcf2zarr_main"
 vcfpartition = "bio2zarr.cli:vcfpartition"
 tskit2zarr = "bio2zarr.cli:tskit2zarr_main"
 plink2zarr = "bio2zarr.cli:plink2zarr_main"
+zipzarr = "bio2zarr.cli:zipzarr"
 
 [project.optional-dependencies]
 tskit = ["tskit>=1"]

@@ -22,6 +22,11 @@ files to other formats, see [vcztools](https://github.com/sgkit-dev/vcztools).
   VCF into a given number of partitions. This is useful for
   parallel processing of VCF data.
 
+- {ref}`sec-zipzarr` is a utility for zipping/unzipping Zarr directory
+  stores. There can be significant advantages to using a single
+  zipped VCZ over a large directory tree, and this utility makes it
+  straightforward to switch between the two representations.
+
 ## Development status
 
 `bio2zarr` is in development, contributions, feedback and issues are welcome

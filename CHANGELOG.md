@@ -4,6 +4,9 @@
 
 - Add zip VCZ output support to CLI and Python APIs (#462).
 
+- Add ``zipzarr`` CLI to make converting between .vcz and .vcz.zip
+  straightforward (#470)
+
 - Add in-memory VCZ output to Python API; ``convert()`` functions
   (``vcf``, ``plink``, ``tskit``) and ``vcf.encode()`` now return a
   ``zarr.Group`` (#462).
