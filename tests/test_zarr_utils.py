@@ -1,10 +1,35 @@
 import zipfile
 
+import numcodecs
 import numpy as np
 import numpy.testing as nt
+import pytest
 import zarr
+from zarr.codecs.blosc import BloscCodec, BloscShuffle
 
 from bio2zarr import zarr_utils
+
+
+@pytest.fixture(params=[2, 3])
+def zarr_format(request, monkeypatch):
+    monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", request.param)
+    return request.param
+
+
+@pytest.fixture
+def group(tmp_path, zarr_format):
+    return zarr.open_group(tmp_path / "store", mode="w", zarr_format=zarr_format)
+
+
+@pytest.fixture
+def default_compressor(zarr_format):
+    """Build a compressor that matches the fixture-patched ZARR_FORMAT.
+
+    Can't reuse `zarr_utils.DEFAULT_COMPRESSOR` directly because it was
+    constructed at import time against the original ZARR_FORMAT and is
+    not valid for the other v2/v3 path.
+    """
+    return zarr_utils.make_compressor(zarr_utils.DEFAULT_COMPRESSOR_CONFIG)
 
 
 def _create_test_zarr(path):
@@ -57,3 +82,370 @@ class TestDirToMemoryStore:
         _create_test_zarr(dir_path)
         root = zarr_utils.dir_to_memory_store(dir_path)
         assert root.read_only
+
+
+class TestMakeCompressor:
+    def test_v2_returns_numcodecs(self, monkeypatch):
+        monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", 2)
+        c = zarr_utils.make_compressor(zarr_utils.DEFAULT_COMPRESSOR_CONFIG)
+        assert isinstance(c, numcodecs.Blosc)
+        assert c.get_config() == zarr_utils.DEFAULT_COMPRESSOR_CONFIG
+
+    def test_v3_returns_blosc_codec(self, monkeypatch):
+        monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", 3)
+        c = zarr_utils.make_compressor(zarr_utils.DEFAULT_COMPRESSOR_CONFIG)
+        assert isinstance(c, BloscCodec)
+        assert c.cname.value == "zstd"
+        assert c.clevel == 7
+        assert c.shuffle == BloscShuffle.shuffle
+        assert c.blocksize == 0
+
+    @pytest.mark.parametrize(
+        ("numcodecs_shuffle", "v3_shuffle"),
+        [
+            (numcodecs.Blosc.NOSHUFFLE, BloscShuffle.noshuffle),
+            (numcodecs.Blosc.SHUFFLE, BloscShuffle.shuffle),
+            (numcodecs.Blosc.BITSHUFFLE, BloscShuffle.bitshuffle),
+        ],
+    )
+    def test_v3_shuffle_mapping(self, monkeypatch, numcodecs_shuffle, v3_shuffle):
+        monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", 3)
+        c = zarr_utils.make_compressor(
+            {
+                "id": "blosc",
+                "cname": "zstd",
+                "clevel": 5,
+                "shuffle": numcodecs_shuffle,
+            }
+        )
+        assert c.shuffle == v3_shuffle
+        assert c.blocksize == 0
+
+    def test_v3_default_shuffle_when_omitted(self, monkeypatch):
+        monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", 3)
+        c = zarr_utils.make_compressor({"id": "blosc", "cname": "lz4", "clevel": 1})
+        assert c.shuffle == BloscShuffle.shuffle
+
+    def test_non_blosc_raises(self, zarr_format):
+        with pytest.raises(NotImplementedError, match="Only blosc"):
+            zarr_utils.make_compressor({"id": "zlib", "level": 1})
+
+    def test_missing_id_raises(self, zarr_format):
+        with pytest.raises(NotImplementedError, match="Only blosc"):
+            zarr_utils.make_compressor({"cname": "zstd"})
+
+
+class TestDefaultCompressorConstants:
+    def test_default_config(self):
+        assert zarr_utils.DEFAULT_COMPRESSOR_CONFIG == {
+            "id": "blosc",
+            "cname": "zstd",
+            "clevel": 7,
+            "shuffle": numcodecs.Blosc.SHUFFLE,
+            "blocksize": 0,
+        }
+
+    def test_default_bool_config(self):
+        assert (
+            zarr_utils.DEFAULT_COMPRESSOR_BOOL_CONFIG["shuffle"]
+            == numcodecs.Blosc.BITSHUFFLE
+        )
+
+    def test_default_genotypes_config(self):
+        assert (
+            zarr_utils.DEFAULT_COMPRESSOR_GENOTYPES_CONFIG["shuffle"]
+            == numcodecs.Blosc.BITSHUFFLE
+        )
+
+    def test_prebuilt_instances_match_import_time_format(self):
+        expected_type = numcodecs.Blosc if zarr_utils.ZARR_FORMAT == 2 else BloscCodec
+        assert isinstance(zarr_utils.DEFAULT_COMPRESSOR, expected_type)
+        assert isinstance(zarr_utils.DEFAULT_COMPRESSOR_BOOL, expected_type)
+        assert isinstance(zarr_utils.DEFAULT_COMPRESSOR_GENOTYPES, expected_type)
+
+
+class TestFirstDimIter:
+    def test_iterates_in_order(self, tmp_path):
+        root = zarr.open_group(tmp_path / "store", mode="w", zarr_format=2)
+        data = np.arange(24).reshape(6, 4)
+        a = root.create_array("x", data=data, chunks=(2, 4))
+        collected = np.stack(list(zarr_utils.first_dim_iter(a)))
+        nt.assert_array_equal(collected, data)
+
+
+class TestVcfZarrExists:
+    def test_true_when_attr_present(self, tmp_path, zarr_format):
+        path = tmp_path / "store"
+        root = zarr.open_group(path, mode="w", zarr_format=zarr_format)
+        root.attrs["vcf_zarr_version"] = "0.2"
+        assert zarr_utils.vcf_zarr_exists(path) is True
+
+    def test_false_when_attr_absent(self, tmp_path, zarr_format):
+        path = tmp_path / "store"
+        zarr.open_group(path, mode="w", zarr_format=zarr_format)
+        assert zarr_utils.vcf_zarr_exists(path) is False
+
+    def test_false_when_no_markers(self, tmp_path):
+        path = tmp_path / "empty"
+        path.mkdir()
+        assert zarr_utils.vcf_zarr_exists(path) is False
+
+
+class TestCreateGroupArray:
+    def test_data_path_round_trip(self, group):
+        a = zarr_utils.create_group_array(
+            group,
+            "x",
+            data=[1, 2, 3, 4],
+            shape=4,
+            dtype=np.int32,
+            dimension_names=["samples"],
+        )
+        nt.assert_array_equal(a[:], [1, 2, 3, 4])
+        assert a.dtype == np.int32
+
+    def test_shape_path(self, group):
+        a = zarr_utils.create_group_array(
+            group,
+            "x",
+            data=None,
+            shape=(3, 5),
+            dtype=np.float64,
+            dimension_names=["variants", "samples"],
+        )
+        assert a.shape == (3, 5)
+        assert a.dtype == np.float64
+
+    def test_dimension_names_stored(self, group, zarr_format):
+        a = zarr_utils.create_group_array(
+            group,
+            "x",
+            data=[1, 2, 3],
+            shape=3,
+            dtype=np.int32,
+            dimension_names=["variants"],
+        )
+        if zarr_format == 2:
+            assert a.attrs["_ARRAY_DIMENSIONS"] == ["variants"]
+        else:
+            assert a.metadata.dimension_names == ("variants",)
+
+    def test_no_dimension_names(self, group, zarr_format):
+        a = zarr_utils.create_group_array(
+            group, "x", data=[1, 2, 3], shape=3, dtype=np.int32
+        )
+        if zarr_format == 2:
+            assert "_ARRAY_DIMENSIONS" not in a.attrs
+        else:
+            assert a.metadata.dimension_names is None
+
+    def test_compressor_passed_through(self, group, zarr_format):
+        compressor = zarr_utils.make_compressor(
+            {"id": "blosc", "cname": "lz4", "clevel": 3, "shuffle": 1}
+        )
+        a = zarr_utils.create_group_array(
+            group,
+            "x",
+            data=[1, 2, 3],
+            shape=3,
+            dtype=np.int32,
+            compressor=compressor,
+        )
+        assert len(a.compressors) == 1
+
+
+class TestCreateEmptyGroupArray:
+    def test_no_filters_non_string(self, group, zarr_format, default_compressor):
+        a = zarr_utils.create_empty_group_array(
+            group,
+            "x",
+            shape=(4,),
+            dtype=np.int32,
+            chunks=(2,),
+            compressor=default_compressor,
+        )
+        assert a.shape == (4,)
+        assert a.dtype == np.int32
+        if zarr_format == 2:
+            assert a.metadata.filters is None
+
+    def test_user_filters_non_string_v2(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", 2)
+        root = zarr.open_group(tmp_path / "s", mode="w", zarr_format=2)
+        a = zarr_utils.create_empty_group_array(
+            root,
+            "x",
+            shape=(8,),
+            dtype="<i4",
+            chunks=(4,),
+            compressor=numcodecs.Blosc(cname="zstd"),
+            filters=[{"id": "delta", "dtype": "<i4"}],
+        )
+        assert len(a.metadata.filters) == 1
+        assert isinstance(a.metadata.filters[0], numcodecs.Delta)
+
+    def test_string_dtype_no_user_filters(self, group, zarr_format, default_compressor):
+        a = zarr_utils.create_empty_group_array(
+            group,
+            "x",
+            shape=(4,),
+            dtype=zarr_utils.STRING_DTYPE_NAME,
+            chunks=(2,),
+            compressor=default_compressor,
+        )
+        if zarr_format == 2:
+            assert len(a.metadata.filters) == 1
+            assert isinstance(a.metadata.filters[0], numcodecs.VLenUTF8)
+        a[:] = ["a", "b", "c", "d"]
+        nt.assert_array_equal(a[:], ["a", "b", "c", "d"])
+
+    def test_string_dtype_with_user_filters_v2(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", 2)
+        root = zarr.open_group(tmp_path / "s", mode="w", zarr_format=2)
+        # Place a VLenUTF8 in the user filter list; the helper should
+        # still append its own VLenUTF8 (the conversion path does not
+        # deduplicate). This exercises the "user filters + string dtype"
+        # branch where both conversion and injection happen.
+        a = zarr_utils.create_empty_group_array(
+            root,
+            "x",
+            shape=(4,),
+            dtype=zarr_utils.STRING_DTYPE_NAME,
+            chunks=(2,),
+            compressor=numcodecs.Blosc(cname="zstd"),
+            filters=[{"id": "vlen-utf8"}],
+        )
+        assert len(a.metadata.filters) == 2
+        assert all(isinstance(f, numcodecs.VLenUTF8) for f in a.metadata.filters)
+
+    def test_dimension_names(self, group, zarr_format, default_compressor):
+        a = zarr_utils.create_empty_group_array(
+            group,
+            "x",
+            shape=(3, 2),
+            dtype=np.int32,
+            chunks=(3, 2),
+            compressor=default_compressor,
+            dimension_names=["variants", "samples"],
+        )
+        if zarr_format == 2:
+            assert a.attrs["_ARRAY_DIMENSIONS"] == ["variants", "samples"]
+        else:
+            assert a.metadata.dimension_names == ("variants", "samples")
+
+    def test_chunks(self, group, default_compressor):
+        a = zarr_utils.create_empty_group_array(
+            group,
+            "x",
+            shape=(10,),
+            dtype=np.int32,
+            chunks=(4,),
+            compressor=default_compressor,
+        )
+        assert a.chunks == (4,)
+
+
+class TestGetCompressor:
+    def test_none_when_no_compressor(self, group):
+        a = group.create_array("x", shape=(3,), dtype=np.int32, compressors=None)
+        assert zarr_utils.get_compressor(a) is None
+
+    def test_single_compressor(self, group, default_compressor):
+        a = zarr_utils.create_empty_group_array(
+            group,
+            "x",
+            shape=(4,),
+            dtype=np.int32,
+            chunks=(2,),
+            compressor=default_compressor,
+        )
+        c = zarr_utils.get_compressor(a)
+        assert c is not None
+
+    def test_multiple_compressors_raises(self):
+        class Stub:
+            compressors = (object(), object())
+
+        with pytest.raises(ValueError, match="Only one compressor"):
+            zarr_utils.get_compressor(Stub())
+
+
+class TestGetCompressorConfig:
+    def test_numcodecs_codec(self):
+        class Stub:
+            compressors = (numcodecs.Blosc(cname="zstd", clevel=5),)
+
+        config = zarr_utils.get_compressor_config(Stub())
+        assert config["id"] == "blosc"
+        assert config["cname"] == "zstd"
+        assert config["clevel"] == 5
+
+    def test_v3_blosc_codec(self):
+        codec = BloscCodec(cname="zstd", clevel=4, shuffle=BloscShuffle.shuffle)
+
+        class Stub:
+            compressors = (codec,)
+
+        config = zarr_utils.get_compressor_config(Stub())
+        assert config["id"] == "blosc"
+        assert config["cname"] == "zstd"
+        assert config["clevel"] == 4
+
+    def test_unsupported_type_raises(self):
+        class FakeCodec:
+            pass
+
+        class Stub:
+            compressors = (FakeCodec(),)
+
+        with pytest.raises(TypeError, match="Unsupported compressor type"):
+            zarr_utils.get_compressor_config(Stub())
+
+
+class TestMoveChunks:
+    def test_v2_layout(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", 2)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / ".zarray").write_text("{}")
+        (src / "0").write_text("chunk0")
+        (src / "1").write_text("chunk1")
+
+        dest_root = tmp_path / "dest"
+        (dest_root / "arr").mkdir(parents=True)
+
+        zarr_utils.move_chunks(src, dest_root, partition=0, name="arr")
+
+        assert (dest_root / "arr" / "0").read_text() == "chunk0"
+        assert (dest_root / "arr" / "1").read_text() == "chunk1"
+        # Hidden file is left behind.
+        assert (src / ".zarray").exists()
+
+    def test_v3_layout(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", 3)
+        src = tmp_path / "src"
+        (src / "c").mkdir(parents=True)
+        (src / "c" / "0").write_text("chunk0")
+        (src / "c" / "1").write_text("chunk1")
+        (src / "c" / ".hidden").write_text("ignore")
+
+        dest_root = tmp_path / "dest"
+        (dest_root / "arr").mkdir(parents=True)
+
+        zarr_utils.move_chunks(src, dest_root, partition=0, name="arr")
+
+        assert (dest_root / "arr" / "c" / "0").read_text() == "chunk0"
+        assert (dest_root / "arr" / "c" / "1").read_text() == "chunk1"
+        assert (src / "c" / ".hidden").exists()
+
+    def test_v3_missing_c_directory(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", 3)
+        src = tmp_path / "src"
+        src.mkdir()
+
+        dest_root = tmp_path / "dest"
+        (dest_root / "arr").mkdir(parents=True)
+
+        # Should not raise even though src/c/ does not exist.
+        zarr_utils.move_chunks(src, dest_root, partition=0, name="arr")
+        assert list((dest_root / "arr" / "c").iterdir()) == []
