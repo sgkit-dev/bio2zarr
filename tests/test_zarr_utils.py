@@ -51,12 +51,17 @@ class TestZipZarr:
                 assert info.compress_type == zipfile.ZIP_STORED
 
     @pytest.mark.parametrize("show_progress", [True, False])
-    def test_show_progress(self, tmp_path, show_progress):
+    def test_show_progress(self, tmp_path, capsys, show_progress):
         dir_path = tmp_path / "store"
         zip_path = tmp_path / "store.zip"
         _create_test_zarr(dir_path)
         zarr_utils.zip_zarr(dir_path, zip_path, show_progress=show_progress)
         assert zip_path.exists()
+        captured = capsys.readouterr()
+        if show_progress:
+            assert captured.err != ""
+        else:
+            assert captured.err == ""
 
 
 class TestUnzipZarr:
@@ -87,14 +92,20 @@ class TestUnzipZarr:
         assert src_files == out_files
 
     @pytest.mark.parametrize("show_progress", [True, False])
-    def test_show_progress(self, tmp_path, show_progress):
+    def test_show_progress(self, tmp_path, capsys, show_progress):
         dir_path = tmp_path / "store"
         zip_path = tmp_path / "store.zip"
         out_path = tmp_path / "store-out"
         _create_test_zarr(dir_path)
         zarr_utils.zip_zarr(dir_path, zip_path)
+        capsys.readouterr()
         zarr_utils.unzip_zarr(zip_path, out_path, show_progress=show_progress)
         assert out_path.exists()
+        captured = capsys.readouterr()
+        if show_progress:
+            assert captured.err != ""
+        else:
+            assert captured.err == ""
 
 
 class TestDirToMemoryStore:
@@ -202,22 +213,55 @@ class TestFirstDimIter:
         nt.assert_array_equal(collected, data)
 
 
-class TestVcfZarrExists:
-    def test_true_when_attr_present(self, tmp_path, zarr_format):
+class TestOpenVcfZarr:
+    def test_dir_with_attr(self, tmp_path, zarr_format):
         path = tmp_path / "store"
         root = zarr.open_group(path, mode="w", zarr_format=zarr_format)
         root.attrs["vcf_zarr_version"] = "0.2"
-        assert zarr_utils.vcf_zarr_exists(path) is True
+        opened = zarr_utils.open_vcf_zarr(path)
+        assert opened.attrs["vcf_zarr_version"] == "0.2"
 
-    def test_false_when_attr_absent(self, tmp_path, zarr_format):
+    def test_dir_without_attr(self, tmp_path, zarr_format):
         path = tmp_path / "store"
         zarr.open_group(path, mode="w", zarr_format=zarr_format)
-        assert zarr_utils.vcf_zarr_exists(path) is False
+        with pytest.raises(ValueError, match="Not in VcfZarr format"):
+            zarr_utils.open_vcf_zarr(path)
 
-    def test_false_when_no_markers(self, tmp_path):
-        path = tmp_path / "empty"
-        path.mkdir()
-        assert zarr_utils.vcf_zarr_exists(path) is False
+    def test_missing_path(self, tmp_path):
+        with pytest.raises(ValueError, match="Not in VcfZarr format"):
+            zarr_utils.open_vcf_zarr(tmp_path / "nope")
+
+    def test_zip_with_attr(self, tmp_path, zarr_format):
+        dir_path = tmp_path / "store"
+        zip_path = tmp_path / "store.vcz.zip"
+        root = zarr.open_group(dir_path, mode="w", zarr_format=zarr_format)
+        root.attrs["vcf_zarr_version"] = "0.2"
+        root.create_array("data", data=np.array([1, 2, 3]))
+        zarr_utils.zip_zarr(dir_path, zip_path)
+        opened = zarr_utils.open_vcf_zarr(zip_path)
+        assert opened.attrs["vcf_zarr_version"] == "0.2"
+        nt.assert_array_equal(opened["data"][:], [1, 2, 3])
+
+    def test_zip_without_attr(self, tmp_path, zarr_format):
+        dir_path = tmp_path / "store"
+        zip_path = tmp_path / "store.zip"
+        zarr.open_group(dir_path, mode="w", zarr_format=zarr_format)
+        zarr_utils.zip_zarr(dir_path, zip_path)
+        with pytest.raises(ValueError, match="Not in VcfZarr format"):
+            zarr_utils.open_vcf_zarr(zip_path)
+
+    def test_bogus_zip(self, tmp_path):
+        zip_path = tmp_path / "bogus.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("hello.txt", "not a zarr store")
+        with pytest.raises(ValueError, match="Not in VcfZarr format"):
+            zarr_utils.open_vcf_zarr(zip_path)
+
+    def test_not_a_zip(self, tmp_path):
+        bad = tmp_path / "bad.zip"
+        bad.write_text("this is not a zip file at all")
+        with pytest.raises(ValueError, match="Not in VcfZarr format"):
+            zarr_utils.open_vcf_zarr(bad)
 
 
 class TestCreateGroupArray:
