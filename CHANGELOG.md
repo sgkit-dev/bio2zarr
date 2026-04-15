@@ -1,51 +1,44 @@
+# 0.2.1 2026-XX-XX
+
+In development.
+
 # 0.2.0 2026-04-15
 
-Feature release: adds Zip output, (partial) support for Windows and improved
-Python API.
+Feature release: adds Zip output, (partial) support for Windows and improved Python API.
 
 *New features*
 
 - Add zip VCZ output support to CLI and Python APIs (#462).
-
 - Add ``zipzarr`` CLI to make converting between .vcz and .vcz.zip
   straightforward (#470)
-
-- Add in-memory VCZ output to Python API; ``convert()`` functions
-  (``vcf``, ``plink``, ``tskit``) and ``vcf.encode()`` now return a
-  ``zarr.Group`` (#462).
-
+- Add in-memory VCZ output to Python API; ``convert()`` functions (``vcf``,
+  ``plink``, ``tskit``) and ``vcf.encode()`` now return a ``zarr.Group``
+(#462).
 - Add ``plink2zarr`` Python API documentation (#462).
-
 - Preliminary Windows support for tskit and plink conversion (#460)
-
 - Add ancestral allele output (``variant_AA``) to tskit output (#469)
-
-- ``vcf2zarr inspect`` now accepts a ``.vcz.zip`` archive in addition
-  to a directory store (#471).
+- ``vcf2zarr inspect`` now accepts a ``.vcz.zip`` archive in addition to a
+  directory store (#471).
 
 *Breaking changes*
 
 - The ``stored`` sizes reported by ``vcf2zarr inspect`` no longer include
-  filesystem inode overhead; they now report the compressed bytes as
-  returned by Zarr's ``Array.nbytes_stored()`` (#471).
-
-- Change the metadata format for distributed encode to drop the
-  unused ``dimension_separator`` field. The metadata
-  format version has been bumped from ``0.1`` to ``0.2``: any
-  in-progress distributed ``dencode`` run started with an earlier
-  version will now fail with a format-version-mismatch error at
-  ``dencode-partition``/``dencode-finalise`` time and must be
-  restarted from ``dencode-init``. (#472)
+  filesystem inode overhead; they now report the compressed bytes as returned
+by Zarr's ``Array.nbytes_stored()`` (#471).
+- Change the metadata format for distributed encode to drop the unused
+  ``dimension_separator`` field. The metadata format version has been bumped
+from ``0.1`` to ``0.2``: any in-progress distributed ``dencode`` run started
+with an earlier version will now fail with a format-version-mismatch error at
+``dencode-partition``/``dencode-finalise`` time and must be restarted from
+``dencode-init``. (#472)
 
 *Bug fixes*
 
-- ``vcf2zarr convert`` now accepts VCFs with zero variant records
-  (plain, tabix-indexed, or CSI-indexed), producing a valid empty
-  VCZ instead of crashing with an unrelated error (#478).
-
+- ``vcf2zarr convert`` now accepts VCFs with zero variant records (plain,
+  tabix-indexed, or CSI-indexed), producing a valid empty VCZ instead of
+crashing with an unrelated error (#478).
 - Fix stdlib ``typing`` module shadowing caused by ``bio2zarr/typing.py``,
   which broke the ``bio2zarr`` console script entry point (#461).
-
 - Missing GT incorrectly marked as phased (#454)
 
 # 0.1.8 2026-03-02
