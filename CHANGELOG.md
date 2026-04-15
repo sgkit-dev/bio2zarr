@@ -1,4 +1,7 @@
-# Unreleased
+# 0.2.0 2026-04-15
+
+Feature release: adds Zip output, (partial) support for Windows and improved
+Python API.
 
 *New features*
 
