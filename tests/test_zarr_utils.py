@@ -6,6 +6,7 @@ import numpy as np
 import numpy.testing as nt
 import pytest
 import zarr
+from numpy.dtypes import StringDType
 from zarr.codecs.blosc import BloscCodec, BloscShuffle
 
 from bio2zarr import zarr_utils
@@ -442,12 +443,15 @@ class TestCreateEmptyGroupArray:
         assert len(a.metadata.filters) == 1
         assert isinstance(a.metadata.filters[0], numcodecs.Delta)
 
-    def test_string_dtype_no_user_filters(self, group, zarr_format):
+    @pytest.mark.parametrize(
+        "string_dtype", [zarr_utils.STRING_DTYPE_NAME, StringDType()]
+    )
+    def test_string_dtype_no_user_filters(self, group, zarr_format, string_dtype):
         a = zarr_utils.create_empty_group_array(
             group,
             "x",
             shape=(4,),
-            dtype=zarr_utils.STRING_DTYPE_NAME,
+            dtype=string_dtype,
             chunks=(2,),
             compressor=zarr_utils.DEFAULT_COMPRESSOR_CONFIG,
         )
@@ -457,7 +461,12 @@ class TestCreateEmptyGroupArray:
         a[:] = ["a", "b", "c", "d"]
         nt.assert_array_equal(a[:], ["a", "b", "c", "d"])
 
-    def test_string_dtype_with_user_filters_v2(self, tmp_path, monkeypatch):
+    @pytest.mark.parametrize(
+        "string_dtype", [zarr_utils.STRING_DTYPE_NAME, StringDType()]
+    )
+    def test_string_dtype_with_user_filters_v2(
+        self, tmp_path, monkeypatch, string_dtype
+    ):
         monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", 2)
         root = zarr.open_group(tmp_path / "s", mode="w", zarr_format=2)
         # Place a VLenUTF8 in the user filter list; the helper should
@@ -468,7 +477,7 @@ class TestCreateEmptyGroupArray:
             root,
             "x",
             shape=(4,),
-            dtype=zarr_utils.STRING_DTYPE_NAME,
+            dtype=string_dtype,
             chunks=(2,),
             compressor=zarr_utils.DEFAULT_COMPRESSOR_CONFIG,
             filters=[{"id": "vlen-utf8"}],
