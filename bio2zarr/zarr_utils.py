@@ -7,6 +7,7 @@ import numcodecs
 import numpy as np
 import tqdm
 import zarr
+from numpy.dtypes import StringDType
 from zarr.codecs.blosc import BloscCodec, BloscShuffle
 
 logger = logging.getLogger(__name__)
@@ -169,7 +170,7 @@ def create_empty_group_array(
         codecs = []
         if filters is not None:
             codecs = [numcodecs.get_codec(f) for f in filters]
-        if dtype == STRING_DTYPE_NAME:
+        if dtype == STRING_DTYPE_NAME or dtype == StringDType():
             codecs.append(numcodecs.VLenUTF8())
         if len(codecs) == 0:
             codecs = None
