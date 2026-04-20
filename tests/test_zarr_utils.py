@@ -549,6 +549,12 @@ class TestGetCompressorConfig:
         assert config["cname"] == "zstd"
         assert config["clevel"] == 4
 
+    def test_no_compressors(self):
+        class Stub:
+            compressors = ()
+
+        assert zarr_utils.get_compressor_config(Stub()) is None
+
     def test_unsupported_type_raises(self):
         class FakeCodec:
             pass

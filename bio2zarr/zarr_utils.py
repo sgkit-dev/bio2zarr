@@ -197,6 +197,8 @@ def get_compressor(array):
 
 def get_compressor_config(array):
     compressor = get_compressor(array)
+    if compressor is None:
+        return None
     # numcodecs codecs (zarr format v2 path) expose get_config directly.
     if hasattr(compressor, "get_config"):
         return compressor.get_config()
