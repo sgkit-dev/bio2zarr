@@ -265,6 +265,7 @@ def convert(
     samples_chunk_size=None,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
+    zarr_format=None,
 ):
     """
     Convert a :class:`tskit.TreeSequence` (or path to a tree sequence
@@ -330,4 +331,5 @@ def convert(
         mode=mode,
         worker_processes=worker_processes,
         show_progress=show_progress,
+        zarr_format=zarr_format,
     )

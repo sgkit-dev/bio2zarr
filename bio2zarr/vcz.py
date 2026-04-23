@@ -569,6 +569,7 @@ def encode(
     mode="r",
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
+    zarr_format=None,
 ):
     """Encode a source format object into a Zarr store.
 
@@ -600,7 +601,7 @@ def encode(
     """
     source_type = type(source_format)
     with open_zarr(zarr_path, mode=mode) as zr:
-        vzw = VcfZarrWriter(source_type, zr.dir)
+        vzw = VcfZarrWriter(source_type, zr.dir, zarr_format=zarr_format)
         # Rough heuristic to split work up enough to keep utilisation high
         target_num_partitions = max(1, worker_processes * 4)
         vzw.init(
@@ -618,9 +619,10 @@ def encode(
 
 
 class VcfZarrWriter:
-    def __init__(self, source_type, path):
+    def __init__(self, source_type, path, zarr_format=None):
         self.source_type = source_type
         self.path = pathlib.Path(path)
+        self.zarr_format = zarr_format or zarr_utils.DEFAULT_ZARR_FORMAT
         self.wip_path = self.path / "wip"
         self.arrays_path = self.wip_path / "arrays"
         self.partitions_path = self.wip_path / "partitions"
@@ -679,7 +681,7 @@ class VcfZarrWriter:
         )
 
         self.path.mkdir()
-        root = zarr.open(store=self.path, mode="a", **zarr_utils.ZARR_FORMAT_KWARGS)
+        root = zarr_utils.open_zarr_append(self.path, zarr_format=self.zarr_format)
         root.attrs.update(
             {
                 "vcf_zarr_version": "0.4",
@@ -698,8 +700,8 @@ class VcfZarrWriter:
         self.wip_path.mkdir()
         self.arrays_path.mkdir()
         self.partitions_path.mkdir()
-        root = zarr.open(
-            store=self.arrays_path, mode="a", **zarr_utils.ZARR_FORMAT_KWARGS
+        root = zarr_utils.open_zarr_append(
+            self.arrays_path, zarr_format=self.zarr_format
         )
 
         total_chunks = 0
@@ -788,7 +790,7 @@ class VcfZarrWriter:
             else schema.defaults["compressor"]
         )
 
-        kwargs = dict(zarr_utils.ZARR_FORMAT_KWARGS)
+        kwargs = {}
         # see https://github.com/zarr-developers/zarr-python/issues/3197
         kwargs["fill_value"] = None
 
@@ -1050,7 +1052,9 @@ class VcfZarrWriter:
             if not src.exists():
                 # Needs test
                 raise ValueError(f"Partition {partition} of {name} does not exist")
-            zarr_utils.move_chunks(src, self.arrays_path, partition, name)
+            zarr_utils.move_chunks(
+                src, self.arrays_path, partition, name, self.zarr_format
+            )
         # Finally, once all the chunks have moved into the arrays dir,
         # we move it out of wip
         os.rename(self.arrays_path / name, self.path / name)

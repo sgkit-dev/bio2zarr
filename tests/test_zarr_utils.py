@@ -13,8 +13,7 @@ from bio2zarr import zarr_utils
 
 
 @pytest.fixture(params=[2, 3])
-def zarr_format(request, monkeypatch):
-    monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", request.param)
+def zarr_format(request):
     return request.param
 
 
@@ -133,15 +132,17 @@ class TestDirToMemoryStore:
 
 
 class TestMakeCompressor:
-    def test_v2_returns_numcodecs(self, monkeypatch):
-        monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", 2)
-        c = zarr_utils.make_compressor(zarr_utils.DEFAULT_COMPRESSOR_CONFIG)
+    def test_v2_returns_numcodecs(self):
+        c = zarr_utils.make_compressor(
+            zarr_utils.DEFAULT_COMPRESSOR_CONFIG, zarr_format=2
+        )
         assert isinstance(c, numcodecs.Blosc)
         assert c.get_config() == zarr_utils.DEFAULT_COMPRESSOR_CONFIG
 
-    def test_v3_returns_blosc_codec(self, monkeypatch):
-        monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", 3)
-        c = zarr_utils.make_compressor(zarr_utils.DEFAULT_COMPRESSOR_CONFIG)
+    def test_v3_returns_blosc_codec(self):
+        c = zarr_utils.make_compressor(
+            zarr_utils.DEFAULT_COMPRESSOR_CONFIG, zarr_format=3
+        )
         assert isinstance(c, BloscCodec)
         assert c.cname.value == "zstd"
         assert c.clevel == 7
@@ -156,31 +157,36 @@ class TestMakeCompressor:
             (numcodecs.Blosc.BITSHUFFLE, BloscShuffle.bitshuffle),
         ],
     )
-    def test_v3_shuffle_mapping(self, monkeypatch, numcodecs_shuffle, v3_shuffle):
-        monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", 3)
+    def test_v3_shuffle_mapping(self, numcodecs_shuffle, v3_shuffle):
         c = zarr_utils.make_compressor(
             {
                 "id": "blosc",
                 "cname": "zstd",
                 "clevel": 5,
                 "shuffle": numcodecs_shuffle,
-            }
+            },
+            zarr_format=3,
         )
         assert c.shuffle == v3_shuffle
         assert c.blocksize == 0
 
-    def test_v3_default_shuffle_when_omitted(self, monkeypatch):
-        monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", 3)
-        c = zarr_utils.make_compressor({"id": "blosc", "cname": "lz4", "clevel": 1})
+    def test_v3_default_shuffle_when_omitted(self):
+        c = zarr_utils.make_compressor(
+            {"id": "blosc", "cname": "lz4", "clevel": 1}, zarr_format=3
+        )
         assert c.shuffle == BloscShuffle.shuffle
 
+    @pytest.mark.parametrize("zarr_format", [2, 3])
     def test_non_blosc_raises(self, zarr_format):
         with pytest.raises(NotImplementedError, match="Only blosc"):
-            zarr_utils.make_compressor({"id": "zlib", "level": 1})
+            zarr_utils.make_compressor(
+                {"id": "zlib", "level": 1}, zarr_format=zarr_format
+            )
 
+    @pytest.mark.parametrize("zarr_format", [2, 3])
     def test_missing_id_raises(self, zarr_format):
         with pytest.raises(NotImplementedError, match="Only blosc"):
-            zarr_utils.make_compressor({"cname": "zstd"})
+            zarr_utils.make_compressor({"cname": "zstd"}, zarr_format=zarr_format)
 
 
 class TestDefaultCompressorConstants:
@@ -428,8 +434,7 @@ class TestCreateEmptyGroupArray:
         if zarr_format == 2:
             assert a.metadata.filters is None
 
-    def test_user_filters_non_string_v2(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", 2)
+    def test_user_filters_non_string_v2(self, tmp_path):
         root = zarr.open_group(tmp_path / "s", mode="w", zarr_format=2)
         a = zarr_utils.create_empty_group_array(
             root,
@@ -464,10 +469,7 @@ class TestCreateEmptyGroupArray:
     @pytest.mark.parametrize(
         "string_dtype", [zarr_utils.STRING_DTYPE_NAME, StringDType()]
     )
-    def test_string_dtype_with_user_filters_v2(
-        self, tmp_path, monkeypatch, string_dtype
-    ):
-        monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", 2)
+    def test_string_dtype_with_user_filters_v2(self, tmp_path, string_dtype):
         root = zarr.open_group(tmp_path / "s", mode="w", zarr_format=2)
         # Place a VLenUTF8 in the user filter list; the helper should
         # still append its own VLenUTF8 (the conversion path does not
@@ -576,8 +578,7 @@ class TestGetCompressorConfig:
 
 
 class TestMoveChunks:
-    def test_v2_layout(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", 2)
+    def test_v2_layout(self, tmp_path):
         src = tmp_path / "src"
         src.mkdir()
         (src / ".zarray").write_text("{}")
@@ -587,15 +588,14 @@ class TestMoveChunks:
         dest_root = tmp_path / "dest"
         (dest_root / "arr").mkdir(parents=True)
 
-        zarr_utils.move_chunks(src, dest_root, partition=0, name="arr")
+        zarr_utils.move_chunks(src, dest_root, partition=0, name="arr", zarr_format=2)
 
         assert (dest_root / "arr" / "0").read_text() == "chunk0"
         assert (dest_root / "arr" / "1").read_text() == "chunk1"
         # Hidden file is left behind.
         assert (src / ".zarray").exists()
 
-    def test_v3_layout(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", 3)
+    def test_v3_layout(self, tmp_path):
         src = tmp_path / "src"
         (src / "c").mkdir(parents=True)
         (src / "c" / "0").write_text("chunk0")
@@ -605,14 +605,13 @@ class TestMoveChunks:
         dest_root = tmp_path / "dest"
         (dest_root / "arr").mkdir(parents=True)
 
-        zarr_utils.move_chunks(src, dest_root, partition=0, name="arr")
+        zarr_utils.move_chunks(src, dest_root, partition=0, name="arr", zarr_format=3)
 
         assert (dest_root / "arr" / "c" / "0").read_text() == "chunk0"
         assert (dest_root / "arr" / "c" / "1").read_text() == "chunk1"
         assert (src / "c" / ".hidden").exists()
 
-    def test_v3_missing_c_directory(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(zarr_utils, "ZARR_FORMAT", 3)
+    def test_v3_missing_c_directory(self, tmp_path):
         src = tmp_path / "src"
         src.mkdir()
 
@@ -620,5 +619,5 @@ class TestMoveChunks:
         (dest_root / "arr").mkdir(parents=True)
 
         # Should not raise even though src/c/ does not exist.
-        zarr_utils.move_chunks(src, dest_root, partition=0, name="arr")
+        zarr_utils.move_chunks(src, dest_root, partition=0, name="arr", zarr_format=3)
         assert list((dest_root / "arr" / "c").iterdir()) == []
