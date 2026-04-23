@@ -310,6 +310,7 @@ def convert(
     samples_chunk_size=None,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
+    zarr_format=None,
 ):
     """
     Convert a PLINK fileset to VCF Zarr format.
@@ -359,4 +360,5 @@ def convert(
         mode=mode,
         worker_processes=worker_processes,
         show_progress=show_progress,
+        zarr_format=zarr_format,
     )

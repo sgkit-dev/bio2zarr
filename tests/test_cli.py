@@ -40,6 +40,7 @@ DEFAULT_ENCODE_ARGS = dict(
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     max_memory=None,
     show_progress=True,
+    zarr_format=None,
 )
 
 DEFAULT_DENCODE_INIT_ARGS = dict(
@@ -48,6 +49,7 @@ DEFAULT_DENCODE_INIT_ARGS = dict(
     samples_chunk_size=None,
     max_variant_chunks=None,
     show_progress=True,
+    zarr_format=None,
 )
 
 DEFAULT_DENCODE_PARTITION_ARGS = dict()
@@ -66,6 +68,7 @@ DEFAULT_CONVERT_ARGS = dict(
     show_progress=True,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     local_alleles=False,
+    zarr_format=None,
 )
 
 DEFAULT_TSKIT_CONVERT_ARGS = dict(
@@ -74,6 +77,7 @@ DEFAULT_TSKIT_CONVERT_ARGS = dict(
     samples_chunk_size=None,
     show_progress=True,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
+    zarr_format=None,
 )
 
 DEFAULT_PLINK_CONVERT_ARGS = dict(
@@ -81,6 +85,7 @@ DEFAULT_PLINK_CONVERT_ARGS = dict(
     samples_chunk_size=None,
     show_progress=True,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
+    zarr_format=None,
 )
 
 

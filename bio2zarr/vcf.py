@@ -1654,6 +1654,7 @@ def convert(
     vcz_path=None,
     *,
     mode="r",
+    zarr_format=None,
     variants_chunk_size=None,
     samples_chunk_size=None,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
@@ -1719,6 +1720,7 @@ def convert(
             icf_path,
             vcz_path,
             mode=mode,
+            zarr_format=zarr_format,
             variants_chunk_size=variants_chunk_size,
             samples_chunk_size=samples_chunk_size,
             worker_processes=worker_processes,
@@ -1747,6 +1749,7 @@ def encode(
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
     mode="r",
+    zarr_format=None,
 ):
     with vcz.open_zarr(zarr_path, mode=mode) as zr:
         # Rough heuristic to split work up enough to keep utilisation high
@@ -1761,8 +1764,11 @@ def encode(
             local_alleles=local_alleles,
             ploidy=ploidy,
             max_variant_chunks=max_variant_chunks,
+            zarr_format=zarr_format,
         )
-        vzw = vcz.VcfZarrWriter(IntermediateColumnarFormat, zr.dir)
+        vzw = vcz.VcfZarrWriter(
+            IntermediateColumnarFormat, zr.dir, zarr_format=zarr_format
+        )
         vzw.encode_all_partitions(
             worker_processes=worker_processes,
             show_progress=show_progress,
@@ -1787,6 +1793,7 @@ def encode_init(
     max_memory=None,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
+    zarr_format=None,
 ):
     icf_store = IntermediateColumnarFormat(icf_path)
     if schema_path is None:
@@ -1805,7 +1812,7 @@ def encode_init(
         with open(schema_path) as f:
             schema_instance = vcz.VcfZarrSchema.fromjson(f.read())
     zarr_path = pathlib.Path(zarr_path)
-    vzw = vcz.VcfZarrWriter("icf", zarr_path)
+    vzw = vcz.VcfZarrWriter("icf", zarr_path, zarr_format=zarr_format)
     return vzw.init(
         icf_store,
         target_num_partitions=target_num_partitions,

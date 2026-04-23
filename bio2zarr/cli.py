@@ -43,6 +43,14 @@ zarr_path = click.argument(
     "zarr_path", type=click.Path(exists=True, file_okay=False, dir_okay=True)
 )
 
+zarr_format = click.option(
+    "--zarr-format",
+    type=click.Choice([2, 3]),
+    default=None,
+    help="Zarr format version of output (default: 2, or value of "
+    "BIO2ZARR_DEFAULT_ZARR_FORMAT env var)",
+)
+
 num_partitions = click.option(
     "-n",
     "--num-partitions",
@@ -373,6 +381,7 @@ def mkschema(icf_path, variants_chunk_size, samples_chunk_size, local_alleles, p
 @click.command
 @icf_path
 @new_zarr_path
+@zarr_format
 @force
 @verbose
 @schema
@@ -385,6 +394,7 @@ def mkschema(icf_path, variants_chunk_size, samples_chunk_size, local_alleles, p
 def encode(
     icf_path,
     zarr_path,
+    zarr_format,
     force,
     verbose,
     schema,
@@ -403,6 +413,7 @@ def encode(
     vcf_mod.encode(
         icf_path,
         zarr_path,
+        zarr_format=zarr_format,
         schema_path=schema,
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
@@ -416,6 +427,7 @@ def encode(
 @click.command
 @icf_path
 @new_zarr_path
+@zarr_format
 @num_partitions
 @force
 @schema
@@ -428,6 +440,7 @@ def encode(
 def dencode_init(
     icf_path,
     zarr_path,
+    zarr_format,
     num_partitions,
     force,
     schema,
@@ -457,6 +470,7 @@ def dencode_init(
     work_summary = vcf_mod.encode_init(
         icf_path,
         zarr_path,
+        zarr_format=zarr_format,
         target_num_partitions=num_partitions,
         schema_path=schema,
         variants_chunk_size=variants_chunk_size,
@@ -500,6 +514,7 @@ def dencode_finalise(zarr_path, verbose, progress):
 @click.command(name="convert")
 @vcfs
 @new_zarr_path
+@zarr_format
 @force
 @variants_chunk_size
 @samples_chunk_size
@@ -510,6 +525,7 @@ def dencode_finalise(zarr_path, verbose, progress):
 def convert_vcf(
     vcfs,
     zarr_path,
+    zarr_format,
     force,
     variants_chunk_size,
     samples_chunk_size,
@@ -526,6 +542,7 @@ def convert_vcf(
     vcf_mod.convert(
         vcfs,
         zarr_path,
+        zarr_format=zarr_format,
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
         show_progress=progress,
@@ -563,6 +580,7 @@ vcf2zarr_main.add_command(dencode_finalise)
 @click.argument("in_path", type=click.Path())
 @click.argument("zarr_path", type=click.Path())
 @force
+@zarr_format
 @worker_processes
 @progress
 @verbose
@@ -572,6 +590,7 @@ def convert_plink(
     in_path,
     zarr_path,
     force,
+    zarr_format,
     verbose,
     worker_processes,
     progress,
@@ -588,6 +607,7 @@ def convert_plink(
     plink.convert(
         in_path,
         zarr_path,
+        zarr_format=zarr_format,
         show_progress=progress,
         worker_processes=worker_processes,
         samples_chunk_size=samples_chunk_size,
@@ -740,6 +760,7 @@ def zipzarr(src, dest, unzip, keep, force, verbose, progress):
 @progress
 @worker_processes
 @force
+@zarr_format
 @core.requires_optional_dependency("tskit", "tskit")
 def convert_tskit(
     ts_path,
@@ -752,6 +773,7 @@ def convert_tskit(
     progress,
     worker_processes,
     force,
+    zarr_format,
 ):
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)
@@ -772,6 +794,7 @@ def convert_tskit(
         samples_chunk_size=samples_chunk_size,
         worker_processes=worker_processes,
         show_progress=progress,
+        zarr_format=zarr_format,
     )
 
 
