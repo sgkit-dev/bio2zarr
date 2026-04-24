@@ -625,7 +625,7 @@ class VcfZarrWriter:
     def __init__(self, source_type, path, zarr_format=None):
         self.source_type = source_type
         self.path = pathlib.Path(path)
-        self.zarr_format = zarr_format or zarr_utils.DEFAULT_ZARR_FORMAT
+        self.zarr_format = zarr_format
         self.wip_path = self.path / "wip"
         self.arrays_path = self.wip_path / "arrays"
         self.partitions_path = self.wip_path / "partitions"

@@ -91,8 +91,9 @@ def first_dim_iter(z):
 
 def open_zarr_append(store, zarr_format):
     """Open a Zarr store for append using the given Zarr format"""
-    zarr_format_kwargs = dict(zarr_format=zarr_format or DEFAULT_ZARR_FORMAT)
-    return zarr.open(store=store, mode="a", **zarr_format_kwargs)
+    if zarr_format is None:
+        zarr_format = DEFAULT_ZARR_FORMAT
+    return zarr.open(store=store, mode="a", zarr_format=zarr_format)
 
 
 def open_vcf_zarr(path):
@@ -222,6 +223,8 @@ def get_compressor_config(array):
 def move_chunks(src_path, dest_path, partition, name, zarr_format):
     # Zarr v2 stores chunk files directly in the array directory; v3 places
     # them under a c/ subdirectory.
+    if zarr_format is None:
+        zarr_format = DEFAULT_ZARR_FORMAT
     if zarr_format == 2:
         dest = dest_path / name
         chunk_files = [
