@@ -575,3 +575,13 @@ def test_workers(tmp_path, worker_processes):
     root = tsk.convert(ts, worker_processes=worker_processes)
     ds = load_dataset(root)
     assert_ts_ds_equal(ts, ds)
+
+
+@pytest.mark.parametrize("zarr_format", [2, 3])
+def test_zarr_format(zarr_format):
+    ts = msprime.sim_ancestry(10, sequence_length=1000, random_seed=42)
+    ts = add_mutations(ts)
+    root = tsk.convert(ts, zarr_format=zarr_format)
+    assert root.metadata.zarr_format == zarr_format
+    ds = load_dataset(root)
+    assert_ts_ds_equal(ts, ds)

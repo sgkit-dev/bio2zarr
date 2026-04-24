@@ -394,6 +394,16 @@ class TestSmallExample:
         ds2 = load_dataset(root)
         assert_dataset_equal(ds, ds2, drop_vars=["region_index"])
 
+    @pytest.mark.parametrize("zarr_format", [2, 3])
+    def test_zarr_format(self, ds, zarr_format):
+        root = vcf_mod.convert(
+            [self.data_path],
+            zarr_format=zarr_format,
+        )
+        assert root.metadata.zarr_format == zarr_format
+        ds2 = load_dataset(root)
+        assert_dataset_equal(ds, ds2, drop_vars=["region_index"])
+
     def test_inspect(self, tmp_path):
         # TODO pretty weak test, we should be doing this better somewhere else
         out = tmp_path / "example.vcf.zarr"
