@@ -443,6 +443,15 @@ def test_by_validating(
     validate(path, out)
 
 
+@pytest.mark.parametrize("zarr_format", [2, 3])
+def test_zarr_format(tmp_path, zarr_format):
+    path = "tests/data/plink/plink_sim_10s_100v_10pmiss"
+    out = tmp_path / "example.zarr"
+    root = plink.convert(path, out, zarr_format=zarr_format)
+    assert root.metadata.zarr_format == zarr_format
+    validate(path, out)
+
+
 class TestMultipleContigs:
     """Test handling of multiple contigs in PLINK files."""
 
