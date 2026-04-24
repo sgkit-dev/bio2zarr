@@ -1654,7 +1654,6 @@ def convert(
     vcz_path=None,
     *,
     mode="r",
-    zarr_format=None,
     variants_chunk_size=None,
     samples_chunk_size=None,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
@@ -1662,6 +1661,7 @@ def convert(
     ploidy=None,
     show_progress=False,
     icf_path=None,
+    zarr_format=None,
 ):
     """
     Convert VCF file(s) to VCF Zarr format.
@@ -1698,6 +1698,9 @@ def convert(
     icf_path : str, Path, or None
         Path for the intermediate columnar format (ICF) data. If None,
         a temporary directory is used and cleaned up automatically.
+    zarr_format : int, optional
+        Zarr format version of output (default: 2, or value of
+        BIO2ZARR_DEFAULT_ZARR_FORMAT env var)
 
     Returns
     -------

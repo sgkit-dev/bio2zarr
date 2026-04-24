@@ -301,6 +301,9 @@ def convert(
         means use the main process only.
     show_progress : bool
         If True, display a progress bar during conversion.
+    zarr_format : int, optional
+        Zarr format version of output (default: 2, or value of
+        BIO2ZARR_DEFAULT_ZARR_FORMAT env var)
 
     Returns
     -------
