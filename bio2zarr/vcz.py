@@ -593,6 +593,9 @@ def encode(
         Number of worker processes for parallel encoding.
     show_progress : bool
         If True, display a progress bar.
+    zarr_format : int, optional
+        Zarr format version of output (default: 2, or value of
+        BIO2ZARR_DEFAULT_ZARR_FORMAT env var)
 
     Returns
     -------

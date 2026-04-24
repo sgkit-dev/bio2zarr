@@ -381,7 +381,6 @@ def mkschema(icf_path, variants_chunk_size, samples_chunk_size, local_alleles, p
 @click.command
 @icf_path
 @new_zarr_path
-@zarr_format
 @force
 @verbose
 @schema
@@ -391,10 +390,10 @@ def mkschema(icf_path, variants_chunk_size, samples_chunk_size, local_alleles, p
 @max_memory
 @progress
 @worker_processes
+@zarr_format
 def encode(
     icf_path,
     zarr_path,
-    zarr_format,
     force,
     verbose,
     schema,
@@ -404,6 +403,7 @@ def encode(
     max_memory,
     progress,
     worker_processes,
+    zarr_format,
 ):
     """
     Convert intermediate columnar format to VCF Zarr.
@@ -413,7 +413,6 @@ def encode(
     vcf_mod.encode(
         icf_path,
         zarr_path,
-        zarr_format=zarr_format,
         schema_path=schema,
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
@@ -421,13 +420,13 @@ def encode(
         worker_processes=worker_processes,
         max_memory=max_memory,
         show_progress=progress,
+        zarr_format=zarr_format,
     )
 
 
 @click.command
 @icf_path
 @new_zarr_path
-@zarr_format
 @num_partitions
 @force
 @schema
@@ -437,10 +436,10 @@ def encode(
 @json
 @progress
 @verbose
+@zarr_format
 def dencode_init(
     icf_path,
     zarr_path,
-    zarr_format,
     num_partitions,
     force,
     schema,
@@ -450,6 +449,7 @@ def dencode_init(
     json,
     progress,
     verbose,
+    zarr_format,
 ):
     """
     Initialise conversion of intermediate format to VCF Zarr. This will
@@ -470,13 +470,13 @@ def dencode_init(
     work_summary = vcf_mod.encode_init(
         icf_path,
         zarr_path,
-        zarr_format=zarr_format,
         target_num_partitions=num_partitions,
         schema_path=schema,
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
         max_variant_chunks=max_variant_chunks,
         show_progress=progress,
+        zarr_format=zarr_format,
     )
     show_work_summary(work_summary, json)
 
@@ -514,7 +514,6 @@ def dencode_finalise(zarr_path, verbose, progress):
 @click.command(name="convert")
 @vcfs
 @new_zarr_path
-@zarr_format
 @force
 @variants_chunk_size
 @samples_chunk_size
@@ -522,10 +521,10 @@ def dencode_finalise(zarr_path, verbose, progress):
 @progress
 @worker_processes
 @local_alleles
+@zarr_format
 def convert_vcf(
     vcfs,
     zarr_path,
-    zarr_format,
     force,
     variants_chunk_size,
     samples_chunk_size,
@@ -533,6 +532,7 @@ def convert_vcf(
     progress,
     worker_processes,
     local_alleles,
+    zarr_format,
 ):
     """
     Convert input VCF(s) directly to VCF Zarr (not recommended for large files).
@@ -542,12 +542,12 @@ def convert_vcf(
     vcf_mod.convert(
         vcfs,
         zarr_path,
-        zarr_format=zarr_format,
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
         show_progress=progress,
         worker_processes=worker_processes,
         local_alleles=local_alleles,
+        zarr_format=zarr_format,
     )
 
 
@@ -580,22 +580,22 @@ vcf2zarr_main.add_command(dencode_finalise)
 @click.argument("in_path", type=click.Path())
 @click.argument("zarr_path", type=click.Path())
 @force
-@zarr_format
 @worker_processes
 @progress
 @verbose
 @variants_chunk_size
 @samples_chunk_size
+@zarr_format
 def convert_plink(
     in_path,
     zarr_path,
     force,
-    zarr_format,
     verbose,
     worker_processes,
     progress,
     variants_chunk_size,
     samples_chunk_size,
+    zarr_format,
 ):
     """
     Convert plink fileset to VCF Zarr. Results are equivalent to
@@ -607,11 +607,11 @@ def convert_plink(
     plink.convert(
         in_path,
         zarr_path,
-        zarr_format=zarr_format,
         show_progress=progress,
         worker_processes=worker_processes,
         samples_chunk_size=samples_chunk_size,
         variants_chunk_size=variants_chunk_size,
+        zarr_format=zarr_format,
     )
 
 
