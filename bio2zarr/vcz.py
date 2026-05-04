@@ -1212,12 +1212,12 @@ class VcfZarrIndexer:
     Creates an index for efficient region queries in a VCF Zarr dataset.
     """
 
-    def __init__(self, path):
-        self.path = pathlib.Path(path)
+    def __init__(self, store):
+        self.store = store
 
     def create_index(self):
         """Create an index to support efficient region queries."""
-        root = zarr.open_group(store=self.path, mode="r+")
+        root = zarr.open_group(store=self.store, mode="r+")
         if (
             "variant_contig" not in root
             or "variant_position" not in root
