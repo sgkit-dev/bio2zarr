@@ -521,6 +521,7 @@ def dencode_finalise(zarr_path, verbose, progress):
 @progress
 @worker_processes
 @local_alleles
+@ploidy
 @zarr_format
 def convert_vcf(
     vcfs,
@@ -532,6 +533,7 @@ def convert_vcf(
     progress,
     worker_processes,
     local_alleles,
+    ploidy,
     zarr_format,
 ):
     """
@@ -547,6 +549,7 @@ def convert_vcf(
         show_progress=progress,
         worker_processes=worker_processes,
         local_alleles=local_alleles,
+        ploidy=ploidy,
         zarr_format=zarr_format,
     )
 

@@ -68,6 +68,7 @@ DEFAULT_CONVERT_ARGS = dict(
     show_progress=True,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     local_alleles=False,
+    ploidy=None,
     zarr_format=None,
 )
 
