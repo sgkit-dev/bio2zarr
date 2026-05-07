@@ -24,6 +24,11 @@
 .. click:: bio2zarr.cli:mkschema
    :prog: vcf2zarr mkschema
    :nested: full
+
+.. _cmd-vcf2zarr-create_index:
+.. click:: bio2zarr.cli:create_index
+   :prog: vcf2zarr create_index
+   :nested: full
 ```
 
 ## Explode
@@ -71,11 +76,6 @@
 .. _cmd-vcf2zarr-dencode-finalise:
 .. click:: bio2zarr.cli:dencode_finalise
    :prog: vcf2zarr dencode-finalise
-   :nested: full
-
-.. _cmd-vcf2zarr-dencode-create-index:
-.. click:: bio2zarr.cli:dencode_create_index
-   :prog: vcf2zarr dencode-create-index
    :nested: full
 ```
 

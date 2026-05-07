@@ -56,7 +56,7 @@ DEFAULT_DENCODE_PARTITION_ARGS = dict()
 
 DEFAULT_DENCODE_FINALISE_ARGS = dict(show_progress=True)
 
-DEFAULT_DENCODE_CREATE_INDEX_ARGS = dict()
+DEFAULT_CREATE_INDEX_ARGS = dict()
 
 DEFAULT_MKSHCHEMA_ARGS = dict(
     variants_chunk_size=None,
@@ -615,18 +615,18 @@ class TestWithMocks:
         args["show_progress"] = progress
         mocked.assert_called_once_with(str(tmp_path), **args)
 
-    @mock.patch("bio2zarr.vcf.encode_create_index")
-    def test_vcf_dencode_create_index(self, mocked, tmp_path):
+    @mock.patch("bio2zarr.vcf.create_index")
+    def test_vcf_create_index(self, mocked, tmp_path):
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.vcf2zarr_main,
-            ["dencode-create-index", str(tmp_path)],
+            ["create-index", str(tmp_path)],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
         assert len(result.stdout) == 0
         assert len(result.stderr) == 0
-        args = DEFAULT_DENCODE_CREATE_INDEX_ARGS
+        args = DEFAULT_CREATE_INDEX_ARGS
         mocked.assert_called_once_with(str(tmp_path), **args)
 
     @pytest.mark.parametrize(("progress", "flag"), [(True, "-P"), (False, "-Q")])
