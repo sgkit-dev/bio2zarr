@@ -72,5 +72,10 @@
 .. click:: bio2zarr.cli:dencode_finalise
    :prog: vcf2zarr dencode-finalise
    :nested: full
+
+.. _cmd-vcf2zarr-dencode-create-index:
+.. click:: bio2zarr.cli:dencode_create_index
+   :prog: vcf2zarr dencode-create-index
+   :nested: full
 ```
 

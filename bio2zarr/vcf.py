@@ -1832,3 +1832,8 @@ def encode_partition(zarr_path, partition):
 def encode_finalise(zarr_path, show_progress=False):
     writer_instance = vcz.VcfZarrWriter(IntermediateColumnarFormat, zarr_path)
     writer_instance.finalise(show_progress=show_progress)
+
+
+def encode_create_index(zarr_path):
+    writer_instance = vcz.VcfZarrWriter(IntermediateColumnarFormat, zarr_path)
+    writer_instance.create_index()
