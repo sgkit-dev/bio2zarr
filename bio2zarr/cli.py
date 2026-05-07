@@ -511,18 +511,6 @@ def dencode_finalise(zarr_path, verbose, progress):
     vcf_mod.encode_finalise(zarr_path, show_progress=progress)
 
 
-@click.command
-@zarr_path
-@verbose
-def dencode_create_index(zarr_path, verbose):
-    """
-    Create an index to support efficient region queries.
-    Must be called after dencode_finalise.
-    """
-    setup_logging(verbose)
-    vcf_mod.encode_create_index(zarr_path)
-
-
 @click.command(name="convert")
 @vcfs
 @new_zarr_path
@@ -566,6 +554,17 @@ def convert_vcf(
     )
 
 
+@click.command
+@zarr_path
+@verbose
+def create_index(zarr_path, verbose):
+    """
+    Create an index to support efficient region queries.
+    """
+    setup_logging(verbose)
+    vcf_mod.create_index(zarr_path)
+
+
 @version
 @click.group(cls=NaturalOrderGroup, name="vcf2zarr")
 def vcf2zarr_main():
@@ -583,13 +582,13 @@ vcf2zarr_main.add_command(inspect)
 vcf2zarr_main.add_command(explode)
 vcf2zarr_main.add_command(mkschema)
 vcf2zarr_main.add_command(encode)
+vcf2zarr_main.add_command(create_index)
 vcf2zarr_main.add_command(dexplode_init)
 vcf2zarr_main.add_command(dexplode_partition)
 vcf2zarr_main.add_command(dexplode_finalise)
 vcf2zarr_main.add_command(dencode_init)
 vcf2zarr_main.add_command(dencode_partition)
 vcf2zarr_main.add_command(dencode_finalise)
-vcf2zarr_main.add_command(dencode_create_index)
 
 
 @click.command(name="convert")
