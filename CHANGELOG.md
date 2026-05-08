@@ -1,3 +1,11 @@
+# 0.2.1 2026-xx-xx
+
+In development.
+
+*New features*
+
+- Add ``vcf2zarr create-index`` which builds a region index on a local VCZ store (#490).
+  
 # 0.2.0 2026-04-15
 
 Feature release: adds Zip output, (partial) support for Windows and improved
