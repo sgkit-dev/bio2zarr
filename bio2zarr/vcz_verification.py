@@ -9,14 +9,44 @@ from bio2zarr.zarr_utils import first_dim_iter
 from . import constants
 
 
+def float_int_view(a):
+    """
+    Views a float value or array as integers of the same width, so that
+    sentinel NaN bit patterns can be compared exactly.
+    """
+    a = np.asarray(a)
+    int_dtype = np.dtype(f"i{a.dtype.itemsize}")
+    return a.view(int_dtype)
+
+
 def assert_all_missing_float(a):
-    v = np.array(a, dtype=np.float32).view(np.int32)
-    nt.assert_equal(v, constants.FLOAT32_MISSING_AS_INT32)
+    a = np.asarray(a)
+    missing, _ = constants.FLOAT_MISSING_FILL[a.dtype]
+    nt.assert_equal(float_int_view(a), float_int_view(missing))
 
 
 def assert_all_fill_float(a):
-    v = np.array(a, dtype=np.float32).view(np.int32)
-    nt.assert_equal(v, constants.FLOAT32_FILL_AS_INT32)
+    a = np.asarray(a)
+    _, fill = constants.FLOAT_MISSING_FILL[a.dtype]
+    nt.assert_equal(float_int_view(a), float_int_view(fill))
+
+
+def expected_float_array(vcf_val, dtype):
+    """
+    Converts a cyvcf2 float32 array, which uses the float32 missing and fill
+    sentinels, into the array expected in the Zarr store for the given float
+    dtype, re-stamping the sentinels for that dtype.
+    """
+    dtype = np.dtype(dtype)
+    missing, fill = constants.FLOAT_MISSING_FILL[dtype]
+    source = np.asarray(vcf_val, dtype=np.float32)
+    source_as_int = source.view(np.int32)
+    is_missing = source_as_int == float_int_view(constants.FLOAT32_MISSING)
+    is_fill = source_as_int == float_int_view(constants.FLOAT32_FILL)
+    result = source.astype(dtype)
+    result[is_missing] = missing
+    result[is_fill] = fill
+    return result
 
 
 def assert_all_missing_int(a):
@@ -95,6 +125,10 @@ def assert_info_val_equal(vcf_val, zarr_val, vcf_type):
         v = [vcf_missing_value_map[vcf_type] if x is None else x for x in vcf_val]
         missing = np.array([j for j, x in enumerate(vcf_val) if x is None], dtype=int)
         a = np.array(v)
+        if vcf_type == "Float":
+            # Round to the stored dtype so a lossy f2 round-trip compares equal;
+            # the missing positions are checked exactly below.
+            a = a.astype(zarr_val.dtype)
         k = len(a)
         # We are checking for int missing twice here, but it's necessary to have
         # a separate check for floats because different NaNs compare equal
@@ -106,7 +140,10 @@ def assert_info_val_equal(vcf_val, zarr_val, vcf_type):
         # Scalar
         zarr_val = np.array(zarr_val, ndmin=1)
         assert len(zarr_val.shape) == 1
-        assert vcf_val == zarr_val[0]
+        if vcf_type == "Float":
+            nt.assert_equal(np.asarray(vcf_val, dtype=zarr_val.dtype), zarr_val[0])
+        else:
+            assert vcf_val == zarr_val[0]
         if len(zarr_val) > 1:
             assert_all_fill(zarr_val[1:], vcf_type)
 
@@ -137,11 +174,13 @@ def assert_format_val_equal(vcf_val, zarr_val, vcf_type, vcf_number):
                 assert_all_fill(zarr_val[:, k:], vcf_type)
                 zarr_val = zarr_val[:, :k]
         assert vcf_val.shape == zarr_val.shape
+        if vcf_type == "Float":
+            expected = expected_float_array(vcf_val, zarr_val.dtype)
+            nt.assert_equal(float_int_view(expected), float_int_view(zarr_val))
+            return
         if vcf_type == "Integer":
             vcf_val[vcf_val == constants.VCF_INT_MISSING] = constants.INT_MISSING
             vcf_val[vcf_val == constants.VCF_INT_FILL] = constants.INT_FILL
-        elif vcf_type == "Float":
-            nt.assert_equal(vcf_val.view(np.int32), zarr_val.view(np.int32))
 
         nt.assert_equal(vcf_val, zarr_val)
 

@@ -94,7 +94,7 @@ class TskitFormat(vcz.Source):
     def iter_contig(self, start, stop):
         yield from (0 for _ in range(start, stop))
 
-    def iter_field(self, field_name, shape, start, stop):
+    def iter_field(self, field_name, shape, dtype, start, stop):
         if field_name == "position":
             for pos in self.vcf_positions[start:stop]:
                 yield int(pos)

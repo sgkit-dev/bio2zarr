@@ -85,7 +85,7 @@ class Source(abc.ABC):
         return
 
     @abc.abstractmethod
-    def iter_field(self, field_name, shape, start, stop):
+    def iter_field(self, field_name, shape, dtype, start, stop):
         pass
 
     @abc.abstractmethod
@@ -344,6 +344,18 @@ class VcfZarrSchema(core.JsonDataclass):
                         f"Dimension '{dim}' used in field '{field.name}' is "
                         "not defined in the schema"
                     )
+
+            try:
+                dtype = np.dtype(field.dtype)
+            except TypeError:
+                raise ValueError(
+                    f"Field '{field.name}' has invalid dtype '{field.dtype}'"
+                ) from None
+            if dtype.kind == "f" and dtype not in constants.FLOAT_MISSING_FILL:
+                raise ValueError(
+                    f"Field '{field.name}' has unsupported float dtype "
+                    f"'{field.dtype}'; use one of f2, f4 or f8"
+                )
 
             chunk_nbytes = field.get_chunk_nbytes(self)
             # This is the Blosc max buffer size
@@ -899,6 +911,7 @@ class VcfZarrWriter:
         for value in self.source.iter_field(
             array_spec.source,
             ba.buff.shape[1:],
+            ba.buff.dtype,
             partition.start,
             partition.stop,
         ):

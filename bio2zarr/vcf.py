@@ -375,11 +375,11 @@ def sanitise_value_bool(shape, value):
     return x
 
 
-def sanitise_value_float_scalar(shape, value):
-    x = value
+def sanitise_value_float_scalar(dtype, shape, value):
     if value is None:
-        x = [constants.FLOAT32_MISSING]
-    return x[0]
+        missing, _ = constants.FLOAT_MISSING_FILL[np.dtype(dtype)]
+        return missing
+    return value[0]
 
 
 def sanitise_value_int_scalar(shape, value):
@@ -429,26 +429,32 @@ def drop_empty_second_dim(value):
     return value
 
 
-def sanitise_value_float_1d(shape, value):
+def sanitise_value_float_1d(dtype, shape, value):
+    missing, fill = constants.FLOAT_MISSING_FILL[np.dtype(dtype)]
     if value is None:
-        return np.full(shape, constants.FLOAT32_MISSING)
+        return np.full(shape, missing, dtype=dtype)
     else:
-        value = np.array(value, ndmin=1, dtype=np.float32, copy=True)
+        value = np.array(value, ndmin=1, dtype=dtype, copy=True)
         # numpy will map None values to Nan, but we need a
         # specific NaN
-        value[np.isnan(value)] = constants.FLOAT32_MISSING
+        value[np.isnan(value)] = missing
         value = drop_empty_second_dim(value)
-        result = np.full(shape, constants.FLOAT32_FILL, dtype=np.float32)
+        result = np.full(shape, fill, dtype=dtype)
         result[: value.shape[0]] = value
         return result
 
 
-def sanitise_value_float_2d(shape, value):
+def sanitise_value_float_2d(dtype, shape, value):
+    missing, fill = constants.FLOAT_MISSING_FILL[np.dtype(dtype)]
     if value is None:
-        return np.full(shape, constants.FLOAT32_MISSING)
+        return np.full(shape, missing, dtype=dtype)
     else:
-        value = np.array(value, ndmin=2, dtype=np.float32, copy=True)
-        result = np.full(shape, constants.FLOAT32_FILL, dtype=np.float32)
+        value = np.array(value, ndmin=2, dtype=dtype, copy=True)
+        # A missing value is stored as a NaN; re-stamp it as the canonical
+        # missing sentinel for this dtype, as casting between float dtypes does
+        # not preserve the NaN bit pattern.
+        value[np.isnan(value)] = missing
+        result = np.full(shape, fill, dtype=dtype)
         result[:, : value.shape[1]] = value
         return result
 
@@ -723,18 +729,18 @@ class IntermediateColumnarFormatField:
         assert j == self.num_records
         return ret
 
-    def sanitiser_factory(self, shape):
+    def sanitiser_factory(self, shape, dtype):
         assert len(shape) <= 2
         if self.vcf_field.vcf_type == "Flag":
             assert len(shape) == 0
             return partial(sanitise_value_bool, shape)
         elif self.vcf_field.vcf_type == "Float":
             if len(shape) == 0:
-                return partial(sanitise_value_float_scalar, shape)
+                return partial(sanitise_value_float_scalar, dtype, shape)
             elif len(shape) == 1:
-                return partial(sanitise_value_float_1d, shape)
+                return partial(sanitise_value_float_1d, dtype, shape)
             else:
-                return partial(sanitise_value_float_2d, shape)
+                return partial(sanitise_value_float_2d, dtype, shape)
         elif self.vcf_field.vcf_type == "Integer":
             if len(shape) == 0:
                 return partial(sanitise_value_int_scalar, shape)
@@ -1050,9 +1056,9 @@ class IntermediateColumnarFormat(vcz.Source):
             # here, please do open an issue with a reproducible example!
             yield lookup[value[0]]
 
-    def iter_field(self, field_name, shape, start, stop):
+    def iter_field(self, field_name, shape, dtype, start, stop):
         source_field = self.fields[field_name]
-        sanitiser = source_field.sanitiser_factory(shape)
+        sanitiser = source_field.sanitiser_factory(shape, dtype)
         for value in source_field.iter_values(start, stop):
             yield sanitiser(value)
 
