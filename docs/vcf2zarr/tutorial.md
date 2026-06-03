@@ -156,6 +156,11 @@ Better mechanisms for updating schemas via a Python API would be
 a useful addition here.
 :::
 
+The ``dtype`` of a field can also be edited. Float fields default to ``f4``
+(32-bit, matching the VCF source) and may be set to ``f2`` (16-bit) to save
+space or ``f8`` (64-bit). Note that ``f2`` is lossy: precision is reduced and
+values larger than about 65504 overflow to infinity. ``f8`` adds no precision
+over the ``f4`` source.
 
 A common thing we might want to do is to drop some fields entirely
 from the final Zarr, either because they are too big and unwieldy 

@@ -4,6 +4,10 @@ In development.
 
 *New features*
 
+- Support ``f2`` (16-bit) and ``f8`` (64-bit) float dtypes for INFO and FORMAT
+  fields by editing the ``dtype`` in a storage schema. Missing and fill
+  sentinels are now defined per float dtype.
+
 - Add ``vcf2zarr create-index`` which builds a region index on a local VCZ store (#490).
   
 # 0.2.0 2026-04-15

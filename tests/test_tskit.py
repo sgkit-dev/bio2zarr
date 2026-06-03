@@ -333,12 +333,12 @@ class TestTskitFormat:
 
     def test_iter_field(self, fx_simple_ts):
         format_obj = tsk.TskitFormat(fx_simple_ts)
-        positions = list(format_obj.iter_field("position", None, 0, 3))
+        positions = list(format_obj.iter_field("position", None, None, 0, 3))
         assert positions == [10, 20, 30]
-        positions = list(format_obj.iter_field("position", None, 1, 3))
+        positions = list(format_obj.iter_field("position", None, None, 1, 3))
         assert positions == [20, 30]
         with pytest.raises(ValueError, match="Unknown field"):
-            list(format_obj.iter_field("unknown_field", None, 0, 3))
+            list(format_obj.iter_field("unknown_field", None, None, 0, 3))
 
     def test_zero_samples(self, fx_simple_ts):
         model_mapping = tskit_model_mapping(fx_simple_ts, np.array([]))

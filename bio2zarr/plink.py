@@ -185,7 +185,7 @@ class PlinkFormat(vcz.Source):
         for chrom in self.bim.contig[start:stop]:
             yield chrom_to_contig_index[str(chrom)]
 
-    def iter_field(self, field_name, shape, start, stop):
+    def iter_field(self, field_name, shape, dtype, start, stop):
         assert field_name == "position"  # Only position field is supported from plink
         yield from self.bim.position[start:stop]
 

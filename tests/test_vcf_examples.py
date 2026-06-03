@@ -11,7 +11,7 @@ import pytest
 import xarray.testing as xt
 import zarr
 
-from bio2zarr import constants, provenance, vcz_verification
+from bio2zarr import constants, provenance, vcz, vcz_verification
 from bio2zarr import vcf as vcf_mod
 from tests.utils import load_dataset
 
@@ -1119,6 +1119,95 @@ class TestGeneratedFieldsExample:
     #     non_missing = [v for v in pcvcf["FORMAT/FS2"].values if v is not None]
     #     nt.assert_array_equal(non_missing[0], [["bc", "op"], [".", "op"]])
     #     nt.assert_array_equal(non_missing[1], [["bc", "."], [".", "."]])
+
+
+class TestFloatSentinels:
+    @pytest.mark.parametrize(
+        ("missing", "fill"),
+        [
+            (constants.FLOAT16_MISSING, constants.FLOAT16_FILL),
+            (constants.FLOAT32_MISSING, constants.FLOAT32_FILL),
+            (constants.FLOAT64_MISSING, constants.FLOAT64_FILL),
+        ],
+    )
+    def test_distinct_nan(self, missing, fill):
+        assert np.isnan(missing)
+        assert np.isnan(fill)
+        int_dtype = np.dtype(f"i{missing.dtype.itemsize}")
+        assert missing.view(int_dtype) != fill.view(int_dtype)
+
+    def test_lookup_dtypes(self):
+        for dtype, (missing, fill) in constants.FLOAT_MISSING_FILL.items():
+            assert missing.dtype == dtype
+            assert fill.dtype == dtype
+
+
+class TestFloatFieldDtypes:
+    # field_type_combos has Float INFO and FORMAT fields with Number=1,2,A,R,G,.
+    # covering scalar, fixed-length and ragged cases with missing values.
+    data_path = "tests/data/vcf/field_type_combos.vcf.gz"
+
+    float_arrays = [
+        "variant_IF1",
+        "variant_IF2",
+        "variant_IFA",
+        "variant_IFR",
+        "variant_IFD",
+        "call_FF1",
+        "call_FF2",
+        "call_FFA",
+        "call_FFR",
+        "call_FFG",
+        "call_FFD",
+    ]
+
+    def encode(self, tmp_path, dtype):
+        icf_path = tmp_path / "icf"
+        vcf_mod.explode(icf_path, [self.data_path], worker_processes=0)
+        schema_path = tmp_path / "schema.json"
+        with open(schema_path, "w") as f:
+            vcf_mod.mkschema(icf_path, f)
+        schema = vcz.VcfZarrSchema.fromjson(schema_path.read_text())
+        float_fields = [
+            field
+            for field in schema.fields
+            if field.source is not None and np.dtype(field.dtype).kind == "f"
+        ]
+        for field in float_fields:
+            # Float fields default to f4; there is no automatic selection of a
+            # smaller or larger float dtype.
+            assert field.dtype == "f4"
+            field.dtype = dtype
+        schema_path.write_text(schema.asjson())
+        zarr_path = tmp_path / "test.zarr"
+        vcf_mod.encode(icf_path, zarr_path, schema_path=schema_path, worker_processes=0)
+        return zarr_path
+
+    @pytest.mark.parametrize("dtype", ["f2", "f8"])
+    def test_array_dtype(self, tmp_path, dtype):
+        zarr_path = self.encode(tmp_path, dtype)
+        root = zarr.open(zarr_path, mode="r")
+        for name in self.float_arrays:
+            assert root[name].dtype == np.dtype(dtype)
+
+    @pytest.mark.parametrize("dtype", ["f2", "f8"])
+    def test_round_trip(self, tmp_path, dtype):
+        zarr_path = self.encode(tmp_path, dtype)
+        vcz_verification.verify(self.data_path, zarr_path)
+
+    def test_f2_sentinels_preserved(self, tmp_path):
+        zarr_path = self.encode(tmp_path, "f2")
+        root = zarr.open(zarr_path, mode="r")
+        missing = int(constants.FLOAT16_MISSING.view(np.int16))
+        fill = int(constants.FLOAT16_FILL.view(np.int16))
+        seen = set()
+        for name in self.float_arrays:
+            values = root[name][:]
+            nan_as_int = values.view(np.int16)[np.isnan(values)]
+            seen.update(int(x) for x in np.unique(nan_as_int))
+        # Every NaN in an f2 array must be exactly the missing or fill sentinel;
+        # a naive f4->f2 cast would collapse both into one indistinguishable NaN.
+        assert seen == {missing, fill}
 
 
 class TestSplitFileErrors:

@@ -296,6 +296,33 @@ class TestValidateSchema:
         with pytest.raises(ValueError, match="Field variant_H2 chunks are too large"):
             schema.validate()
 
+    @pytest.mark.parametrize("dtype", ["f2", "f4", "f8"])
+    def test_valid_float_dtype(self, schema, dtype):
+        schema = vcz.VcfZarrSchema.fromdict(schema.asdict())
+        field = schema.field_map()["variant_H2"]
+        schema.fields = [field]
+        field.dtype = dtype
+        schema.validate()
+
+    def test_invalid_dtype(self, schema):
+        schema = vcz.VcfZarrSchema.fromdict(schema.asdict())
+        field = schema.field_map()["variant_H2"]
+        schema.fields = [field]
+        field.dtype = "f3"
+        with pytest.raises(ValueError, match="invalid dtype"):
+            schema.validate()
+
+    @pytest.mark.skipif(
+        not hasattr(np, "float128"), reason="float128 not available on this platform"
+    )
+    def test_unsupported_float_dtype(self, schema):
+        schema = vcz.VcfZarrSchema.fromdict(schema.asdict())
+        field = schema.field_map()["variant_H2"]
+        schema.fields = [field]
+        field.dtype = "float128"
+        with pytest.raises(ValueError, match="unsupported float dtype"):
+            schema.validate()
+
     @pytest.mark.parametrize("size", [2**31 - 1, 2**30])
     def test_chunk_not_too_large(self, schema, size):
         schema = vcz.VcfZarrSchema.fromdict(schema.asdict())
