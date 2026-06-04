@@ -720,7 +720,7 @@ class VcfZarrWriter:
         root = zarr_utils.open_zarr_append(self.path, zarr_format=self.zarr_format)
         root.attrs.update(
             {
-                "vcf_zarr_version": "0.4",
+                "vcf_zarr_version": "0.5",
                 "source": f"bio2zarr-{provenance.__version__}",
             }
         )

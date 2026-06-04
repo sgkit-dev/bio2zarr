@@ -5,13 +5,6 @@ INT_FILL = -2
 STR_MISSING = "."
 STR_FILL = ""
 
-# Floats use two signalling NaN bit patterns to distinguish a missing value
-# (a "." in the VCF) from fill (padding / vector-end in a ragged row). The
-# float32 patterns mirror htslib's bcf_float_missing / bcf_float_vector_end. The
-# float16 and float64 patterns follow the same convention (exponent all ones,
-# mantissa low bits 1 and 2) but are a bio2zarr extension: the VCF Zarr spec only
-# defines the float32 patterns, so any reader (e.g. vcztools, sgkit) must adopt
-# these same f2/f8 patterns to interpret f2/f8 fields.
 FLOAT32_MISSING, FLOAT32_FILL = np.array([0x7F800001, 0x7F800002], dtype=np.int32).view(
     np.float32
 )
