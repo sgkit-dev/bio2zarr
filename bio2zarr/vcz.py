@@ -19,6 +19,23 @@ ZARR_SCHEMA_FORMAT_VERSION = "0.6"
 DEFAULT_VARIANT_CHUNK_SIZE = 1000
 DEFAULT_SAMPLE_CHUNK_SIZE = 10_000
 
+# The dtypes (and widths) that fields are permitted to use. Signed integers
+# of width 1, 2, 4 and 8 bytes, the three supported float widths, booleans,
+# single-character strings (VCF Character fields) and the variable-length
+# string dtype.
+SUPPORTED_DTYPES = {
+    np.dtype("i1"),
+    np.dtype("i2"),
+    np.dtype("i4"),
+    np.dtype("i8"),
+    np.dtype("f2"),
+    np.dtype("f4"),
+    np.dtype("f8"),
+    np.dtype("bool"),
+    np.dtype("U1"),
+    np.dtype(zarr_utils.STRING_DTYPE_NAME),
+}
+
 _fixed_field_descriptions = {
     "variant_contig": "An identifier from the reference genome or an angle-bracketed ID"
     " string pointing to a contig in the assembly file",
@@ -355,6 +372,10 @@ class VcfZarrSchema(core.JsonDataclass):
                 raise ValueError(
                     f"Field '{field.name}' has unsupported float dtype "
                     f"'{field.dtype}'; use one of f2, f4 or f8"
+                )
+            if dtype not in SUPPORTED_DTYPES:
+                raise ValueError(
+                    f"Field '{field.name}' has unsupported dtype '{field.dtype}'"
                 )
 
             chunk_nbytes = field.get_chunk_nbytes(self)
