@@ -25,9 +25,9 @@
    :prog: vcf2zarr mkschema
    :nested: full
 
-.. _cmd-vcf2zarr-create_index:
+.. _cmd-vcf2zarr-create-index:
 .. click:: bio2zarr.cli:create_index
-   :prog: vcf2zarr create_index
+   :prog: vcf2zarr create-index
    :nested: full
 ```
 
