@@ -323,6 +323,54 @@ class TestValidateSchema:
         with pytest.raises(ValueError, match="unsupported float dtype"):
             schema.validate()
 
+    @pytest.mark.parametrize(
+        "dtype", ["i1", "i2", "i4", "i8", "f2", "f4", "f8", "bool", "U1", "T"]
+    )
+    def test_valid_dtype(self, schema, dtype):
+        schema = vcz.VcfZarrSchema.fromdict(schema.asdict())
+        field = schema.field_map()["variant_H2"]
+        schema.fields = [field]
+        field.dtype = dtype
+        schema.validate()
+
+    @pytest.mark.parametrize("dtype", ["u1", "u2", "u4", "u8"])
+    def test_unsupported_unsigned_int_dtype(self, schema, dtype):
+        schema = vcz.VcfZarrSchema.fromdict(schema.asdict())
+        field = schema.field_map()["variant_H2"]
+        schema.fields = [field]
+        field.dtype = dtype
+        with pytest.raises(ValueError, match="unsupported dtype"):
+            schema.validate()
+
+    @pytest.mark.parametrize("dtype", ["i16", "int128"])
+    def test_unsupported_int_width(self, schema, dtype):
+        # numpy has no integer wider than 8 bytes, so these resolve to
+        # invalid rather than unsupported dtypes.
+        schema = vcz.VcfZarrSchema.fromdict(schema.asdict())
+        field = schema.field_map()["variant_H2"]
+        schema.fields = [field]
+        field.dtype = dtype
+        with pytest.raises(ValueError, match="invalid dtype"):
+            schema.validate()
+
+    @pytest.mark.parametrize("dtype", ["U2", "U5", "U10", "S1", "S4"])
+    def test_unsupported_string_dtype(self, schema, dtype):
+        schema = vcz.VcfZarrSchema.fromdict(schema.asdict())
+        field = schema.field_map()["variant_H2"]
+        schema.fields = [field]
+        field.dtype = dtype
+        with pytest.raises(ValueError, match="unsupported dtype"):
+            schema.validate()
+
+    @pytest.mark.parametrize("dtype", ["complex64", "complex128", "datetime64[s]"])
+    def test_unsupported_dtype(self, schema, dtype):
+        schema = vcz.VcfZarrSchema.fromdict(schema.asdict())
+        field = schema.field_map()["variant_H2"]
+        schema.fields = [field]
+        field.dtype = dtype
+        with pytest.raises(ValueError, match="unsupported dtype"):
+            schema.validate()
+
     @pytest.mark.parametrize("size", [2**31 - 1, 2**30])
     def test_chunk_not_too_large(self, schema, size):
         schema = vcz.VcfZarrSchema.fromdict(schema.asdict())
