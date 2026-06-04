@@ -1,15 +1,16 @@
-# 0.2.1 2026-xx-xx
+# 0.2.1 2026-06-04
 
-In development.
+Feature release.
 
 *New features*
 
 - Support ``f2`` (16-bit) and ``f8`` (64-bit) float dtypes for INFO and FORMAT
-  fields by editing the ``dtype`` in a storage schema. Missing and fill
-  sentinels are now defined per float dtype.
-
+  fields by editing the ``dtype`` in a storage schema. Update
+  to ``vcf_zarr_version`` 0.5 in metadata. (#493).
 - Add ``vcf2zarr create-index`` which builds a region index on a local VCZ store (#490).
-  
+- Add ``--ploidy`` option to ``vcf2zarr convert`` (#488)
+- Add ``--zarr-format`` option to CLI to support both Zarr format version 2 and 3 (#483).
+
 # 0.2.0 2026-04-15
 
 Feature release: adds Zip output, (partial) support for Windows and improved
