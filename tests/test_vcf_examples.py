@@ -1195,18 +1195,23 @@ class TestFloatFieldDtypes:
         zarr_path = self.encode(tmp_path, dtype)
         vcz_verification.verify(self.data_path, zarr_path)
 
-    def test_f2_sentinels_preserved(self, tmp_path):
-        zarr_path = self.encode(tmp_path, "f2")
+    @pytest.mark.parametrize("dtype", ["f2", "f4", "f8"])
+    def test_sentinels_preserved(self, tmp_path, dtype):
+        zarr_path = self.encode(tmp_path, dtype)
         root = zarr.open(zarr_path, mode="r")
-        missing = int(constants.FLOAT16_MISSING.view(np.int16))
-        fill = int(constants.FLOAT16_FILL.view(np.int16))
+        float_dtype = np.dtype(dtype)
+        int_dtype = np.dtype(f"i{float_dtype.itemsize}")
+        missing_value, fill_value = constants.FLOAT_MISSING_FILL[float_dtype]
+        missing = int(missing_value.view(int_dtype))
+        fill = int(fill_value.view(int_dtype))
         seen = set()
         for name in self.float_arrays:
             values = root[name][:]
-            nan_as_int = values.view(np.int16)[np.isnan(values)]
+            nan_as_int = values.view(int_dtype)[np.isnan(values)]
             seen.update(int(x) for x in np.unique(nan_as_int))
-        # Every NaN in an f2 array must be exactly the missing or fill sentinel;
-        # a naive f4->f2 cast would collapse both into one indistinguishable NaN.
+        # Every NaN in a float array must be exactly the missing or fill
+        # sentinel; a naive cast between float widths would collapse both into
+        # one indistinguishable NaN.
         assert seen == {missing, fill}
 
 
