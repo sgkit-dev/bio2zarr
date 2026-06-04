@@ -254,6 +254,24 @@ class TestTskitFormat:
         )
         assert position_field.dtype == "i8"
 
+    def test_large_position_round_trip(self):
+        # A position beyond the int32 range must survive encoding as i8
+        # without truncation.
+        big_position = np.iinfo(np.int32).max + 1
+        tables = tskit.TableCollection(sequence_length=3_000_000_000)
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+        tables.sites.add_row(position=10, ancestral_state="A")
+        tables.sites.add_row(position=big_position, ancestral_state="C")
+        tables.mutations.add_row(site=0, node=0, derived_state="T")
+        tables.mutations.add_row(site=1, node=0, derived_state="G")
+        ts = tables.tree_sequence()
+
+        root = tsk.convert(ts, worker_processes=0)
+        position = root["variant_position"]
+        assert position.dtype == np.dtype("i8")
+        nt.assert_array_equal(position[:], [10, big_position])
+
     def test_initialization_defaults(self, fx_simple_ts):
         format_obj = tsk.TskitFormat(fx_simple_ts)
         assert format_obj.path is None
