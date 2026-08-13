@@ -1241,6 +1241,7 @@ class TestSplitFileErrors:
         "out_of_order_contigs.vcf.gz",
         "chr_m_indels.vcf.gz",
         "issue_251.vcf.gz",
+        "mixed_ploidy.vcf.gz",
     ],
 )
 def test_by_validating(name, tmp_path):

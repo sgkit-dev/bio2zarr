@@ -256,6 +256,12 @@ def verify(vcf_path, zarr_path, show_progress=False):
             gt_vcf = gt[:, :-1]
             # NOTE cyvcf2 remaps genotypes automatically
             # into the same missing/pad encoding that sgkit uses.
+            # cyvcf2 pads to the row's maximum ploidy, but the Zarr array is
+            # padded to the file-wide maximum.
+            k = gt_vcf.shape[1]
+            if gt_zarr.shape[1] != k:
+                assert_all_fill_int(gt_zarr[:, k:])
+                gt_zarr = gt_zarr[:, :k]
             nt.assert_array_equal(gt_zarr, gt_vcf)
 
         for name, (vcf_type, zarr_iter) in info_fields.items():
