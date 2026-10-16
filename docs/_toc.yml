@@ -11,6 +11,10 @@ chapters:
   sections:
   - file: plink2zarr/python_api
   - file: plink2zarr/cli_ref
+- file: bgen2zarr/overview
+  sections:
+  - file: bgen2zarr/python_api
+  - file: bgen2zarr/cli_ref
 - file: tskit2zarr/overview
   sections:
   - file: tskit2zarr/python_api
