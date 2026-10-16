@@ -669,7 +669,7 @@ def convert_bgen(
     samples_chunk_size,
     zarr_format,
 ):
-    """Convert unphased diploid biallelic BGEN probabilities to VCF Zarr."""
+    """Convert BGEN genotype and phased haplotype probabilities to VCF Zarr."""
     setup_logging(verbose)
     ids = None
     if sample_ids is not None:

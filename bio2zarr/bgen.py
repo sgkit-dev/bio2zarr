@@ -2,52 +2,69 @@
 
 import importlib.metadata
 import logging
+import math
 import pathlib
-import struct
 import tempfile
+from collections import Counter
 
 import numpy as np
 
-from bio2zarr import constants, core, vcz
+from bio2zarr import _bgen_compat, constants, core, vcz
 from bio2zarr.zarr_utils import STRING_DTYPE_NAME
 
 logger = logging.getLogger(__name__)
 
 
-def check_header(path):
-    """Check the supported encoding before entering the native reader."""
-    with open(path, "rb") as f:
-        header = f.read(20)
-        if len(header) != 20:
-            raise ValueError("Truncated BGEN header")
-        offset, length, variants, samples, magic = struct.unpack("<IIII4s", header)
-        if magic not in (b"bgen", b"\0" * 4) or length < 20 or offset < length:
-            raise ValueError("Invalid BGEN header")
-        f.seek(length)
-        flags = f.read(4)
-        if len(flags) != 4:
-            raise ValueError("Truncated BGEN flags")
-        flags = int.from_bytes(flags, "little")
-    compression = flags & 3
-    layout = (flags >> 2) & 15
-    if layout != 2:
-        raise ValueError(
-            f"Unsupported BGEN layout {layout}; bgen-limix 4.11 indexing "
-            "requires layout 2"
+def genotype_order(num_alleles, ploidy):
+    """Yield allele tuples in the colexicographic order shared by BGEN and VCF."""
+    if ploidy == 0:
+        yield ()
+    else:
+        for last in range(num_alleles):
+            for prefix in genotype_order(last + 1, ploidy - 1):
+                yield (*prefix, last)
+
+
+def probability_lengths(genotype, num_alleles):
+    if np.any(genotype.ploidy > 63):
+        raise ValueError("Invalid BGEN ploidy; expected values from 0 to 63")
+    if genotype.phased:
+        return genotype.ploidy.astype(np.int64) * num_alleles
+    lookup = np.empty(64, dtype=np.int64)
+    for p in np.unique(genotype.ploidy):
+        lookup[p] = math.comb(int(p) + num_alleles - 1, num_alleles - 1)
+    return lookup[genotype.ploidy]
+
+
+def dosage(genotype, num_alleles):
+    probability = genotype.probability
+    result = np.zeros((len(probability), num_alleles - 1))
+    if genotype.phased:
+        values = np.nan_to_num(probability, nan=0).reshape(
+            len(probability), -1, num_alleles
         )
-    if compression == 3:
-        raise ValueError(
-            f"Unsupported BGEN compression {compression} for layout {layout}"
-        )
-    # bgen-limix 4.11 reads a fixed 6*N bytes for this header, rather than
-    # the variable-length block. Do not pass these files to the native reader.
-    if layout == 2 and compression == 0:
-        raise ValueError(
-            "Uncompressed BGEN layout 2 is not supported by bgen-limix 4.11; "
-            "use zlib or zstd compression"
-        )
-    if variants == 0 or samples == 0:
-        raise ValueError("BGEN conversion requires at least one variant and sample")
+        result[:] = values.sum(axis=1)[:, 1:]
+    else:
+        for ploidy in np.unique(genotype.ploidy):
+            p = int(ploidy)
+            selected = (genotype.ploidy == p) & ~genotype.missing
+            if not np.any(selected) or p == 0:
+                continue
+            if num_alleles == 2:
+                result[selected, 0] = probability[selected, : p + 1] @ np.arange(p + 1)
+            elif p == 1:
+                result[selected] = probability[selected, 1:num_alleles]
+            else:
+                # Avoid a potentially enormous dense genotypes-by-alleles matrix.
+                indices = np.flatnonzero(selected)
+                for j, alleles in enumerate(genotype_order(num_alleles, p)):
+                    for allele, count in Counter(alleles).items():
+                        if allele:
+                            result[indices, allele - 1] += (
+                                count * probability[indices, j]
+                            )
+    result[genotype.missing] = constants.FLOAT64_MISSING
+    return result
 
 
 class BgenFormat(vcz.Source):
@@ -73,10 +90,19 @@ class BgenFormat(vcz.Source):
             )
         self._path = str(pathlib.Path(path).resolve())
         self.metafile_path = str(metafile_path)
-        check_header(self._path)
-        with cbgen.BgenFile(self.path) as source:
-            self._num_records = source.nvariants
-            self._num_samples = source.nsamples
+        self.header = _bgen_compat.read_header(self._path)
+        self.reader_path = self.path
+        if self.header.layout == 1 or self.header.compression == 0:
+            self.reader_path = str(pathlib.Path(metafile_path).with_suffix(".bgen"))
+            if self.header.layout == 1:
+                _bgen_compat.prepare_layout1(
+                    self.path, self.reader_path, self.metafile_path, self.header
+                )
+            else:
+                _bgen_compat.compress_layout2(self.path, self.reader_path, self.header)
+        with cbgen.BgenFile(self.reader_path) as source:
+            self._num_records = self.header.variants
+            self._num_samples = self.header.samples
             embedded = source.read_samples() if source.contain_samples else None
             if sample_ids is None:
                 sample_ids = embedded
@@ -92,18 +118,22 @@ class BgenFormat(vcz.Source):
             if len(set(sample_ids)) != len(sample_ids):
                 raise ValueError("sample_ids must be unique")
             self._samples = [vcz.Sample(id=s) for s in sample_ids]
-            source.create_metafile(self.metafile_path)
+            if self.header.layout != 1:
+                source.create_metafile(self.metafile_path)
 
         self._contigs = []
         last_position = {}
         self.max_position = 0
         self.max_ref_length = 0
-        with cbgen.BgenFile(self.path) as source:
+        self.max_alleles = 0
+        self.max_genotypes = 0
+        self.max_haplotype_probabilities = 0
+        self.has_phased = False
+        self.has_unphased = False
+        with self.open_reader() as source:
             for j, variant in enumerate(self.iter_variants(0, self.num_records)):
-                if variant.nalleles != 2:
-                    raise ValueError(
-                        f"BGEN variant {j}: only biallelic variants are supported"
-                    )
+                if variant.nalleles < 2:
+                    raise ValueError(f"BGEN variant {j}: expected at least two alleles")
                 if not variant.chrom or variant.chrom == ".":
                     raise ValueError(f"BGEN variant {j}: missing chromosome")
                 if variant.position < 1:
@@ -122,7 +152,17 @@ class BgenFormat(vcz.Source):
                 self.max_ref_length = max(
                     self.max_ref_length, len(variant.allele_ids[0])
                 )
-                self.read_genotype(source, variant)
+                genotype = self.read_genotype(source, variant)
+                self.max_alleles = max(self.max_alleles, variant.nalleles)
+                length = int(max(probability_lengths(genotype, variant.nalleles)))
+                if genotype.phased:
+                    self.has_phased = True
+                    self.max_haplotype_probabilities = max(
+                        self.max_haplotype_probabilities, length
+                    )
+                else:
+                    self.has_unphased = True
+                    self.max_genotypes = max(self.max_genotypes, length)
         logger.info(
             "Scanned BGEN with %s samples and %s variants",
             self.num_samples,
@@ -149,9 +189,21 @@ class BgenFormat(vcz.Source):
     def contigs(self):
         return [vcz.Contig(id=c) for c in self._contigs]
 
+    def open_reader(self):
+        if self.header.layout == 1:
+            return _bgen_compat.Layout1Reader(self.reader_path, self.num_samples)
+        return _bgen_compat.open_layout2_reader(
+            self.reader_path, max(1, self.header.compression), self.num_samples
+        )
+
     def iter_variants(self, start, stop):
         import cbgen  # noqa: PLC0415
 
+        if self.header.layout == 1:
+            yield from _bgen_compat.iter_layout1_variants(
+                self.metafile_path, start, stop
+            )
+            return
         with cbgen.BgenMetafile(self.metafile_path) as index:
             size = index.partition_size
             for partition in range(start // size, (stop + size - 1) // size):
@@ -163,26 +215,28 @@ class BgenFormat(vcz.Source):
     def read_genotype(self, source, variant):
         genotype = source.read_genotype(variant.offset)
         label = f"{variant.chrom}:{variant.position}"
-        if genotype.phased:
-            raise ValueError(
-                f"BGEN variant {label}: phased haplotype probabilities are not "
-                "supported; they cannot be stored as unphased FORMAT/GP"
-            )
-        if np.any(genotype.ploidy != 2):
-            raise ValueError(
-                f"BGEN variant {label}: only diploid samples are supported"
-            )
         probability = genotype.probability
-        if probability.shape != (self.num_samples, 3):
-            raise ValueError(f"BGEN variant {label}: expected three probabilities")
-        called = probability[~genotype.missing]
+        lengths = probability_lengths(genotype, variant.nalleles)
         if (
-            np.any(~np.isfinite(called))
-            or np.any(called < 0)
-            or np.any(called > 1)
-            or not np.allclose(called.sum(axis=1), 1, rtol=0, atol=1e-6)
+            probability.shape[0] != self.num_samples
+            or probability.shape[1] < max(lengths)
+            or np.any(genotype.ploidy > 63)
         ):
+            raise ValueError(f"BGEN variant {label}: invalid ploidy/probability shape")
+        active = np.arange(probability.shape[1])[None, :] < lengths[:, None]
+        called = probability[active & ~genotype.missing[:, None]]
+        if np.any(~np.isfinite(called)) or np.any(called < 0) or np.any(called > 1):
             raise ValueError(f"BGEN variant {label}: invalid genotype probabilities")
+        tolerance = 3 / 32768 if self.header.layout == 1 else 1e-6
+        for p in np.unique(genotype.ploidy):
+            selected = (genotype.ploidy == p) & ~genotype.missing
+            values = probability[selected, : int(lengths[genotype.ploidy == p][0])]
+            if genotype.phased:
+                values = values.reshape(-1, variant.nalleles)
+            if not np.allclose(values.sum(axis=1), 1, rtol=0, atol=tolerance):
+                raise ValueError(
+                    f"BGEN variant {label}: invalid genotype probabilities"
+                )
         return genotype
 
     def iter_contig(self, start, stop):
@@ -196,15 +250,23 @@ class BgenFormat(vcz.Source):
 
     def iter_alleles_and_genotypes(self, start, stop, shape, num_alleles):
         for variant in self.iter_variants(start, stop):
-            alleles = np.asarray(variant.allele_ids, dtype=STRING_DTYPE_NAME)
+            alleles = np.full(num_alleles, constants.STR_FILL, dtype=STRING_DTYPE_NAME)
+            alleles[: variant.nalleles] = variant.allele_ids
             yield vcz.VariantData(len(alleles[0]), alleles, None, None)
 
     def iter_field(self, field_name, shape, dtype, start, stop):
-        import cbgen  # noqa: PLC0415
-
-        if field_name not in ("position", "id", "GP", "DS"):
+        if field_name not in (
+            "position",
+            "id",
+            "GP",
+            "HP",
+            "DS",
+            "PLOIDY",
+            "BGEN_MISSING",
+            "phased",
+        ):
             raise ValueError(f"Unknown BGEN field {field_name}")
-        with cbgen.BgenFile(self.path) as source:
+        with self.open_reader() as source:
             for variant in self.iter_variants(start, stop):
                 if field_name == "position":
                     yield variant.position
@@ -212,13 +274,34 @@ class BgenFormat(vcz.Source):
                     yield variant.id or constants.STR_MISSING
                 else:
                     genotype = self.read_genotype(source, variant)
-                    probability = genotype.probability
-                    if field_name == "GP":
-                        value = probability.copy()
+                    if field_name == "PLOIDY":
+                        yield genotype.ploidy
+                    elif field_name == "BGEN_MISSING":
+                        yield genotype.missing.astype(np.int8)
+                    elif field_name == "phased":
+                        yield genotype.phased
+                    elif field_name == "DS":
+                        value = dosage(genotype, variant.nalleles)
+                        if self.max_alleles == 2:
+                            yield value[:, 0]
+                        else:
+                            result = np.full(shape, constants.FLOAT64_FILL)
+                            result[:, : variant.nalleles - 1] = value
+                            yield result
                     else:
-                        value = probability[:, 1] + 2 * probability[:, 2]
-                    value[genotype.missing] = constants.FLOAT64_MISSING
-                    yield value
+                        result = np.full(shape, constants.FLOAT64_FILL)
+                        if genotype.phased != (field_name == "HP"):
+                            result[:, 0] = constants.FLOAT64_MISSING
+                        else:
+                            lengths = probability_lengths(genotype, variant.nalleles)
+                            active = np.arange(shape[1])[None, :] < lengths[:, None]
+                            width = min(shape[1], genotype.probability.shape[1])
+                            result[:, :width] = genotype.probability[:, :width]
+                            result[~active] = constants.FLOAT64_FILL
+                            result[active & genotype.missing[:, None]] = (
+                                constants.FLOAT64_MISSING
+                            )
+                        yield result
 
     def generate_schema(self, variants_chunk_size=None, samples_chunk_size=None):
         for name, size in (
@@ -232,9 +315,13 @@ class BgenFormat(vcz.Source):
             samples_size=self.num_samples,
             variants_chunk_size=variants_chunk_size,
             samples_chunk_size=samples_chunk_size,
-            alleles_size=2,
-            genotypes_size=3,
+            alleles_size=self.max_alleles,
+            genotypes_size=self.max_genotypes if self.has_unphased else None,
         )
+        if self.has_phased:
+            dimensions["FORMAT_HP_dim"] = vcz.VcfZarrDimension.unchunked(
+                max(1, self.max_haplotype_probabilities)
+            )
         # The shared region index uses the position dtype for record counts too.
         # Keep at least int32, and allow reference spans beyond int32 positions.
         position_dtype = core.min_int_dtype(
@@ -277,20 +364,55 @@ class BgenFormat(vcz.Source):
                 "BGEN variant identifier (distinct from the rsID)",
             ),
             (
-                "call_GP",
-                "f8",
-                ["variants", "samples", "genotypes"],
-                "GP",
-                "Unphased genotype probabilities in VCF order (0/0, 0/1, 1/1)",
-            ),
-            (
                 "call_DS",
                 "f8",
-                ["variants", "samples"],
+                ["variants", "samples"]
+                + (["alt_alleles"] if self.max_alleles > 2 else []),
                 "DS",
-                "Expected alternate allele count, P(0/1) + 2*P(1/1)",
+                "Expected count for each alternate allele",
+            ),
+            (
+                "call_PLOIDY",
+                "i1",
+                ["variants", "samples"],
+                "PLOIDY",
+                "BGEN sample ploidy, including for missing probability vectors",
+            ),
+            (
+                "call_BGEN_MISSING",
+                "i1",
+                ["variants", "samples"],
+                "BGEN_MISSING",
+                "Original BGEN missingness indicator (1=missing, 0=present)",
+            ),
+            (
+                "variant_bgen_phased",
+                "bool",
+                ["variants"],
+                "phased",
+                "Whether the BGEN record stores phased haplotype probabilities",
             ),
         ]
+        if self.has_unphased:
+            definitions.append(
+                (
+                    "call_GP",
+                    "f8",
+                    ["variants", "samples", "genotypes"],
+                    "GP",
+                    "Unphased genotype probabilities in VCF/BGEN colexicographic order",
+                )
+            )
+        if self.has_phased:
+            definitions.append(
+                (
+                    "call_HP",
+                    "f8",
+                    ["variants", "samples", "FORMAT_HP_dim"],
+                    "HP",
+                    "Phased haplotype probabilities: haplotype-major, then alleles",
+                )
+            )
         fields = [
             vcz.ZarrArraySpec(
                 name=name,
@@ -320,14 +442,13 @@ def convert(
     show_progress=False,
     zarr_format=None,
 ):
-    """Convert unphased, diploid, biallelic BGEN data to VCF Zarr.
+    """Convert BGEN genotype or phased haplotype probabilities to VCF Zarr.
 
     Parameters
     ----------
     bgen_path : str or Path
-        Local layout 2 BGEN file, compressed with zlib or zstd.
-        Other layouts, uncompressed data, phased, non-diploid and multiallelic
-        data raise ValueError.
+        Local BGEN layout 1 (raw/zlib) or layout 2 (raw/zlib/zstd) file.
+        Layout 2 supports phased/unphased, multiallelic and variable-ploidy data.
     out : str, Path, or None
         Directory, .zip archive, or None for a MemoryStore-backed group.
     sample_ids : sequence of str, optional
@@ -349,8 +470,9 @@ def convert(
     Returns
     -------
     zarr.Group
-        VCZ data, including call_GP and derived call_DS. No hard genotypes
-        are inferred. The first BGEN allele is treated as reference.
+        VCZ data, including call_GP and/or call_HP, derived call_DS, sample
+        ploidy and original missingness. No hard genotypes are inferred.
+        The first BGEN allele is treated as reference.
 
     Notes
     -----
