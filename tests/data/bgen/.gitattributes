@@ -1,0 +1,8 @@
+# Preserve authoritative fixture bytes and checksums on every platform.
+/LICENSE.md -text
+/complex.vcf -text
+/example.sample -text
+/haplotypes.haps -text
+/*.bgen -text
+/*.gz -text
+/SHA256SUMS text eol=lf

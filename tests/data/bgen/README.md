@@ -25,6 +25,9 @@ The original complete uncompressed GEN SHA-256 is
 `59e5484e558276fcdf6d420c356bec209169774e661d1e82584ab2d7164043de`.
 `SHA256SUMS` pins every stored data file and the original license notice.
 CI verifies these hashes and requires no downloads.
+The local `.gitattributes` disables line-ending conversion for these files,
+including the license and text oracles, to preserve their authoritative bytes
+on Windows checkouts as well.
 
 The full `example` file is intentionally kept unchanged: its position order
 falls from 99000 to 10000 at zero-based record 98. The converter requires
