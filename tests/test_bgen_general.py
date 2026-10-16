@@ -402,7 +402,7 @@ def test_haploid_dosage_avoids_dense_allele_counts():
         missing=np.array([False]),
     )
     with mock.patch.object(bgen, "genotype_order", side_effect=AssertionError):
-        nt.assert_array_equal(bgen.dosage(genotype, 1024), probability[:, 1:])
+        nt.assert_array_equal(bgen.compute_dosage(genotype, 1024), probability[:, 1:])
 
 
 @pytest.mark.parametrize(

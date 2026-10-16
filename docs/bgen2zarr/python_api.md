@@ -34,6 +34,34 @@ root = bgen.convert(
 The number of identifiers must match the BGEN sample count.
 See {ref}`sec-bgen2zarr` for the supported data model and limitations.
 
+Select output fields and storage settings with the same defaults as the CLI:
+
+```python
+# Probabilities only, retaining the default float64 precision and zstd level 7.
+root = bgen.convert("input.bgen", "probabilities.vcz", dosage=False)
+
+# Smaller dosage-only output; this discards uncertainty and haplotype probabilities.
+root = bgen.convert(
+    "input.bgen",
+    "dosage.vcz",
+    probabilities=False,
+    float_dtype="float32",
+    compressor="lz4",
+    compression_level=3,
+    zarr_format=3,
+)
+settings = root.attrs["bio2zarr_bgen"]
+```
+
+`probabilities=True` and `dosage=True` retain both by default; disabling
+both raises `ValueError` before input access or output creation.
+`float_dtype` accepts only `"float64"` (default) or `"float32"`. Float32
+rounds values and must not be treated as universally lossless; dosage is
+computed in float64 before casting. Ploidy, missingness, the phase indicator
+and variant/sample metadata remain in either mode. Codec settings apply to
+schema-defined output arrays; auxiliary shared-writer arrays retain their
+standard compression. See {ref}`sec-bgen2zarr` for full tradeoffs.
+
 ## API reference
 
 ```{eval-rst}
