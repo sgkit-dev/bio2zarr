@@ -11,6 +11,13 @@
   through the backend's public API, retaining exact layout-1 probabilities.
   Support memory, directory and zip output with Zarr formats 2 and 3.
   Invalid inputs are rejected rather than silently coerced or reordered. (#417)
+- Add BGEN probability/dosage selection, float64/float32 storage precision,
+  and Blosc zstd/lz4 output compression with levels 0-9. Defaults retain both
+  applicable GP/HP and DS as float64 with zstd level 7 and byte shuffle.
+  Preserve dtype-specific missing/fill sentinels and calculate dosage before
+  any downcast. Record settings in `bio2zarr_bgen` root metadata. Dosage-only
+  output discards uncertainty and haplotype probabilities; float32 explicitly
+  rounds values, without renormalization or hard-call inference.
 
 # 0.2.1 2026-06-04
 

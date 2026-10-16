@@ -9,7 +9,7 @@ from collections import Counter
 
 import numpy as np
 
-from bio2zarr import constants, core, vcz
+from bio2zarr import constants, core, vcz, zarr_utils
 from bio2zarr.zarr_utils import STRING_DTYPE_NAME
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ def probability_lengths(genotype, num_alleles):
     return lookup[genotype.ploidy]
 
 
-def dosage(genotype, num_alleles):
+def compute_dosage(genotype, num_alleles):
     probability = genotype.probability
     result = np.zeros((len(probability), num_alleles - 1))
     if genotype.phased:
@@ -69,9 +69,30 @@ def dosage(genotype, num_alleles):
 
 class BgenFormat(vcz.Source):
     @core.requires_optional_dependency("cbgen", "bgen")
-    def __init__(self, path, metafile_path, sample_ids=None):
+    def __init__(
+        self,
+        path,
+        metafile_path,
+        sample_ids=None,
+        *,
+        probabilities=True,
+        dosage=True,
+        float_dtype="float64",
+        compressor="zstd",
+        compression_level=7,
+    ):
         import cbgen  # noqa: PLC0415
 
+        validate_storage_options(
+            probabilities, dosage, float_dtype, compressor, compression_level
+        )
+        self.storage_options = {
+            "probabilities": probabilities,
+            "dosage": dosage,
+            "float_dtype": float_dtype,
+            "compressor": compressor,
+            "compression_level": compression_level,
+        }
         try:
             importlib.metadata.distribution("bgen-limix")
         except importlib.metadata.PackageNotFoundError:
@@ -167,6 +188,10 @@ class BgenFormat(vcz.Source):
             self.num_samples,
             self.num_records,
         )
+
+    @property
+    def root_attrs(self):
+        return {"bio2zarr_bgen": dict(self.storage_options)}
 
     @property
     def path(self):
@@ -273,26 +298,29 @@ class BgenFormat(vcz.Source):
                     elif field_name == "phased":
                         yield genotype.phased
                     elif field_name == "DS":
-                        value = dosage(genotype, variant.nalleles)
+                        missing, fill = constants.FLOAT_MISSING_FILL[np.dtype(dtype)]
+                        value = compute_dosage(genotype, variant.nalleles)
+                        value[genotype.missing] = 0
+                        value = value.astype(dtype)
+                        value[genotype.missing] = missing
                         if self.max_alleles == 2:
                             yield value[:, 0]
                         else:
-                            result = np.full(shape, constants.FLOAT64_FILL)
+                            result = np.full(shape, fill, dtype=dtype)
                             result[:, : variant.nalleles - 1] = value
                             yield result
                     else:
-                        result = np.full(shape, constants.FLOAT64_FILL)
+                        missing, fill = constants.FLOAT_MISSING_FILL[np.dtype(dtype)]
+                        result = np.full(shape, fill, dtype=dtype)
                         if genotype.phased != (field_name == "HP"):
-                            result[:, 0] = constants.FLOAT64_MISSING
+                            result[:, 0] = missing
                         else:
                             lengths = probability_lengths(genotype, variant.nalleles)
                             active = np.arange(shape[1])[None, :] < lengths[:, None]
                             width = min(shape[1], genotype.probability.shape[1])
                             result[:, :width] = genotype.probability[:, :width]
-                            result[~active] = constants.FLOAT64_FILL
-                            result[active & genotype.missing[:, None]] = (
-                                constants.FLOAT64_MISSING
-                            )
+                            result[~active] = fill
+                            result[active & genotype.missing[:, None]] = missing
                         yield result
 
     def generate_schema(self, variants_chunk_size=None, samples_chunk_size=None):
@@ -308,9 +336,11 @@ class BgenFormat(vcz.Source):
             variants_chunk_size=variants_chunk_size,
             samples_chunk_size=samples_chunk_size,
             alleles_size=self.max_alleles,
-            genotypes_size=self.max_genotypes if self.has_unphased else None,
+            genotypes_size=self.max_genotypes
+            if self.has_unphased and self.storage_options["probabilities"]
+            else None,
         )
-        if self.has_phased:
+        if self.has_phased and self.storage_options["probabilities"]:
             dimensions["FORMAT_HP_dim"] = vcz.VcfZarrDimension.unchunked(
                 max(1, self.max_haplotype_probabilities)
             )
@@ -408,18 +438,45 @@ class BgenFormat(vcz.Source):
         fields = [
             vcz.ZarrArraySpec(
                 name=name,
-                dtype=dtype,
+                dtype=self.storage_options["float_dtype"] if dtype == "f8" else dtype,
                 dimensions=dims,
                 source=source,
                 description=description,
             )
             for name, dtype, dims, source, description in definitions
+            if (source not in ("GP", "HP") or self.storage_options["probabilities"])
+            and (source != "DS" or self.storage_options["dosage"])
         ]
+        compressor = dict(zarr_utils.DEFAULT_COMPRESSOR_CONFIG)
+        compressor.update(
+            cname=self.storage_options["compressor"],
+            clevel=self.storage_options["compression_level"],
+        )
         return vcz.VcfZarrSchema(
             format_version=vcz.ZARR_SCHEMA_FORMAT_VERSION,
             dimensions=dimensions,
             fields=fields,
+            defaults={"compressor": compressor},
         )
+
+
+def validate_storage_options(
+    probabilities, dosage, float_dtype, compressor, compression_level
+):
+    if not isinstance(probabilities, bool) or not isinstance(dosage, bool):
+        raise ValueError("probabilities and dosage must be booleans")
+    if not probabilities and not dosage:
+        raise ValueError("At least one of probabilities or dosage must be enabled")
+    if float_dtype not in ("float64", "float32"):
+        raise ValueError("float_dtype must be 'float64' or 'float32'")
+    if compressor not in ("zstd", "lz4"):
+        raise ValueError("compressor must be 'zstd' or 'lz4'")
+    if (
+        not isinstance(compression_level, int)
+        or isinstance(compression_level, bool)
+        or not 0 <= compression_level <= 9
+    ):
+        raise ValueError("compression_level must be an integer from 0 to 9")
 
 
 def convert(
@@ -433,6 +490,11 @@ def convert(
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
     zarr_format=None,
+    probabilities=True,
+    dosage=True,
+    float_dtype="float64",
+    compressor="zstd",
+    compression_level=7,
 ):
     """Convert BGEN genotype or phased haplotype probabilities to VCF Zarr.
 
@@ -458,6 +520,16 @@ def convert(
     zarr_format : int, optional
         Output format, 2 (default) or 3. BIO2ZARR_DEFAULT_ZARR_FORMAT overrides
         the default.
+    probabilities, dosage : bool
+        Retain GP/HP and/or derived DS (both default True). At least one is
+        required. Dosage alone discards uncertainty and haplotype information.
+    float_dtype : {"float64", "float32"}
+        GP/HP/DS storage precision, default float64. Float32 rounds values;
+        dosage is always computed in float64 before the final cast.
+    compressor : {"zstd", "lz4"}
+        Blosc codec for schema-defined output arrays, default zstd.
+    compression_level : int
+        Blosc compression level from 0 to 9, default 7; byte shuffle is retained.
 
     Returns
     -------
@@ -472,16 +544,36 @@ def convert(
     Every supported encoding is read natively from the original file, without
     staging a rewritten copy. Reads decode one variant (all samples) at a time.
     Output buffers contain one variant chunk, as in the other converters.
-    Probabilities use float64 to retain the backend's precision, including
-    independently rounded layout-1 values and 32-bit layout-2 probabilities.
+    Probabilities default to float64 to retain the backend's precision,
+    including independently rounded layout-1 values and 32-bit layout-2
+    probabilities. Explicit float32 output rounds values without renormalizing.
     """
+    validate_storage_options(
+        probabilities, dosage, float_dtype, compressor, compression_level
+    )
+    logger.info(
+        "BGEN storage: probabilities=%s dosage=%s float_dtype=%s "
+        "compressor=%s compression_level=%s",
+        probabilities,
+        dosage,
+        float_dtype,
+        compressor,
+        compression_level,
+    )
     if mode not in ("r", "r+"):
         raise ValueError("mode must be 'r' or 'r+'")
     if out is not None and str(out).endswith(".zip") and mode != "r":
         raise ValueError("Zip output is read-only; use mode='r'")
     with tempfile.TemporaryDirectory(prefix="bio2zarr-bgen-") as tmp:
         source = BgenFormat(
-            bgen_path, pathlib.Path(tmp) / "index.metafile", sample_ids=sample_ids
+            bgen_path,
+            pathlib.Path(tmp) / "index.metafile",
+            sample_ids=sample_ids,
+            probabilities=probabilities,
+            dosage=dosage,
+            float_dtype=float_dtype,
+            compressor=compressor,
+            compression_level=compression_level,
         )
         schema = source.generate_schema(variants_chunk_size, samples_chunk_size)
         return vcz.encode(

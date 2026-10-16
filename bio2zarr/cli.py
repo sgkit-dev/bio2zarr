@@ -646,6 +646,39 @@ plink2zarr_main.add_command(convert_plink)
 @click.argument("bgen_path", type=click.Path(exists=True, dir_okay=False))
 @new_zarr_path
 @click.option(
+    "--probabilities/--no-probabilities",
+    default=True,
+    show_default=True,
+    help="Retain genotype/haplotype probabilities (GP/HP).",
+)
+@click.option(
+    "--dosage/--no-dosage",
+    default=True,
+    show_default=True,
+    help="Retain expected alternate-allele dosage (DS).",
+)
+@click.option(
+    "--float-dtype",
+    type=click.Choice(["float64", "float32"]),
+    default="float64",
+    show_default=True,
+    help="GP/HP/DS storage precision.",
+)
+@click.option(
+    "--compressor",
+    type=click.Choice(["zstd", "lz4"]),
+    default="zstd",
+    show_default=True,
+    help="Output Blosc codec.",
+)
+@click.option(
+    "--compression-level",
+    type=click.IntRange(0, 9),
+    default=7,
+    show_default=True,
+    help="Output Blosc compression level.",
+)
+@click.option(
     "--sample-ids",
     type=click.Path(exists=True, dir_okay=False),
     help="UTF-8 file with one sample ID per line, in BGEN sample order.",
@@ -668,9 +701,18 @@ def convert_bgen(
     variants_chunk_size,
     samples_chunk_size,
     zarr_format,
+    probabilities,
+    dosage,
+    float_dtype,
+    compressor,
+    compression_level,
 ):
     """Convert BGEN genotype and phased haplotype probabilities to VCF Zarr."""
     setup_logging(verbose)
+    if not probabilities and not dosage:
+        raise click.UsageError(
+            "At least one of probabilities or dosage must be enabled"
+        )
     ids = None
     if sample_ids is not None:
         with open(sample_ids, encoding="utf-8") as f:
@@ -685,6 +727,11 @@ def convert_bgen(
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
         zarr_format=zarr_format,
+        probabilities=probabilities,
+        dosage=dosage,
+        float_dtype=float_dtype,
+        compressor=compressor,
+        compression_level=compression_level,
     )
 
 

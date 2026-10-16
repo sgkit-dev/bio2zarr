@@ -82,6 +82,49 @@ between an empty vector and a missing call.
 No hard genotype inference or fabricated `call_genotype`/GT phasing arrays
 are introduced: phasing is retained in HP and `variant_bgen_phased`.
 
+## Storage options
+
+By default conversion retains both probabilities (GP and/or HP as applicable)
+and dosage (DS), using **float64**, **Blosc zstd level 7 with byte shuffle**.
+Choose the fields, precision and output compression independently:
+
+```bash
+# Probabilities only: preserve uncertainty and haplotype probabilities, omit DS.
+bgen2zarr convert input.bgen probabilities.vcz --no-dosage
+
+# Dosage only, explicitly rounding to float32 and using lz4.
+bgen2zarr convert input.bgen dosage.vcz --no-probabilities --float-dtype float32 --compressor lz4 --compression-level 3
+```
+
+`--no-probabilities` omits both GP and HP; `--no-dosage` omits DS.
+At least one must remain enabled. Omitted fields have no encoding pass, and
+DS is not calculated when omitted. Original ploidy, missingness, per-record
+phase indicator, and variant/sample metadata are always retained.
+**Dosage-only output discards genotype uncertainty and haplotype
+information**: ploidy and the phase indicator cannot reconstruct HP or GP.
+No hard calls are invented in either mode.
+
+`--float-dtype float32` rounds GP, HP and DS to 32-bit floats; this is not
+universally lossless, especially for high-bit-depth BGEN probabilities.
+Dosage is calculated from native float64 probabilities before rounding.
+Neither precision renormalizes probabilities or reconstructs an omitted
+state. Float64 preserves layout 1's independently rounded probabilities.
+Both precisions use their exact dtype-specific VCZ missing/fill NaN bits.
+Float16 is not supported by these BGEN conversion options.
+
+`--compressor zstd|lz4` and `--compression-level 0..9` configure the
+Blosc compressor on schema-defined output arrays, including GP/HP/DS.
+They do not configure an intermediate ICF file or change the input BGEN
+compression. Auxiliary arrays written by the shared writer (`sample_id`,
+`contig_id`, and `region_index`) retain its standard compression.
+The same options work with Zarr formats 2 and 3. Probability axes remain
+whole within chunks; existing variant/sample chunk controls are unchanged.
+
+The root attribute `bio2zarr_bgen` records `probabilities`, `dosage`,
+`float_dtype`, `compressor`, and `compression_level`. The codec values name
+the Blosc codec and level; byte shuffle is fixed. The selected configuration
+is also logged with verbose logging (`-v`).
+
 Embedded sample identifiers are used when present. Otherwise identifiers
 `sample_0`, `sample_1`, ... are generated. Override either with a UTF-8
 file containing exactly one unique nonempty identifier per line:
