@@ -154,19 +154,19 @@ wheels = [
 
 [[package]]
 name = "bgen-limix"
-version = "4.11.0"
+version = "4.12.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "nanobind-backend" },
     { name = "numpy" },
     { name = "pooch" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/08/57/c3398feac6ce9a32b4813fffa6018c1c621eb78602c9600dfeb44dcbcdaf/bgen_limix-4.11.0.tar.gz", hash = "sha256:33101aa98aba3945cf0db817b1a48ff227371272f4b82cf8dc5a611760d3621e", size = 4854986, upload-time = "2026-09-21T15:31:45.195Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c3/fb/869d46fca596b9fecf0a6bcd496a438aeea762e6876d6ee02cf37b612081/bgen_limix-4.12.0.tar.gz", hash = "sha256:3dec8f1f38cd942df978355e9c3ab8e72b6b404edfffcb28e9689e7885796668", size = 4868283, upload-time = "2026-10-16T13:52:00.534Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/74/50/c966471aa39609b7a3e02aff35dc46ce8d1f01f276709e3d1161779032b0/bgen_limix-4.11.0-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:1e0e4d6abbb0ca208075e43b825fb7516c3d53f05cee9e060fb3e628841a383b", size = 2113979, upload-time = "2026-09-21T15:31:38.653Z" },
-    { url = "https://files.pythonhosted.org/packages/11/e9/da9256c2dd93d282bd3641b25a3d9e655e93c494bdf56408885cd4b74c21/bgen_limix-4.11.0-cp311-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:913242e016bb2bc5a8035e82104664d1eaaba6c746f6bb195ae5b35e095caa1d", size = 4006312, upload-time = "2026-09-21T15:31:40.434Z" },
-    { url = "https://files.pythonhosted.org/packages/97/e0/c23374f78b94e12507edbb6afa9014fde5c4b953c60e9c48d55300b193ed/bgen_limix-4.11.0-cp311-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:d31a09adc71e8a0c65b63be402635c9b958318e86b5a62a1b3c7709f4dba2175", size = 4206058, upload-time = "2026-09-21T15:31:42.07Z" },
-    { url = "https://files.pythonhosted.org/packages/44/2f/4c5c2bfc3c773410692e157e1100998b175242d45554cd4bd6884aa2aa26/bgen_limix-4.11.0-cp311-abi3-win_amd64.whl", hash = "sha256:7fee38004fadb43252a2c670e8f6aa66158e432e0765a36b41a117e43dff0e21", size = 3225465, upload-time = "2026-09-21T15:31:43.802Z" },
+    { url = "https://files.pythonhosted.org/packages/30/27/f79dc4236442548be5413360584773a28b40124f8bb3cf2386f283d9da6e/bgen_limix-4.12.0-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:3b358043406b52f963c86e16e10113c7b6119d0dd92aa118e7fe3af8662aae5a", size = 2127989, upload-time = "2026-10-16T13:51:52.691Z" },
+    { url = "https://files.pythonhosted.org/packages/7b/ed/d921df2175e9a64fa4311d177ada5b515c3b723d7a9aafec5b5bb38b7235/bgen_limix-4.12.0-cp311-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:33966adecd4a9621fd0474d66f2ea9b4a4abbac0414daca95bd1f448307d6f7b", size = 4025690, upload-time = "2026-10-16T13:51:54.746Z" },
+    { url = "https://files.pythonhosted.org/packages/48/a3/a252662dce399281a1441080e63467c79be50057fa178a1acfd558c3aefa/bgen_limix-4.12.0-cp311-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:b2b10da68c2cf0cbbe26c66b7682fd1fcda1f203ca56c38b761a6e2533eb9057", size = 4222061, upload-time = "2026-10-16T13:51:56.488Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/94/df0bc7ba33916de740885314a8629f75f367c6b36adbc2451928d1899e95/bgen_limix-4.12.0-cp311-abi3-win_amd64.whl", hash = "sha256:ed49727923f50c87eda4c399884d5b2974144ac90f401fcc48d45012c1e100a6", size = 3253278, upload-time = "2026-10-16T13:51:58.748Z" },
 ]
 
 [[package]]
@@ -263,8 +263,8 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bgen-limix", marker = "extra == 'all'", specifier = ">=4.11,<5" },
-    { name = "bgen-limix", marker = "extra == 'bgen'", specifier = ">=4.11,<5" },
+    { name = "bgen-limix", marker = "extra == 'all'", specifier = ">=4.12.0,<5" },
+    { name = "bgen-limix", marker = "extra == 'bgen'", specifier = ">=4.12.0,<5" },
     { name = "click" },
     { name = "coloredlogs" },
     { name = "cyvcf2", marker = "extra == 'all'" },
@@ -285,7 +285,7 @@ dev = [
     { name = "asciinema-automation" },
     { name = "bash-kernel" },
     { name = "bed-reader" },
-    { name = "bgen-limix", specifier = ">=4.11,<5" },
+    { name = "bgen-limix", specifier = ">=4.12.0,<5" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "cyvcf2", marker = "sys_platform != 'win32'" },
     { name = "dask", extras = ["array"] },
@@ -326,7 +326,7 @@ packaging = [
 ]
 test = [
     { name = "bed-reader" },
-    { name = "bgen-limix", specifier = ">=4.11,<5" },
+    { name = "bgen-limix", specifier = ">=4.12.0,<5" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "cyvcf2", marker = "sys_platform != 'win32'" },
     { name = "dask", extras = ["array"] },

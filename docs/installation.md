@@ -24,7 +24,7 @@ This will install the programs ``vcf2zarr``, ``vcf_partition``, ``tskit2zarr``
 ``bgen2zarr`` and ``plink2zarr`` into your local Python path. You may need to update your $PATH to call the
 executables directly.
 
-BGEN support uses the **bgen-limix** distribution, version 4.11.1 or later
+BGEN support uses the **bgen-limix** distribution, version 4.12.0 or later
 (below 5), from [jpfeuffer/bgen-limix](https://github.com/jpfeuffer/bgen-limix).
 Its import namespace is named `cbgen`, but it is not the legacy `cbgen`
 distribution. Do not install the two distributions in the same environment,

@@ -8,7 +8,7 @@ as the other bio2zarr converters. It does not depend on sgkit.
 Install the optional backend with `python3 -m pip install 'bio2zarr[bgen]'`.
 This installs [bgen-limix](https://github.com/jpfeuffer/bgen-limix), **not**
 the legacy cbgen distribution. The maintained distribution intentionally
-retains the Python import namespace `cbgen`. Version 4.11.1 or later is
+retains the Python import namespace `cbgen`. Version 4.12.0 or later is
 required for native layout-1 indexing, safe decoding of every supported
 encoding, and the public layout metadata API. See {ref}`sec-installation`
 for platform requirements.
