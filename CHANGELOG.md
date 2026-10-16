@@ -18,6 +18,9 @@
   any downcast. Record settings in `bio2zarr_bgen` root metadata. Dosage-only
   output discards uncertainty and haplotype probabilities; float32 explicitly
   rounds values, without renormalization or hard-call inference.
+- Validate BGEN conversion against pinned, licensed Oxford reference BGEN
+  files and independent GEN/VCF/HAPS companions in offline CI, including
+  probability vectors, dosage/frequency summaries, missingness and phase.
 
 # 0.2.1 2026-06-04
 

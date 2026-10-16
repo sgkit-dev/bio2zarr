@@ -172,3 +172,14 @@ Only one local BGEN input is accepted per conversion. Remote access, Oxford
 sample parsing, variant/sample selection, and hard-calling thresholds are
 not provided. Zip output is read-only; use directory or memory output for
 `mode="r+"`.
+
+## Reference-data validation
+
+The normal test suite includes small, vendored Oxford reference BGEN files
+with matching independent GEN, VCF and HAPS data. It checks probabilities,
+ordered haplotypes, metadata, ploidy, missingness and per-variant
+dosage/frequency summaries in both Zarr formats. Checksums and the original
+data-license notice are included in `tests/data/bgen`; CI requires no network
+download. These are interoperability examples, not verified real-cohort data.
+The example file's unsorted positions are tested explicitly, with a byte-
+preserving sorted prefix used for successful conversion tests.
