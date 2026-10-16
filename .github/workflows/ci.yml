@@ -202,6 +202,10 @@ jobs:
         run: |
           ./cli-test/bin/plink2zarr --help
           ./cli-test/bin/python -m bio2zarr plink2zarr --help
+      - name: Check bgen2zarr CLI
+        run: |
+          ./cli-test/bin/bgen2zarr --help
+          ./cli-test/bin/python -m bio2zarr bgen2zarr --help
 
   test-zarr-version:
     name: Test Zarr versions

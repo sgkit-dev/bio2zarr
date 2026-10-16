@@ -1,3 +1,14 @@
+# Unreleased
+
+*New features*
+
+- Add `bgen2zarr convert` and `bio2zarr.bgen.convert` for unphased diploid
+  biallelic BGEN layout 2 (zlib/zstd), using the `bgen-limix` optional backend.
+  Preserve genotype probabilities and variant/sample metadata, and derive
+  alternate-allele dosage without inferring hard calls. Support memory,
+  directory and zip output with Zarr formats 2 and 3. Unsupported encodings
+  and data models are explicitly rejected before output creation. (#417)
+
 # 0.2.1 2026-06-04
 
 Feature release.

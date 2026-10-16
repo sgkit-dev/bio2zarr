@@ -8,7 +8,7 @@ import coloredlogs
 import numcodecs
 import tabulate
 
-from . import core, plink, provenance, vcf_utils, zarr_utils
+from . import bgen, core, plink, provenance, vcf_utils, zarr_utils
 from . import tskit as tskit_mod
 from . import vcf as vcf_mod
 
@@ -640,6 +640,61 @@ def plink2zarr_main():
 
 
 plink2zarr_main.add_command(convert_plink)
+
+
+@click.command(name="convert")
+@click.argument("bgen_path", type=click.Path(exists=True, dir_okay=False))
+@new_zarr_path
+@click.option(
+    "--sample-ids",
+    type=click.Path(exists=True, dir_okay=False),
+    help="UTF-8 file with one sample ID per line, in BGEN sample order.",
+)
+@force
+@worker_processes
+@progress
+@verbose
+@variants_chunk_size
+@samples_chunk_size
+@zarr_format
+def convert_bgen(
+    bgen_path,
+    zarr_path,
+    sample_ids,
+    force,
+    worker_processes,
+    progress,
+    verbose,
+    variants_chunk_size,
+    samples_chunk_size,
+    zarr_format,
+):
+    """Convert unphased diploid biallelic BGEN probabilities to VCF Zarr."""
+    setup_logging(verbose)
+    ids = None
+    if sample_ids is not None:
+        with open(sample_ids, encoding="utf-8") as f:
+            ids = f.read().splitlines()
+    check_overwrite_dir(zarr_path, force)
+    bgen.convert(
+        bgen_path,
+        zarr_path,
+        sample_ids=ids,
+        worker_processes=worker_processes,
+        show_progress=progress,
+        variants_chunk_size=variants_chunk_size,
+        samples_chunk_size=samples_chunk_size,
+        zarr_format=zarr_format,
+    )
+
+
+@version
+@click.group(name="bgen2zarr")
+def bgen2zarr_main():
+    """Convert BGEN files to VCF Zarr format."""
+
+
+bgen2zarr_main.add_command(convert_bgen)
 
 
 @click.command

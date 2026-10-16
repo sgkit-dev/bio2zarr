@@ -16,6 +16,7 @@ def bio2zarr():
 # up in the right way.
 bio2zarr.add_command(cli.vcf2zarr_main)
 bio2zarr.add_command(cli.plink2zarr_main)
+bio2zarr.add_command(cli.bgen2zarr_main)
 bio2zarr.add_command(cli.tskit2zarr_main)
 bio2zarr.add_command(cli.vcfpartition)
 bio2zarr.add_command(cli.zipzarr)
