@@ -90,7 +90,7 @@ class BgenFormat(vcz.Source):
             )
         if not hasattr(cbgen.BgenFile, "layout"):
             raise ImportError(
-                "BGEN conversion requires bgen-limix>=4.11.1. "
+                "BGEN conversion requires bgen-limix>=4.12.0. "
                 "Upgrade with bio2zarr[bgen]."
             )
         self._path = str(pathlib.Path(path).resolve())
