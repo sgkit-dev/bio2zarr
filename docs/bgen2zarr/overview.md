@@ -8,7 +8,9 @@ as the other bio2zarr converters. It does not depend on sgkit.
 Install the optional backend with `python3 -m pip install 'bio2zarr[bgen]'`.
 This installs [bgen-limix](https://github.com/jpfeuffer/bgen-limix), **not**
 the legacy cbgen distribution. The maintained distribution intentionally
-retains the Python import namespace `cbgen`. See {ref}`sec-installation`
+retains the Python import namespace `cbgen`. Version 4.11.1 or later is
+required for native layout-1 indexing, safe decoding of every supported
+encoding, and the public layout metadata API. See {ref}`sec-installation`
 for platform requirements.
 
 ```bash
@@ -91,34 +93,25 @@ bgen2zarr convert input.bgen output.vcz --sample-ids sample_ids.txt
 This is a simple ID list, **not** an Oxford `.sample` file: do not include a
 header, type row, family identifiers or other columns.
 
-## Backend compatibility and resource use
+## Native backend and resource use
 
-The converter uses the public bgen-limix Python API, including on Windows;
-it does not depend on exported native C symbols or private native structures.
-Small compatibility adapters avoid defects in the 4.11 backend:
+The converter uses the public bgen-limix Python API for native indexing and
+decoding of every supported layout and compression, including layout 1,
+uncompressed layout 2 and records with no haplotypes. It does not rewrite
+BGEN files into another encoding, parse genotype blocks in Python, or
+depend on exported native C symbols or private native structures.
 
-- Uncompressed layout 2 is staged as a temporary zlib-compressed BGEN file.
-  The original probability bits and metadata are unchanged.
-- Layout 1 uses a temporary, on-disk metadata index and layout-2 transport
-  file. Each original uint16 probability integer is carried unchanged in a
-  four-state haploid vector decoded by bgen-limix. The three original
-  integers are then recovered exactly and divided by 32768; the fourth
-  transport state is discarded. Original alleles and diploid/unphased
-  metadata remain authoritative. This avoids lossy conversion to a
-  different probability denominator, including for independently rounded
-  triplets whose sum is not exactly one.
-- Phased records with all ploidies zero contain no encoded probabilities.
-  Their ploidy/missingness metadata is read directly, avoiding the native
-  decoder's rejection of zero maximum ploidy.
+Layout 1's three independently rounded probabilities are decoded directly
+as their original integers divided by 32768. Triplets whose sum is not
+exactly one are retained without renormalization.
 
-Staging reads one variant at a time and requires temporary disk space for
-the compressed copy as well as the metadata index. Temporary files are
-removed on success or failure; the input and its directory are not modified.
+A temporary native metadata index provides bounded metadata reads. It is
+removed on success or failure; no temporary copy of the genotype data is
+created, and the input and its directory are not modified.
 
 The converter scans all variant metadata and validates the data model before
 creating output. It reads one complete variant's probabilities (all samples)
-at a time, never the entire variant-by-sample matrix. The temporary index
-provides bounded metadata reads. Encoding uses the shared writer's
+at a time, never the entire variant-by-sample matrix. Encoding uses the shared writer's
 variant-chunk buffers across all samples; sample chunk size controls storage,
 not native decode size. Worker processes multiply the per-worker buffer usage.
 Fields are encoded in separate streaming passes. Multiallelic/polyploid
@@ -131,7 +124,6 @@ Empty files, invalid layouts/compression, missing alleles/contigs,
 nonpositive or decreasing positions within a chromosome, and invalid
 probabilities are rejected. Input is not silently reordered. Layout 1
 does not define zstd compression; layout 2 does not define compression flag 3.
-The backend limits sample and variant counts to `2**31 - 1`.
 
 Only one local BGEN input is accepted per conversion. Remote access, Oxford
 sample parsing, variant/sample selection, and hard-calling thresholds are

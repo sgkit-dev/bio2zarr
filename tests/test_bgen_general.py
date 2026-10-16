@@ -12,7 +12,7 @@ import numpy.testing as nt
 import pytest
 import zstandard
 
-from bio2zarr import _bgen_compat, bgen, constants, vcf
+from bio2zarr import bgen, constants, vcf
 from bio2zarr.vcz_verification import (
     assert_all_fill_float,
     assert_all_missing_float,
@@ -108,7 +108,7 @@ def test_layout1_exact_probabilities(tmp_path, compression, zarr_format, workers
     nt.assert_array_equal(root["call_PLOIDY"][:], np.full((3, 4), 2))
 
 
-def test_layout1_exhaustive_integer_transport(tmp_path):
+def test_layout1_exhaustive_probability_precision(tmp_path):
     q = np.arange(32769)
     original = np.column_stack((q, 32768 - q, np.zeros_like(q))).astype("<u2")
     path = tmp_path / "all-probabilities.bgen"
@@ -346,7 +346,7 @@ def test_all_zero_ploidy(tmp_path, compression, zarr_format, phased):
 
 @pytest.mark.parametrize("layout", [1, 2])
 @pytest.mark.parametrize("fail", [False, True])
-def test_normalization_lifecycle(tmp_path, layout, fail):
+def test_native_reader_lifecycle(tmp_path, layout, fail):
     path = tmp_path / "input.bgen"
     if layout == 1:
         write_layout1(path, 1)
@@ -355,22 +355,30 @@ def test_normalization_lifecycle(tmp_path, layout, fail):
     original = path.read_bytes()
     native = cbgen.BgenFile
     readers = []
+    indexes = []
+    generate = bgen.BgenFormat.generate_schema
 
-    def open_reader(path):
-        header = _bgen_compat.read_header(path)
-        assert header.layout == 2
-        assert header.compression == 1
-        readers.append(pathlib.Path(path))
-        return native(path)
+    def open_reader(reader_path):
+        readers.append(pathlib.Path(reader_path))
+        assert readers[-1] == path.resolve()
+        return native(reader_path)
+
+    def generate_schema(source, *args, **kwargs):
+        index = pathlib.Path(source.metafile_path)
+        indexes.append(index)
+        assert not list(index.parent.glob("*.bgen"))
+        if fail:
+            raise RuntimeError("schema")
+        return generate(source, *args, **kwargs)
 
     out = tmp_path / "out.vcz"
-    with mock.patch.object(cbgen, "BgenFile", side_effect=open_reader):
+    with (
+        mock.patch.object(cbgen, "BgenFile", side_effect=open_reader),
+        mock.patch.object(bgen.BgenFormat, "generate_schema", generate_schema),
+    ):
         if fail:
-            with mock.patch.object(
-                bgen.BgenFormat, "generate_schema", side_effect=RuntimeError("schema")
-            ):
-                with pytest.raises(RuntimeError, match="schema"):
-                    bgen.convert(path, out)
+            with pytest.raises(RuntimeError, match="schema"):
+                bgen.convert(path, out)
             assert not out.exists()
         else:
             root = bgen.convert(path, out)
@@ -379,7 +387,8 @@ def test_normalization_lifecycle(tmp_path, layout, fail):
                     root["sample_id"][:], [f"person_{j}" for j in range(4)]
                 )
     assert readers
-    assert all(not p.exists() for p in readers)
+    assert indexes
+    assert all(not p.exists() for p in indexes)
     assert path.read_bytes() == original
 
 
@@ -408,7 +417,7 @@ def test_layout1_invalid_probabilities(tmp_path, values):
     path = tmp_path / "invalid.bgen"
     write_layout1(path, 1, probabilities=np.array([values], dtype="<u2"))
     out = tmp_path / "out.vcz"
-    with pytest.raises(ValueError, match="layout 1 genotype probabilities"):
+    with pytest.raises(ValueError, match="invalid genotype probabilities"):
         bgen.convert(path, out)
     assert not out.exists()
 
@@ -463,7 +472,7 @@ def test_missing_before_present_samples(tmp_path, compression):
 
 
 @pytest.mark.parametrize("layout", [1, 2])
-def test_truncated_normalization(tmp_path, layout):
+def test_truncated_native_input(tmp_path, layout, capfd):
     path = tmp_path / "input.bgen"
     if layout == 1:
         write_layout1(path, 0)
@@ -471,8 +480,9 @@ def test_truncated_normalization(tmp_path, layout):
         write_bgen(path, compression=0)
     path.write_bytes(path.read_bytes()[:-1])
     out = tmp_path / "out.vcz"
-    with pytest.raises(ValueError, match="Truncated BGEN"):
+    with pytest.raises(RuntimeError, match="creating metafile"):
         bgen.convert(path, out)
+    assert "truncated genotype block" in capfd.readouterr().err
     assert not out.exists()
 
 

@@ -7,8 +7,8 @@
   including phased/unphased, multiallelic and variable-ploidy data.
   Preserve GP/HP probabilities, ploidy, original missingness and
   variant/sample metadata; derive per-alternate-allele dosage without
-  inferring hard calls. Use lossless, bounded staging where needed for
-  backend compatibility, including exact layout-1 probability preservation.
+  inferring hard calls. Index and decode every supported encoding directly
+  through the backend's public API, retaining exact layout-1 probabilities.
   Support memory, directory and zip output with Zarr formats 2 and 3.
   Invalid inputs are rejected rather than silently coerced or reordered. (#417)
 
