@@ -24,12 +24,12 @@ This will install the programs ``vcf2zarr``, ``vcf_partition``, ``tskit2zarr``
 ``bgen2zarr`` and ``plink2zarr`` into your local Python path. You may need to update your $PATH to call the
 executables directly.
 
-BGEN support uses the **bgen-limix** distribution, version 4.11 or later
+BGEN support uses the **bgen-limix** distribution, version 4.11.1 or later
 (below 5), from [jpfeuffer/bgen-limix](https://github.com/jpfeuffer/bgen-limix).
 Its import namespace is named `cbgen`, but it is not the legacy `cbgen`
 distribution. Do not install the two distributions in the same environment,
 because their import namespaces conflict. Python 3.11+ and NumPy 2+ are
-required. Release 4.11 provides wheels for macOS ARM64, Linux x86-64/ARM64
+required. Backend wheels target macOS ARM64, Linux x86-64/ARM64
 and Windows x86-64; other platforms, including Intel macOS, require a source
 build with the backend's native build dependencies (C/C++, CMake, zlib and
 zstd). Bioconda packaging may lag PyPI's BGEN extra.

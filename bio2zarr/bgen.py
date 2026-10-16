@@ -9,7 +9,7 @@ from collections import Counter
 
 import numpy as np
 
-from bio2zarr import _bgen_compat, constants, core, vcz
+from bio2zarr import constants, core, vcz
 from bio2zarr.zarr_utils import STRING_DTYPE_NAME
 
 logger = logging.getLogger(__name__)
@@ -88,21 +88,21 @@ class BgenFormat(vcz.Source):
                 "The legacy cbgen distribution conflicts with bgen-limix. "
                 "Use an environment containing only bio2zarr[bgen]."
             )
+        if not hasattr(cbgen.BgenFile, "layout"):
+            raise ImportError(
+                "BGEN conversion requires bgen-limix>=4.11.1. "
+                "Upgrade with bio2zarr[bgen]."
+            )
         self._path = str(pathlib.Path(path).resolve())
         self.metafile_path = str(metafile_path)
-        self.header = _bgen_compat.read_header(self._path)
-        self.reader_path = self.path
-        if self.header.layout == 1 or self.header.compression == 0:
-            self.reader_path = str(pathlib.Path(metafile_path).with_suffix(".bgen"))
-            if self.header.layout == 1:
-                _bgen_compat.prepare_layout1(
-                    self.path, self.reader_path, self.metafile_path, self.header
+        with cbgen.BgenFile(self.path) as source:
+            self.layout = source.layout
+            self._num_records = source.nvariants
+            self._num_samples = source.nsamples
+            if self.num_records == 0 or self.num_samples == 0:
+                raise ValueError(
+                    "BGEN conversion requires at least one variant and sample"
                 )
-            else:
-                _bgen_compat.compress_layout2(self.path, self.reader_path, self.header)
-        with cbgen.BgenFile(self.reader_path) as source:
-            self._num_records = self.header.variants
-            self._num_samples = self.header.samples
             embedded = source.read_samples() if source.contain_samples else None
             if sample_ids is None:
                 sample_ids = embedded
@@ -118,8 +118,7 @@ class BgenFormat(vcz.Source):
             if len(set(sample_ids)) != len(sample_ids):
                 raise ValueError("sample_ids must be unique")
             self._samples = [vcz.Sample(id=s) for s in sample_ids]
-            if self.header.layout != 1:
-                source.create_metafile(self.metafile_path)
+            source.create_metafile(self.metafile_path)
 
         self._contigs = []
         last_position = {}
@@ -190,20 +189,13 @@ class BgenFormat(vcz.Source):
         return [vcz.Contig(id=c) for c in self._contigs]
 
     def open_reader(self):
-        if self.header.layout == 1:
-            return _bgen_compat.Layout1Reader(self.reader_path, self.num_samples)
-        return _bgen_compat.open_layout2_reader(
-            self.reader_path, max(1, self.header.compression), self.num_samples
-        )
+        import cbgen  # noqa: PLC0415
+
+        return cbgen.BgenFile(self.path)
 
     def iter_variants(self, start, stop):
         import cbgen  # noqa: PLC0415
 
-        if self.header.layout == 1:
-            yield from _bgen_compat.iter_layout1_variants(
-                self.metafile_path, start, stop
-            )
-            return
         with cbgen.BgenMetafile(self.metafile_path) as index:
             size = index.partition_size
             for partition in range(start // size, (stop + size - 1) // size):
@@ -227,7 +219,7 @@ class BgenFormat(vcz.Source):
         called = probability[active & ~genotype.missing[:, None]]
         if np.any(~np.isfinite(called)) or np.any(called < 0) or np.any(called > 1):
             raise ValueError(f"BGEN variant {label}: invalid genotype probabilities")
-        tolerance = 3 / 32768 if self.header.layout == 1 else 1e-6
+        tolerance = 3 / 32768 if self.layout == 1 else 1e-6
         for p in np.unique(genotype.ploidy):
             selected = (genotype.ploidy == p) & ~genotype.missing
             values = probability[selected, : int(lengths[genotype.ploidy == p][0])]
@@ -477,9 +469,11 @@ def convert(
     Notes
     -----
     Metadata is indexed in a temporary directory, never alongside the input.
-    Reads decode one variant (all samples) at a time. Output buffers contain
-    one variant chunk, as in the other converters. Probabilities use float64
-    to retain the backend's precision, including 32-bit BGEN probabilities.
+    Every supported encoding is read natively from the original file, without
+    staging a rewritten copy. Reads decode one variant (all samples) at a time.
+    Output buffers contain one variant chunk, as in the other converters.
+    Probabilities use float64 to retain the backend's precision, including
+    independently rounded layout-1 values and 32-bit layout-2 probabilities.
     """
     if mode not in ("r", "r+"):
         raise ValueError("mode must be 'r' or 'r+'")

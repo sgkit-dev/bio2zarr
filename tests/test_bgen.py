@@ -7,6 +7,7 @@ No external or user data is used.
 
 import importlib.metadata
 import math
+import re
 import struct
 import subprocess
 import sys
@@ -251,19 +252,19 @@ def test_outputs(example, tmp_path, out_type, mode):
 @pytest.mark.parametrize(
     ("kwargs", "error"),
     [
-        ({"compression": 3}, "Unsupported BGEN compression"),
-        ({"layout": 3}, "Unsupported BGEN layout"),
-        ({"layout": 0}, "Unsupported BGEN layout"),
+        ({"compression": 3}, "(?i)compression|flags"),
+        ({"layout": 3}, "(?i)layout|version|flags"),
+        ({"layout": 0}, "(?i)layout|version|flags"),
         ({"nvariants": 0}, "at least one variant"),
     ],
 )
-def test_header_rejections_before_native_reader(example, kwargs, error, tmp_path):
+def test_invalid_input_before_output(example, kwargs, error, tmp_path, capfd):
     path, _ = example
     write_bgen(path, **kwargs)
     out = tmp_path / "output.vcz"
-    with mock.patch("cbgen.BgenFile", side_effect=AssertionError("native reader")):
-        with pytest.raises(ValueError, match=error):
-            bgen.convert(path, out)
+    with pytest.raises((ValueError, RuntimeError)) as exc_info:
+        bgen.convert(path, out)
+    assert re.search(error, str(exc_info.value) + capfd.readouterr().err)
     assert not out.exists()
 
 
@@ -322,7 +323,7 @@ def test_unsorted_positions(example, tmp_path):
 def test_invalid_header(tmp_path, contents):
     path = tmp_path / "bad.bgen"
     path.write_bytes(contents)
-    with pytest.raises(ValueError, match="BGEN header"):
+    with pytest.raises((ValueError, RuntimeError), match="(?i)bgen|header"):
         bgen.convert(path)
 
 
@@ -343,6 +344,15 @@ def test_dependency_attribution(example):
 def test_missing_dependency(example):
     with mock.patch.dict(sys.modules, {"cbgen": None}):
         with pytest.raises(ImportError, match=r"bio2zarr\[bgen\]"):
+            bgen.convert(example[0])
+
+
+def test_unsupported_backend_api(example):
+    class OldReader:
+        pass
+
+    with mock.patch.object(cbgen, "BgenFile", OldReader):
+        with pytest.raises(ImportError, match="bgen-limix>=4.11.1"):
             bgen.convert(example[0])
 
 
