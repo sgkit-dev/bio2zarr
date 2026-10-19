@@ -7,6 +7,7 @@ import os
 import pathlib
 import tempfile
 from collections import Counter
+from contextlib import contextmanager
 from itertools import islice
 from types import SimpleNamespace
 
@@ -19,6 +20,18 @@ from bio2zarr.zarr_utils import STRING_DTYPE_NAME
 logger = logging.getLogger(__name__)
 
 BLOCK_MEMORY = 256 * 1024**2
+
+
+@contextmanager
+def native_metafile(path):
+    """Reuse native index sidecars; generate a temporary index only if absent."""
+    path = pathlib.Path(path)
+    candidate = path.with_name(path.name + ".metafile")
+    if candidate.exists():
+        yield candidate
+        return
+    with tempfile.TemporaryDirectory(prefix="bio2zarr-bgen-") as tmp:
+        yield pathlib.Path(tmp) / "index.metafile"
 
 
 def genotype_order(num_alleles, ploidy):
@@ -146,7 +159,29 @@ class BgenFormat(vcz.Source):
             if len(set(sample_ids)) != len(sample_ids):
                 raise ValueError("sample_ids must be unique")
             self._samples = [vcz.Sample(id=s) for s in sample_ids]
-            source.create_metafile(self.metafile_path)
+            index_path = pathlib.Path(self.metafile_path)
+            if index_path.exists():
+                with cbgen.BgenMetafile(self.metafile_path) as index:
+                    if index.nvariants != self.num_records:
+                        raise ValueError(
+                            f"BGEN metafile {index_path} has a different variant count"
+                        )
+                    if not 1 <= index.npartitions <= self.num_records:
+                        raise ValueError(
+                            f"BGEN metafile {index_path} has an invalid partition count"
+                        )
+                if (
+                    index_path.stat().st_mtime_ns
+                    < pathlib.Path(self.path).stat().st_mtime_ns
+                ):
+                    raise ValueError(
+                        f"BGEN metafile {index_path} is older than the input; "
+                        "regenerate the native index before converting"
+                    )
+                logger.info("Reusing BGEN metafile %s", index_path)
+            else:
+                logger.info("Creating temporary BGEN metafile %s", index_path)
+                source.create_metafile(self.metafile_path)
 
         self._contigs = []
         last_position = {}
@@ -666,7 +701,9 @@ def convert(
 
     Notes
     -----
-    Metadata is indexed in a temporary directory, never alongside the input.
+    An existing native <input filename>.metafile sidecar is reused read-only.
+    If absent, metadata is indexed in a temporary directory. Stale or
+    variant-count-mismatched sidecars are rejected, not overwritten.
     Every supported encoding is read natively from the original file.
     Metadata discovery determines dimensions without decoding probabilities.
     Each native float64 batch is decoded once and shared across all fields.
@@ -697,10 +734,10 @@ def convert(
         raise ValueError("mode must be 'r' or 'r+'")
     if out is not None and str(out).endswith(".zip") and mode != "r":
         raise ValueError("Zip output is read-only; use mode='r'")
-    with tempfile.TemporaryDirectory(prefix="bio2zarr-bgen-") as tmp:
+    with native_metafile(bgen_path) as metafile:
         source = BgenFormat(
             bgen_path,
-            pathlib.Path(tmp) / "index.metafile",
+            metafile,
             sample_ids=sample_ids,
             probabilities=probabilities,
             dosage=dosage,

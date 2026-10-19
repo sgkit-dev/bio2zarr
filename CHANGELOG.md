@@ -26,6 +26,9 @@
   all output fields. Reuse the standard partition/index pipeline, bound estimated
   per-worker working buffers, and stage final output until validation succeeds.
   No intermediate ICF probability store is created.
+- Reuse existing native BGEN `.metafile` sidecars read-only; generate a temporary
+  index only when absent, and reject stale or variant-count-mismatched indexes
+  without replacing them.
 
 # 0.2.1 2026-06-04
 
