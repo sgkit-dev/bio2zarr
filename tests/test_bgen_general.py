@@ -135,7 +135,11 @@ def write_records(path, records, compression, bits=8):
             for allele in alleles:
                 out.write(encode_string(allele, 4))
             block = struct.pack(
-                "<IHBB", nsamples, len(alleles), min(ploidy), max(ploidy)
+                "<IHBB",
+                nsamples,
+                len(alleles),
+                min(ploidy),
+                record.get("max_ploidy", max(ploidy)),
             )
             block += bytes(p | (128 if m else 0) for p, m in zip(ploidy, missing))
             block += bytes([phased, bits])

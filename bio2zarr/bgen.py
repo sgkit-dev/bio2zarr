@@ -3,16 +3,22 @@
 import importlib.metadata
 import logging
 import math
+import os
 import pathlib
 import tempfile
 from collections import Counter
+from itertools import islice
+from types import SimpleNamespace
 
 import numpy as np
+import zarr
 
 from bio2zarr import constants, core, vcz, zarr_utils
 from bio2zarr.zarr_utils import STRING_DTYPE_NAME
 
 logger = logging.getLogger(__name__)
+
+BLOCK_MEMORY = 256 * 1024**2
 
 
 def genotype_order(num_alleles, ploidy):
@@ -40,10 +46,8 @@ def compute_dosage(genotype, num_alleles):
     probability = genotype.probability
     result = np.zeros((len(probability), num_alleles - 1))
     if genotype.phased:
-        values = np.nan_to_num(probability, nan=0).reshape(
-            len(probability), -1, num_alleles
-        )
-        result[:] = values.sum(axis=1)[:, 1:]
+        values = probability.reshape(len(probability), -1, num_alleles)
+        result[:] = np.nansum(values, axis=1)[:, 1:]
     else:
         for ploidy in np.unique(genotype.ploidy):
             p = int(ploidy)
@@ -109,10 +113,13 @@ class BgenFormat(vcz.Source):
                 "The legacy cbgen distribution conflicts with bgen-limix. "
                 "Use an environment containing only bio2zarr[bgen]."
             )
-        if not hasattr(cbgen.BgenFile, "layout"):
+        if not all(
+            hasattr(cbgen.BgenFile, name)
+            for name in ("layout", "read_genotype_metadata", "read_genotypes_batch")
+        ):
             raise ImportError(
-                "BGEN conversion requires bgen-limix>=4.12.0. "
-                "Upgrade with bio2zarr[bgen]."
+                "BGEN conversion requires bgen-limix>=4.13.0 with the native "
+                "batch interface. Upgrade with bio2zarr[bgen]."
             )
         self._path = str(pathlib.Path(path).resolve())
         self.metafile_path = str(metafile_path)
@@ -150,8 +157,9 @@ class BgenFormat(vcz.Source):
         self.max_haplotype_probabilities = 0
         self.has_phased = False
         self.has_unphased = False
+        self.decode_widths = np.empty(self.num_records, dtype=np.uint32)
         with self.open_reader() as source:
-            for j, variant in enumerate(self.iter_variants(0, self.num_records)):
+            for j, (variant, genotype, width) in enumerate(self.iter_metadata(source)):
                 if variant.nalleles < 2:
                     raise ValueError(f"BGEN variant {j}: expected at least two alleles")
                 if not variant.chrom or variant.chrom == ".":
@@ -172,7 +180,7 @@ class BgenFormat(vcz.Source):
                 self.max_ref_length = max(
                     self.max_ref_length, len(variant.allele_ids[0])
                 )
-                genotype = self.read_genotype(source, variant)
+                self.decode_widths[j] = width
                 self.max_alleles = max(self.max_alleles, variant.nalleles)
                 length = int(max(probability_lengths(genotype, variant.nalleles)))
                 if genotype.phased:
@@ -183,10 +191,79 @@ class BgenFormat(vcz.Source):
                 else:
                     self.has_unphased = True
                     self.max_genotypes = max(self.max_genotypes, length)
+                del genotype
         logger.info(
             "Scanned BGEN with %s samples and %s variants",
             self.num_samples,
             self.num_records,
+        )
+
+    def iter_metadata(self, source):
+        variants = iter(self.iter_variants(0, self.num_records))
+        size = max(1, min(1024, BLOCK_MEMORY // (6 * self.num_samples + 8)))
+        while records := list(islice(variants, size)):
+            batch = source.read_genotype_metadata([v.offset for v in records])
+            for j, variant in enumerate(records):
+                if int(batch.nalleles[j]) != variant.nalleles:
+                    raise ValueError("BGEN allele count differs from variant metadata")
+                yield (
+                    variant,
+                    SimpleNamespace(
+                        ploidy=batch.ploidy[j],
+                        missing=batch.missing[j],
+                        phased=bool(batch.phased[j]),
+                    ),
+                    int(batch.ncombs[j]),
+                )
+            del batch
+
+    def iter_decoded_blocks(self, start, stop, chunk_size, output_row_bytes):
+        """Yield owned native batches; consumers finish all fields before advancing."""
+        with self.open_reader() as source:
+            for chunk_start in range(start, stop, chunk_size):
+                chunk_stop = min(stop, chunk_start + chunk_size)
+                variants = iter(self.iter_variants(chunk_start, chunk_stop))
+                cursor = chunk_start
+                while cursor < chunk_stop:
+                    width = 0
+                    count = 0
+                    while cursor + count < chunk_stop:
+                        next_width = max(width, int(self.decode_widths[cursor + count]))
+                        # Native output, one-variant scratch, metadata and one
+                        # sample-chunk output slab. Native allocator overhead is extra.
+                        estimate = (
+                            (count + 4) * self.num_samples * next_width * 8
+                            + (count + 1) * (6 * self.num_samples + 8)
+                            + (count + 4) * output_row_bytes
+                        )
+                        if estimate > BLOCK_MEMORY:
+                            break
+                        width = next_width
+                        count += 1
+                    if count == 0:
+                        raise ValueError(
+                            "BGEN variant exceeds the 256 MiB per-worker block "
+                            "buffer budget; reduce the sample chunk size "
+                            "or use a backend supporting sample slicing"
+                        )
+                    records = list(islice(variants, count))
+                    batch = source.read_genotypes_batch(
+                        [v.offset for v in records], max_ncomb=width, precision=64
+                    )
+                    for j, variant in enumerate(records):
+                        self.validate_genotype(self.batch_genotype(batch, j), variant)
+                    yield cursor, records, batch
+                    del batch
+                    cursor += count
+
+    @staticmethod
+    def batch_genotype(batch, index, samples=slice(None)):
+        width = int(batch.ncombs[index])
+        return SimpleNamespace(
+            probability=batch.probability[index, samples, :width],
+            ploidy=batch.ploidy[index, samples],
+            missing=batch.missing[index, samples],
+            phased=bool(batch.phased[index]),
         )
 
     @property
@@ -229,8 +306,7 @@ class BgenFormat(vcz.Source):
                 right = min(len(records.variants), stop - records.offset)
                 yield from records.variants[left:right]
 
-    def read_genotype(self, source, variant):
-        genotype = source.read_genotype(variant.offset)
+    def validate_genotype(self, genotype, variant):
         label = f"{variant.chrom}:{variant.position}"
         probability = genotype.probability
         lengths = probability_lengths(genotype, variant.nalleles)
@@ -254,7 +330,6 @@ class BgenFormat(vcz.Source):
                 raise ValueError(
                     f"BGEN variant {label}: invalid genotype probabilities"
                 )
-        return genotype
 
     def iter_contig(self, start, stop):
         lookup = {c: j for j, c in enumerate(self._contigs)}
@@ -272,56 +347,9 @@ class BgenFormat(vcz.Source):
             yield vcz.VariantData(len(alleles[0]), alleles, None, None)
 
     def iter_field(self, field_name, shape, dtype, start, stop):
-        if field_name not in (
-            "position",
-            "id",
-            "GP",
-            "HP",
-            "DS",
-            "PLOIDY",
-            "BGEN_MISSING",
-            "phased",
-        ):
-            raise ValueError(f"Unknown BGEN field {field_name}")
-        with self.open_reader() as source:
-            for variant in self.iter_variants(start, stop):
-                if field_name == "position":
-                    yield variant.position
-                elif field_name == "id":
-                    yield variant.id or constants.STR_MISSING
-                else:
-                    genotype = self.read_genotype(source, variant)
-                    if field_name == "PLOIDY":
-                        yield genotype.ploidy
-                    elif field_name == "BGEN_MISSING":
-                        yield genotype.missing.astype(np.int8)
-                    elif field_name == "phased":
-                        yield genotype.phased
-                    elif field_name == "DS":
-                        missing, fill = constants.FLOAT_MISSING_FILL[np.dtype(dtype)]
-                        value = compute_dosage(genotype, variant.nalleles)
-                        value[genotype.missing] = 0
-                        value = value.astype(dtype)
-                        value[genotype.missing] = missing
-                        if self.max_alleles == 2:
-                            yield value[:, 0]
-                        else:
-                            result = np.full(shape, fill, dtype=dtype)
-                            result[:, : variant.nalleles - 1] = value
-                            yield result
-                    else:
-                        missing, fill = constants.FLOAT_MISSING_FILL[np.dtype(dtype)]
-                        result = np.full(shape, fill, dtype=dtype)
-                        if genotype.phased != (field_name == "HP"):
-                            result[:, 0] = missing
-                        else:
-                            lengths = probability_lengths(genotype, variant.nalleles)
-                            active = np.arange(shape[1])[None, :] < lengths[:, None]
-                            width = min(shape[1], genotype.probability.shape[1])
-                            result[:, :width] = genotype.probability[:, :width]
-                            result[~active] = fill
-                            result[active & genotype.missing[:, None]] = missing
-                        yield result
+        raise NotImplementedError(
+            "BGEN fields must be encoded together with BgenZarrWriter"
+        )
 
     def generate_schema(self, variants_chunk_size=None, samples_chunk_size=None):
         for name, size in (
@@ -460,6 +488,104 @@ class BgenFormat(vcz.Source):
         )
 
 
+class BgenZarrWriter(vcz.VcfZarrWriter):
+    """Write all fields from a shared native batch using the standard lifecycle."""
+
+    def get_max_encoding_memory(self):
+        return BLOCK_MEMORY
+
+    def encode_partition_fields(self, partition_index):
+        partition = self.metadata.partitions[partition_index]
+        arrays = {
+            field.name: self.open_partition_array(partition_index, field.name)
+            for field in self.schema.fields
+        }
+        row_bytes = max(
+            math.prod(array.chunks[1:]) * array.dtype.itemsize
+            for array in arrays.values()
+        )
+        chunk_size = self.schema.get_chunks(["variants"])[0]
+        for start, variants, batch in self.source.iter_decoded_blocks(
+            partition.start, partition.stop, chunk_size, row_bytes
+        ):
+            for name, array in arrays.items():
+                if name.startswith("call_"):
+                    for left in range(0, self.source.num_samples, array.chunks[1]):
+                        right = min(self.source.num_samples, left + array.chunks[1])
+                        samples = slice(left, right)
+                        shape = (len(variants), right - left, *array.shape[2:])
+                        values = np.empty(shape, dtype=array.dtype)
+                        for j, variant in enumerate(variants):
+                            genotype = self.source.batch_genotype(batch, j, samples)
+                            values[j] = self.call_field(
+                                name, genotype, variant.nalleles, shape[1:], array.dtype
+                            )
+                        del genotype
+                        array[start : start + len(variants), samples] = values
+                        core.update_progress(values.nbytes)
+                        del values
+                else:
+                    values = np.empty(
+                        (len(variants), *array.shape[1:]), dtype=array.dtype
+                    )
+                    for j, variant in enumerate(variants):
+                        if name == "variant_position":
+                            values[j] = variant.position
+                        elif name == "variant_contig":
+                            values[j] = self.source._contigs.index(variant.chrom)
+                        elif name == "variant_allele":
+                            values[j] = constants.STR_FILL
+                            values[j, : variant.nalleles] = variant.allele_ids
+                        elif name == "variant_length":
+                            values[j] = len(variant.allele_ids[0])
+                        elif name == "variant_id":
+                            values[j] = variant.rsid or constants.STR_MISSING
+                        elif name == "variant_id_mask":
+                            values[j] = variant.rsid in ("", ".")
+                        elif name == "variant_bgen_id":
+                            values[j] = variant.id or constants.STR_MISSING
+                        elif name == "variant_bgen_phased":
+                            values[j] = batch.phased[j]
+                        else:
+                            raise ValueError(f"Unknown BGEN array {name}")
+                    array[start : start + len(variants)] = values
+                    core.update_progress(values.nbytes)
+                    del values
+            del batch
+
+    @staticmethod
+    def call_field(name, genotype, num_alleles, shape, dtype):
+        if name == "call_PLOIDY":
+            return genotype.ploidy
+        if name == "call_BGEN_MISSING":
+            return genotype.missing
+        missing, fill = constants.FLOAT_MISSING_FILL[np.dtype(dtype)]
+        result = np.full(shape, fill, dtype=dtype)
+        if name == "call_DS":
+            value = compute_dosage(genotype, num_alleles)
+            value[genotype.missing] = 0
+            if len(shape) == 1:
+                result[:] = value[:, 0]
+            else:
+                result[:, : num_alleles - 1] = value
+            result[genotype.missing, ...] = missing
+            if len(shape) > 1:
+                result[:, num_alleles - 1 :] = fill
+        elif name in ("call_GP", "call_HP"):
+            if genotype.phased != (name == "call_HP"):
+                result[:, 0] = missing
+            else:
+                lengths = probability_lengths(genotype, num_alleles)
+                width = min(shape[1], genotype.probability.shape[1])
+                result[:, :width] = genotype.probability[:, :width]
+                active = np.arange(shape[1])[None, :] < lengths[:, None]
+                result[~active] = fill
+                result[active & genotype.missing[:, None]] = missing
+        else:
+            raise ValueError(f"Unknown BGEN call array {name}")
+        return result
+
+
 def validate_storage_options(
     probabilities, dosage, float_dtype, compressor, compression_level
 ):
@@ -541,9 +667,16 @@ def convert(
     Notes
     -----
     Metadata is indexed in a temporary directory, never alongside the input.
-    Every supported encoding is read natively from the original file, without
-    staging a rewritten copy. Reads decode one variant (all samples) at a time.
-    Output buffers contain one variant chunk, as in the other converters.
+    Every supported encoding is read natively from the original file.
+    Metadata discovery determines dimensions without decoding probabilities.
+    Each native float64 batch is decoded once and shared across all fields.
+    Batches stop at output variant-chunk boundaries and are subdivided to keep
+    estimated working buffers within 256 MiB per worker. Output is assembled
+    one field/sample-chunk slab at a time; native reads include all samples.
+    This is a buffer budget, not a bound on total process RSS or codec scratch.
+    Directory/zip output is staged beside the destination and renamed only
+    after validation and encoding succeed; no intermediate genotype copy is
+    written. ICF conversion is not currently implemented.
     Probabilities default to float64 to retain the backend's precision,
     including independently rounded layout-1 values and 32-bit layout-2
     probabilities. Explicit float32 output rounds values without renormalizing.
@@ -576,12 +709,28 @@ def convert(
             compression_level=compression_level,
         )
         schema = source.generate_schema(variants_chunk_size, samples_chunk_size)
-        return vcz.encode(
-            source,
-            schema,
-            out,
+        kwargs = dict(
             mode=mode,
             worker_processes=worker_processes,
             show_progress=show_progress,
             zarr_format=zarr_format,
+            writer_class=BgenZarrWriter,
         )
+        if out is None:
+            return vcz.encode(source, schema, **kwargs)
+        out = pathlib.Path(out)
+        if out.exists():
+            raise ValueError("Zarr path already exists")
+        # Numerical validation occurs during decoding. Publish only a complete
+        # store, leaving the requested path absent on malformed input.
+        with tempfile.TemporaryDirectory(
+            prefix=".bio2zarr-bgen-", dir=out.parent
+        ) as tmp:
+            staged = pathlib.Path(tmp) / out.name
+            root = vcz.encode(source, schema, staged, **kwargs)
+            root.store.close()
+            if out.exists():
+                raise ValueError("Zarr path already exists")
+            os.rename(staged, out)
+        store = zarr.storage.ZipStore(out, mode="r") if out.suffix == ".zip" else out
+        return zarr.open(store, mode=mode)

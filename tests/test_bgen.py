@@ -352,7 +352,7 @@ def test_unsupported_backend_api(example):
         pass
 
     with mock.patch.object(cbgen, "BgenFile", OldReader):
-        with pytest.raises(ImportError, match=r"bgen-limix>=4\.12\.0"):
+        with pytest.raises(ImportError, match=r"bgen-limix>=4\.13\.0"):
             bgen.convert(example[0])
 
 
@@ -377,19 +377,26 @@ def test_invalid_mode(example, mode):
 
 def test_bounded_reads(example):
     path, _ = example
-    original = cbgen.BgenFile.read_genotype
+    original = cbgen.BgenFile.read_genotypes_batch
     shapes = []
+    offsets = []
 
-    def read(source, offset, *args, **kwargs):
-        genotype = original(source, offset, *args, **kwargs)
+    def read(source, batch_offsets, *args, **kwargs):
+        assert kwargs["max_ncomb"] == 3
+        assert kwargs["precision"] == 64
+        offsets.extend(batch_offsets)
+        genotype = original(source, batch_offsets, *args, **kwargs)
         shapes.append(genotype.probability.shape)
         return genotype
 
-    with mock.patch.object(cbgen.BgenFile, "read_genotype", read):
+    with (
+        mock.patch.object(cbgen.BgenFile, "read_genotypes_batch", read),
+        mock.patch.object(cbgen.BgenFile, "read_genotype", side_effect=AssertionError),
+    ):
         bgen.convert(path, variants_chunk_size=2)
     assert shapes
-    assert set(shapes) == {(4, 3)}
-    assert len(shapes) % 7 == 0
+    assert shapes == [(2, 4, 3)] * 3 + [(1, 4, 3)]
+    assert len(offsets) == len(set(offsets)) == 7
 
 
 def test_cli(example, tmp_path):
