@@ -152,6 +152,18 @@ jobs:
           python -m bio2zarr vcf2zarr convert tests/data/vcf/sample.vcf.gz sample.vcz
           deactivate
 
+          uv venv env-bgen
+          uv pip install --python=env-bgen .
+          source env-bgen/bin/activate
+          python -m bio2zarr bgen2zarr convert tests/data/bgen/example.8bits.bgen bgen.vcz > bgen.txt 2>&1 || echo $? > bgen_exit.txt
+          test "$(cat bgen_exit.txt)" = "1"
+          grep -q "This process requires the optional cbgen module. Install it with: pip install bio2zarr\[bgen\]" bgen.txt
+          deactivate
+          uv pip install --python=env-bgen '.[bgen]'
+          source env-bgen/bin/activate
+          python -m bio2zarr bgen2zarr convert tests/data/bgen/example.8bits.bgen bgen.vcz --max-ploidy 2 --probability-model unphased
+          deactivate
+
   packaging:
     name: Packaging
     runs-on: ubuntu-24.04
@@ -206,6 +218,14 @@ jobs:
         run: |
           ./cli-test/bin/bgen2zarr --help
           ./cli-test/bin/python -m bio2zarr bgen2zarr --help
+
+      - name: Convert BGEN using the installed wheel and released backend
+        run: |
+          for wheel in dist/*.whl; do
+            uv pip install --python=cli-test "$wheel[bgen]"
+          done
+          ./cli-test/bin/bgen2zarr convert tests/data/bgen/example.8bits.bgen bgen.vcz --max-ploidy 2 --probability-model unphased
+          ./cli-test/bin/python -m bio2zarr bgen2zarr convert tests/data/bgen/example.8bits.bgen bgen.vcz.zip --dimension-source declared --zarr-format 3
 
   test-zarr-version:
     name: Test Zarr versions
