@@ -66,23 +66,23 @@ def test_field_selection_and_passes(tmp_path, probabilities, dosage, caplog):
     path = tmp_path / "mixed.bgen"
     write_records(path, mixed_records.__wrapped__(), 1)
     seen = []
-    original = bgen.BgenFormat.iter_field
+    original = bgen.BgenZarrWriter.call_field
 
-    def read(source, field_name, *args):
+    def read(field_name, *args):
         seen.append(field_name)
-        yield from original(source, field_name, *args)
+        return original(field_name, *args)
 
     with (
         caplog.at_level(logging.INFO, logger="bio2zarr.bgen"),
-        mock.patch.object(bgen.BgenFormat, "iter_field", read),
+        mock.patch.object(bgen.BgenZarrWriter, "call_field", side_effect=read),
         mock.patch.object(bgen, "compute_dosage", wraps=bgen.compute_dosage) as compute,
     ):
         root = bgen.convert(path, probabilities=probabilities, dosage=dosage)
     for name in ("GP", "HP"):
         assert (f"call_{name}" in root) == probabilities
-        assert (name in seen) == probabilities
+        assert (f"call_{name}" in seen) == probabilities
     assert ("call_DS" in root) == dosage
-    assert ("DS" in seen) == dosage
+    assert ("call_DS" in seen) == dosage
     assert bool(compute.call_count) == dosage
     for name in (
         "call_PLOIDY",

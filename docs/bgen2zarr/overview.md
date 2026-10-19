@@ -8,9 +8,9 @@ as the other bio2zarr converters. It does not depend on sgkit.
 Install the optional backend with `python3 -m pip install 'bio2zarr[bgen]'`.
 This installs [bgen-limix](https://github.com/jpfeuffer/bgen-limix), **not**
 the legacy cbgen distribution. The maintained distribution intentionally
-retains the Python import namespace `cbgen`. Version 4.12.0 or later is
-required for native layout-1 indexing, safe decoding of every supported
-encoding, and the public layout metadata API. See {ref}`sec-installation`
+retains the Python import namespace `cbgen`. Version 4.13.0 or later is
+required for structured native batch decoding and metadata discovery across
+every supported encoding. See {ref}`sec-installation`
 for platform requirements.
 
 ```bash
@@ -148,18 +148,41 @@ Layout 1's three independently rounded probabilities are decoded directly
 as their original integers divided by 32768. Triplets whose sum is not
 exactly one are retained without renormalization.
 
-A temporary native metadata index provides bounded metadata reads. It is
-removed on success or failure; no temporary copy of the genotype data is
-created, and the input and its directory are not modified.
+A temporary native metadata index provides bounded metadata reads. The first
+pass reads genotype metadata without decoding probabilities, determining GP/HP
+dimensions from actual sample ploidies, including missing samples. A larger
+declared BGEN maximum ploidy affects native decode capacity, not output padding.
+For compressed layout 2, metadata discovery still decompresses genotype blocks;
+it is not a cheap header-only seek. Layout 1 must inspect its probability
+triplets to determine missingness.
 
-The converter scans all variant metadata and validates the data model before
-creating output. It reads one complete variant's probabilities (all samples)
-at a time, never the entire variant-by-sample matrix. Encoding uses the shared writer's
-variant-chunk buffers across all samples; sample chunk size controls storage,
-not native decode size. Worker processes multiply the per-worker buffer usage.
-Fields are encoded in separate streaming passes. Multiallelic/polyploid
-unphased data can have very large genotype dimensions; output padding and
-buffer sizes depend on the maximum observed dimension, not only chunk sizes.
+The second pass decodes a block of variants once into native float64 arrays.
+Every selected field uses this same batch: GP/HP, DS, ploidy, missingness and
+phase do not trigger separate genotype reads. Blocks stop at output variant-chunk
+boundaries. Each output field is assembled and written one sample-chunk slab at
+a time, using the existing writer's partition finalisation and region indexing.
+There is no intermediate ICF probability store. The batch stream and output
+writer are separate internally so a future ICF path need not change decoding;
+no ICF mode or method-selection option is implemented yet.
+
+An estimated **256 MiB per-worker working-buffer budget** limits native batch
+and output slab allocations. Batches are subdivided within output chunks when
+necessary, which can require repeated updates of a physical output chunk.
+The budget includes conservative allowance for validation/temporary arrays,
+but is not a hard process-RSS limit: native decompression, codecs, metadata and
+Python overhead consume additional memory. Workers multiply resource use.
+Native decoding still reads all samples of each variant. A variant that cannot
+fit is rejected explicitly; reducing sample chunk size can reduce output slab
+memory but cannot reduce this native all-samples lower bound. Extremely wide
+polyploid/multiallelic records can make global GP/HP padding expensive.
+
+Probability values are validated during the decode pass, not the metadata pass.
+Directory/zip output is assembled in a temporary directory beside the destination
+and renamed only after successful conversion. Invalid input therefore leaves no
+partial output at the requested path. This stages the final output, not a second
+decoded genotype representation. Temporary output and the native index are
+removed on failure; the input is not modified, and no native index or rewritten
+BGEN file is placed alongside it.
 
 ## Explicit limitations
 
