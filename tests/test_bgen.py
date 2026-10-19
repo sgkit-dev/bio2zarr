@@ -352,7 +352,7 @@ def test_unsupported_backend_api(example):
         pass
 
     with mock.patch.object(cbgen, "BgenFile", OldReader):
-        with pytest.raises(ImportError, match=r"bgen-limix>=4\.13\.0"):
+        with pytest.raises(ImportError, match=r"bgen-limix>=4\.14\.0"):
             bgen.convert(example[0])
 
 
