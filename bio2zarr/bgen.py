@@ -7,7 +7,7 @@ import os
 import pathlib
 import tempfile
 from collections import Counter
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from itertools import islice
 from types import SimpleNamespace
 
@@ -200,8 +200,11 @@ class BgenFormat(vcz.Source):
         self.has_phased = False
         self.has_unphased = False
         self.decode_widths = np.empty(self.num_records, dtype=np.uint32)
-        with self.open_reader() as source:
-            for j, (variant, genotype, width) in enumerate(self.iter_metadata(source)):
+        with (
+            self.open_reader() as source,
+            closing(self.iter_metadata(source)) as metadata,
+        ):
+            for j, (variant, genotype, width) in enumerate(metadata):
                 if variant.nalleles < 2:
                     raise ValueError(f"BGEN variant {j}: expected at least two alleles")
                 if not variant.chrom or variant.chrom == ".":
@@ -241,62 +244,68 @@ class BgenFormat(vcz.Source):
         )
 
     def iter_metadata(self, source):
-        variants = iter(self.iter_variants(0, self.num_records))
-        size = max(1, min(1024, BLOCK_MEMORY // (6 * self.num_samples + 8)))
-        while records := list(islice(variants, size)):
-            batch = source.read_genotype_metadata([v.offset for v in records])
-            for j, variant in enumerate(records):
-                if int(batch.nalleles[j]) != variant.nalleles:
-                    raise ValueError("BGEN allele count differs from variant metadata")
-                yield (
-                    variant,
-                    SimpleNamespace(
-                        ploidy=batch.ploidy[j],
-                        missing=batch.missing[j],
-                        phased=bool(batch.phased[j]),
-                    ),
-                    int(batch.ncombs[j]),
-                )
-            del batch
+        with closing(self.iter_variants(0, self.num_records)) as variants:
+            size = max(1, min(1024, BLOCK_MEMORY // (6 * self.num_samples + 8)))
+            while records := list(islice(variants, size)):
+                batch = source.read_genotype_metadata([v.offset for v in records])
+                for j, variant in enumerate(records):
+                    if int(batch.nalleles[j]) != variant.nalleles:
+                        raise ValueError(
+                            "BGEN allele count differs from variant metadata"
+                        )
+                    yield (
+                        variant,
+                        SimpleNamespace(
+                            ploidy=batch.ploidy[j],
+                            missing=batch.missing[j],
+                            phased=bool(batch.phased[j]),
+                        ),
+                        int(batch.ncombs[j]),
+                    )
+                del batch
 
     def iter_decoded_blocks(self, start, stop, chunk_size, output_row_bytes):
         """Yield owned native batches; consumers finish all fields before advancing."""
         with self.open_reader() as source:
             for chunk_start in range(start, stop, chunk_size):
                 chunk_stop = min(stop, chunk_start + chunk_size)
-                variants = iter(self.iter_variants(chunk_start, chunk_stop))
-                cursor = chunk_start
-                while cursor < chunk_stop:
-                    width = 0
-                    count = 0
-                    while cursor + count < chunk_stop:
-                        next_width = max(width, int(self.decode_widths[cursor + count]))
-                        # Native output, one-variant scratch, metadata and one
-                        # sample-chunk output slab. Native allocator overhead is extra.
-                        estimate = (
-                            (count + 4) * self.num_samples * next_width * 8
-                            + (count + 1) * (6 * self.num_samples + 8)
-                            + (count + 4) * output_row_bytes
+                with closing(self.iter_variants(chunk_start, chunk_stop)) as variants:
+                    cursor = chunk_start
+                    while cursor < chunk_stop:
+                        width = 0
+                        count = 0
+                        while cursor + count < chunk_stop:
+                            next_width = max(
+                                width, int(self.decode_widths[cursor + count])
+                            )
+                            # Native output, one-variant scratch, metadata and one
+                            # sample-chunk slab. Native allocator overhead is extra.
+                            estimate = (
+                                (count + 4) * self.num_samples * next_width * 8
+                                + (count + 1) * (6 * self.num_samples + 8)
+                                + (count + 4) * output_row_bytes
+                            )
+                            if estimate > BLOCK_MEMORY:
+                                break
+                            width = next_width
+                            count += 1
+                        if count == 0:
+                            raise ValueError(
+                                "BGEN variant exceeds the 256 MiB per-worker block "
+                                "buffer budget; reduce the sample chunk size "
+                                "or use a backend supporting sample slicing"
+                            )
+                        records = list(islice(variants, count))
+                        batch = source.read_genotypes_batch(
+                            [v.offset for v in records], max_ncomb=width, precision=64
                         )
-                        if estimate > BLOCK_MEMORY:
-                            break
-                        width = next_width
-                        count += 1
-                    if count == 0:
-                        raise ValueError(
-                            "BGEN variant exceeds the 256 MiB per-worker block "
-                            "buffer budget; reduce the sample chunk size "
-                            "or use a backend supporting sample slicing"
-                        )
-                    records = list(islice(variants, count))
-                    batch = source.read_genotypes_batch(
-                        [v.offset for v in records], max_ncomb=width, precision=64
-                    )
-                    for j, variant in enumerate(records):
-                        self.validate_genotype(self.batch_genotype(batch, j), variant)
-                    yield cursor, records, batch
-                    del batch
-                    cursor += count
+                        for j, variant in enumerate(records):
+                            self.validate_genotype(
+                                self.batch_genotype(batch, j), variant
+                            )
+                        yield cursor, records, batch
+                        del batch
+                        cursor += count
 
     @staticmethod
     def batch_genotype(batch, index, samples=slice(None)):
@@ -375,18 +384,23 @@ class BgenFormat(vcz.Source):
 
     def iter_contig(self, start, stop):
         lookup = {c: j for j, c in enumerate(self._contigs)}
-        for variant in self.iter_variants(start, stop):
-            yield lookup[variant.chrom]
+        with closing(self.iter_variants(start, stop)) as variants:
+            for variant in variants:
+                yield lookup[variant.chrom]
 
     def iter_id(self, start, stop):
-        for variant in self.iter_variants(start, stop):
-            yield variant.rsid if variant.rsid not in ("", ".") else None
+        with closing(self.iter_variants(start, stop)) as variants:
+            for variant in variants:
+                yield variant.rsid if variant.rsid not in ("", ".") else None
 
     def iter_alleles_and_genotypes(self, start, stop, shape, num_alleles):
-        for variant in self.iter_variants(start, stop):
-            alleles = np.full(num_alleles, constants.STR_FILL, dtype=STRING_DTYPE_NAME)
-            alleles[: variant.nalleles] = variant.allele_ids
-            yield vcz.VariantData(len(alleles[0]), alleles, None, None)
+        with closing(self.iter_variants(start, stop)) as variants:
+            for variant in variants:
+                alleles = np.full(
+                    num_alleles, constants.STR_FILL, dtype=STRING_DTYPE_NAME
+                )
+                alleles[: variant.nalleles] = variant.allele_ids
+                yield vcz.VariantData(len(alleles[0]), alleles, None, None)
 
     def iter_field(self, field_name, shape, dtype, start, stop):
         raise NotImplementedError(
@@ -547,9 +561,15 @@ class BgenZarrWriter(vcz.VcfZarrWriter):
             for array in arrays.values()
         )
         chunk_size = self.schema.get_chunks(["variants"])[0]
-        for start, variants, batch in self.source.iter_decoded_blocks(
-            partition.start, partition.stop, chunk_size, row_bytes
-        ):
+        with closing(
+            self.source.iter_decoded_blocks(
+                partition.start, partition.stop, chunk_size, row_bytes
+            )
+        ) as blocks:
+            self.encode_blocks(arrays, blocks)
+
+    def encode_blocks(self, arrays, blocks):
+        for start, variants, batch in blocks:
             for name, array in arrays.items():
                 if name.startswith("call_"):
                     for left in range(0, self.source.num_samples, array.chunks[1]):

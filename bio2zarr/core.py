@@ -327,23 +327,20 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
             yield future.result()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type is None:
-            wait_on_futures(self.futures)
-        else:
-            cancel_futures(self.futures)
-        # There's probably a much cleaner way of doing this with a Condition
-        # or something, but this seems to work OK for now. This setup might
-        # make small conversions a bit laggy as we wait on the sleep interval
-        # though.
-        with self.completed_lock:
-            self.completed = True
-        self.executor.shutdown(wait=False)
-        # FIXME there's currently some thing weird happening at the end of
-        # Encode 1D for 1kg-p3. The progress bar disappears, like we're
-        # setting a total of zero or something.
-        self.progress_thread.join()
-        self._update_progress()
-        self.progress_bar.close()
+        try:
+            if exc_type is None:
+                wait_on_futures(self.futures)
+            else:
+                cancel_futures(self.futures)
+        finally:
+            # Running workers must release files before callers remove staging
+            # directories, including when waiting on a failed future raises.
+            self.executor.shutdown(wait=True, cancel_futures=True)
+            with self.completed_lock:
+                self.completed = True
+            self.progress_thread.join()
+            self._update_progress()
+            self.progress_bar.close()
         return False
 
 

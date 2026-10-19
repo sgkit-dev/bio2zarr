@@ -93,6 +93,9 @@ class TestParallelWorkManager:
                 # Raises a TypeError:
                 pwm.submit(frozenset, j)
                 set(pwm.results_as_completed())
+        assert pwm.completed
+        assert not pwm.progress_thread.is_alive()
+        assert all(future.done() for future in pwm.futures)
 
     @pytest.mark.parametrize("total", [1, 10, 20])
     @pytest.mark.parametrize("workers", [1, 2, 3])
@@ -103,6 +106,9 @@ class TestParallelWorkManager:
                     pwm.submit(frozenset, range(j))
                 # Raises a TypeError:
                 pwm.submit(frozenset, j)
+        assert pwm.completed
+        assert not pwm.progress_thread.is_alive()
+        assert all(future.done() for future in pwm.futures)
 
     @pytest.mark.parametrize("workers", [0, 1, 2])
     def test_warn_mac_os(self, recwarn, workers):
