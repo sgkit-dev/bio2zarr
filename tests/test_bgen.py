@@ -356,6 +356,30 @@ def test_unsupported_backend_api(example):
             bgen.convert(example[0])
 
 
+def test_backend_check_and_reader_factory_used(example):
+    readers = []
+    original = bgen.BgenFormat.open_reader
+
+    def open_reader(source):
+        reader = original(source)
+        readers.append(reader)
+        return reader
+
+    with (
+        mock.patch.object(bgen, "check_backend", wraps=bgen.check_backend) as check,
+        mock.patch.object(bgen.BgenFormat, "open_reader", open_reader),
+        mock.patch.object(
+            cbgen.BgenFile,
+            "create_metafile",
+            autospec=True,
+            side_effect=cbgen.BgenFile.create_metafile,
+        ) as create,
+    ):
+        bgen.convert(example[0])
+    check.assert_called_once_with()
+    assert create.call_args.args[0] is readers[0]
+
+
 def test_conflicting_legacy_distribution(example):
     original = importlib.metadata.distribution
 

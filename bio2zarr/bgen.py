@@ -22,6 +22,36 @@ logger = logging.getLogger(__name__)
 BLOCK_MEMORY = 256 * 1024**2
 
 
+def check_backend():
+    """Check distribution identity and capabilities beyond the dependency pin."""
+    import cbgen  # noqa: PLC0415
+
+    try:
+        importlib.metadata.distribution("bgen-limix")
+    except importlib.metadata.PackageNotFoundError:
+        raise ImportError(
+            "BGEN conversion requires bgen-limix, not the legacy cbgen "
+            "distribution. Install bio2zarr[bgen]."
+        ) from None
+    try:
+        importlib.metadata.distribution("cbgen")
+    except importlib.metadata.PackageNotFoundError:
+        pass
+    else:
+        raise ImportError(
+            "The legacy cbgen distribution conflicts with bgen-limix. "
+            "Use an environment containing only bio2zarr[bgen]."
+        )
+    if not all(
+        hasattr(cbgen.BgenFile, name)
+        for name in ("layout", "read_genotype_metadata", "read_genotypes_batch")
+    ):
+        raise ImportError(
+            "BGEN conversion requires bgen-limix>=4.13.0 with the native "
+            "batch interface. Upgrade with bio2zarr[bgen]."
+        )
+
+
 @contextmanager
 def native_metafile(path):
     """Reuse native index sidecars; generate a temporary index only if absent."""
@@ -110,33 +140,10 @@ class BgenFormat(vcz.Source):
             "compressor": compressor,
             "compression_level": compression_level,
         }
-        try:
-            importlib.metadata.distribution("bgen-limix")
-        except importlib.metadata.PackageNotFoundError:
-            raise ImportError(
-                "BGEN conversion requires bgen-limix, not the legacy cbgen "
-                "distribution. Install bio2zarr[bgen]."
-            ) from None
-        try:
-            importlib.metadata.distribution("cbgen")
-        except importlib.metadata.PackageNotFoundError:
-            pass
-        else:
-            raise ImportError(
-                "The legacy cbgen distribution conflicts with bgen-limix. "
-                "Use an environment containing only bio2zarr[bgen]."
-            )
-        if not all(
-            hasattr(cbgen.BgenFile, name)
-            for name in ("layout", "read_genotype_metadata", "read_genotypes_batch")
-        ):
-            raise ImportError(
-                "BGEN conversion requires bgen-limix>=4.13.0 with the native "
-                "batch interface. Upgrade with bio2zarr[bgen]."
-            )
+        check_backend()
         self._path = str(pathlib.Path(path).resolve())
         self.metafile_path = str(metafile_path)
-        with cbgen.BgenFile(self.path) as source:
+        with self.open_reader() as source:
             self.layout = source.layout
             self._num_records = source.nvariants
             self._num_samples = source.nsamples
