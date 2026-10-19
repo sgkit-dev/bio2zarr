@@ -29,6 +29,14 @@
 - Reuse existing native BGEN `.metafile` sidecars read-only; generate a temporary
   index only when absent, and reject stale or variant-count-mismatched indexes
   without replacing them.
+- Support explicit Oxford/QCTOOL `.sample` sidecars with BGEN `sample_file` /
+  `--sample-file`, including one-column Oxford references and vcztools exports.
+  Default to the first identifier column; `sample_id_column` /
+  `--sample-id-column` selects another explicitly. Preserve row order and
+  override embedded IDs; validate structure, selected IDs and sample count.
+  Import identifiers only, not phenotypes/covariates. Keep plain `--sample-ids`
+  compatible and mutually exclusive. Failed validation preserves existing
+  CLI output even with `--force`; no automatic sidecar discovery is performed.
 - Add BGEN actual/declared ploidy dimension discovery and explicit phase-model
   allocation. A checked user-supplied maximum ploidy plus an explicit model skips
   genotype-dimension discovery. Decode compact native batches without allocating
