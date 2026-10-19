@@ -8,11 +8,9 @@ as the other bio2zarr converters. It does not depend on sgkit.
 Install the optional backend with `python3 -m pip install 'bio2zarr[bgen]'`.
 This installs [bgen-limix](https://github.com/jpfeuffer/bgen-limix), **not**
 the legacy cbgen distribution. The maintained distribution intentionally
-retains the Python import namespace `cbgen`. Dimension strategies require
-the backend's public `read_dimensions` and compact `max_actual_ncomb` batch
-interfaces; these are not present in the published 4.13.0 release.
-Until a backend release includes these interfaces, this development version
-requires a locally built backend wheel. See {ref}`sec-installation`
+retains the Python import namespace `cbgen`. Version 4.14.0 or later (below 5)
+provides the public `read_dimensions` and compact `max_actual_ncomb` batch
+interfaces required by the dimension strategies. See {ref}`sec-installation`
 for platform requirements.
 
 ```bash

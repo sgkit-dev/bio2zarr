@@ -243,7 +243,7 @@ def test_provided_bound_auto_ignores_huge_declared_width(tmp_path):
 
 def test_old_backend_dimension_interface_error(tmp_path, monkeypatch):
     monkeypatch.delattr(cbgen.BgenFile, "read_dimensions")
-    with pytest.raises(ImportError, match="published 4.13.0"):
+    with pytest.raises(ImportError, match=r"bgen-limix>=4\.14\.0"):
         bgen.convert(tmp_path / "input.bgen")
 
 
