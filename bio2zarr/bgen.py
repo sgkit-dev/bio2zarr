@@ -22,6 +22,72 @@ logger = logging.getLogger(__name__)
 BLOCK_MEMORY = 256 * 1024**2
 
 
+def read_sample_file(path, *, sample_id_column=None):
+    """Read identifiers, in row order, from an Oxford/QCTOOL sample file.
+
+    The first column is the default identifier. Only identifiers are imported;
+    other columns are checked for structure and declared types, not trait values.
+    """
+    path = pathlib.Path(path)
+
+    def error(line, message):
+        return ValueError(f"Oxford sample file {path}, line {line}: {message}")
+
+    with path.open(encoding="utf-8") as f:
+        columns = f.readline().split()
+        if not columns:
+            raise error(1, "expected a nonempty column header")
+        if len(set(columns)) != len(columns):
+            raise error(1, "column names must be unique")
+        types = f.readline().split()
+        if len(types) != len(columns):
+            raise error(2, f"expected {len(columns)} column types, found {len(types)}")
+        if types[0] != "0":
+            raise error(2, "the first identifier column must have type 0")
+        for j, (column, kind) in enumerate(zip(columns, types)):
+            if kind not in ("0", "D", "C", "P", "B"):
+                raise error(2, f"invalid type {kind!r} for column {column!r}")
+            if j > 0 and kind == "0" and column not in ("ID_2", "missing"):
+                raise error(2, f"type 0 is not allowed for column {column!r}")
+        selected = columns[0] if sample_id_column is None else sample_id_column
+        if selected not in columns:
+            raise error(1, f"sample_id_column {selected!r} is not in the header")
+        index = columns.index(selected)
+        if types[index] != "0" or selected == "missing":
+            raise error(2, f"selected identifier column {selected!r} must have type 0")
+        ids = []
+        seen = {}
+        for line, text in enumerate(f, start=3):
+            values = text.split()
+            if len(values) != len(columns):
+                raise error(
+                    line, f"expected {len(columns)} columns, found {len(values)}"
+                )
+            identifier = values[index]
+            if identifier in (".", "NA"):
+                raise error(line, f"missing identifier in column {selected!r}")
+            if identifier in seen:
+                raise error(
+                    line,
+                    f"duplicate identifier {identifier!r} in column {selected!r} "
+                    f"(first seen on line {seen[identifier]}); use "
+                    "sample_id_column / --sample-id-column to select another "
+                    "identifier column if appropriate",
+                )
+            seen[identifier] = line
+            ids.append(identifier)
+        if not ids:
+            raise error(3, "expected at least one sample row")
+    return ids
+
+
+def validate_sample_options(sample_ids, sample_file, sample_id_column):
+    if sample_ids is not None and sample_file is not None:
+        raise ValueError("sample_ids and sample_file are mutually exclusive")
+    if sample_id_column is not None and sample_file is None:
+        raise ValueError("sample_id_column requires sample_file")
+
+
 def check_backend():
     """Check distribution identity and capabilities beyond the dependency pin."""
     import cbgen  # noqa: PLC0415
@@ -148,6 +214,8 @@ class BgenFormat(vcz.Source):
         metafile_path,
         sample_ids=None,
         *,
+        sample_file=None,
+        sample_id_column=None,
         probabilities=True,
         dosage=True,
         float_dtype="float64",
@@ -159,6 +227,11 @@ class BgenFormat(vcz.Source):
     ):
         import cbgen  # noqa: PLC0415
 
+        validate_sample_options(sample_ids, sample_file, sample_id_column)
+        if sample_file is not None:
+            sample_ids = read_sample_file(
+                sample_file, sample_id_column=sample_id_column
+            )
         validate_storage_options(
             probabilities, dosage, float_dtype, compressor, compression_level
         )
@@ -194,6 +267,11 @@ class BgenFormat(vcz.Source):
                 raise ValueError("sample_ids must be a sequence of identifiers")
             sample_ids = list(sample_ids)
             if len(sample_ids) != self.num_samples:
+                if sample_file is not None:
+                    raise ValueError(
+                        f"Oxford sample file {sample_file}: found {len(sample_ids)} "
+                        f"sample rows, expected {self.num_samples} BGEN samples"
+                    )
                 raise ValueError("sample_ids must match the number of BGEN samples")
             if any(not isinstance(s, str) or not s or s == "." for s in sample_ids):
                 raise ValueError("sample_ids must be nonempty strings other than '.'")
@@ -762,6 +840,8 @@ def convert(
     out=None,
     *,
     sample_ids=None,
+    sample_file=None,
+    sample_id_column=None,
     mode="r",
     variants_chunk_size=None,
     samples_chunk_size=None,
@@ -789,6 +869,15 @@ def convert(
     sample_ids : sequence of str, optional
         Sample identifiers in file order, overriding embedded identifiers.
         Without either, identifiers sample_0, sample_1, ... are generated.
+    sample_file : str or Path, optional
+        Explicit UTF-8 Oxford .sample sidecar, overriding embedded identifiers.
+        Mutually exclusive with sample_ids. No sidecar is discovered automatically.
+        Rows must match BGEN sample order and count. Only IDs are imported;
+        phenotype/covariate and missing columns are not imported or interpreted.
+    sample_id_column : str, optional
+        Identifier column name in sample_file; defaults to its first column
+        (QCTOOL semantics). Select "ID_2" explicitly for individual IDs when
+        the first column contains family IDs. Must have type 0.
     mode : str
         Returned group access mode, "r" (default) or "r+". Zip output is
         read-only and requires "r".
@@ -851,6 +940,7 @@ def convert(
     including independently rounded layout-1 values and 32-bit layout-2
     probabilities. Explicit float32 output rounds values without renormalizing.
     """
+    validate_sample_options(sample_ids, sample_file, sample_id_column)
     validate_storage_options(
         probabilities, dosage, float_dtype, compressor, compression_level
     )
@@ -873,6 +963,8 @@ def convert(
             bgen_path,
             metafile,
             sample_ids=sample_ids,
+            sample_file=sample_file,
+            sample_id_column=sample_id_column,
             probabilities=probabilities,
             dosage=dosage,
             float_dtype=float_dtype,

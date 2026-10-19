@@ -127,6 +127,8 @@ The root attribute `bio2zarr_bgen` records `probabilities`, `dosage`,
 the Blosc codec and level; byte shuffle is fixed. The selected configuration
 is also logged with verbose logging (`-v`).
 
+## Sample identifiers
+
 Embedded sample identifiers are used when present. Otherwise identifiers
 `sample_0`, `sample_1`, ... are generated. Override either with a UTF-8
 file containing exactly one unique nonempty identifier per line:
@@ -137,6 +139,42 @@ bgen2zarr convert input.bgen output.vcz --sample-ids sample_ids.txt
 
 This is a simple ID list, **not** an Oxford `.sample` file: do not include a
 header, type row, family identifiers or other columns.
+
+To use an Oxford/QCTOOL `.sample` sidecar instead, pass its path explicitly:
+
+```bash
+bgen2zarr convert input.bgen output.vcz --sample-file input.sample
+# Traditional family/individual columns: explicitly select individual IDs.
+bgen2zarr convert input.bgen output.vcz --sample-file input.sample --sample-id-column ID_2
+```
+
+The file is UTF-8 and whitespace-delimited, with column names on line 1,
+column types on line 2, and one row per BGEN sample in exactly the same order.
+The one-column `ID_1` / `0` Oxford reference format and the vcztools export
+format `ID_1 ID_2 missing` / `0 0 0` are both supported.
+Following [QCTOOL's sample-file specification](https://github.com/gavinband/qctool/blob/8d8adb45151c91f953fe4a9af00498073b1132ba/doc/html/qctool/content/documentation/sample_file_formats.content.html),
+the **first column** is the default identifier, and its name need not be `ID_1`.
+`--sample-id-column NAME` explicitly selects another identifier column of type
+`0` (for example `ID_2`). Repeated family IDs in the first column are rejected,
+not silently replaced with another column. IDs are retained literally, including
+leading zeros; empty, `NA`, `.`, and duplicate selected identifiers are invalid.
+Rows are never sorted or joined to embedded IDs.
+
+Only the selected sample IDs are imported. Phenotypes, covariates, family IDs
+outside the selected column, and the `missing` column are **not imported or
+interpreted**; BGEN genotype missingness remains authoritative. Header names,
+column counts and declared types (`0`, `D`, `C`, `P`, `B`) are checked, but
+unselected trait values are not validated. The first column must have type `0`;
+only `ID_2` and `missing` may additionally have type `0`.
+Malformed files report their path and line number. The row count must equal
+the BGEN sample count.
+
+`--sample-file` and `--sample-ids` are mutually exclusive, and either explicit
+source overrides embedded identifiers. There is **no automatic `.sample`
+discovery**: a neighbouring file has no effect unless passed explicitly.
+Conflicting options are rejected before input reads or output replacement.
+Invalid sidecars (including count mismatches) leave existing output intact
+even with `--force`; replacement occurs only after successful conversion.
 
 ## Native backend and resource use
 
@@ -267,8 +305,8 @@ nonpositive or decreasing positions within a chromosome, and invalid
 probabilities are rejected. Input is not silently reordered. Layout 1
 does not define zstd compression; layout 2 does not define compression flag 3.
 
-Only one local BGEN input is accepted per conversion. Remote access, Oxford
-sample parsing, variant/sample selection, and hard-calling thresholds are
+Only one local BGEN input is accepted per conversion. Remote access,
+variant/sample selection, and hard-calling thresholds are
 not provided. Zip output is read-only; use directory or memory output for
 `mode="r+"`.
 

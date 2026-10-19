@@ -34,6 +34,26 @@ root = bgen.convert(
 The number of identifiers must match the BGEN sample count.
 See {ref}`sec-bgen2zarr` for the supported data model and limitations.
 
+Alternatively supply an Oxford `.sample` sidecar (not a plain ID list):
+
+```python
+root = bgen.convert("input.bgen", "output.vcz", sample_file="input.sample")
+# Explicitly use individual IDs instead of the default first identifier column.
+root = bgen.convert(
+    "input.bgen", sample_file="input.sample", sample_id_column="ID_2"
+)
+```
+
+The first column is the default identifier, following QCTOOL semantics.
+The one-column Oxford reference format and vcztools' `ID_1 ID_2 missing`
+format are supported. Only IDs are imported, in unchanged BGEN sample order;
+phenotype/covariate and `missing` columns are not imported or interpreted.
+The file must contain exactly the BGEN sample count, with unique, nonmissing
+selected IDs. Either explicit source overrides embedded identifiers.
+`sample_ids` and `sample_file` are mutually exclusive; `sample_id_column`
+requires `sample_file`. No sidecar is discovered automatically.
+See {ref}`sec-bgen2zarr` for structural validation and missing-ID rules.
+
 Select output fields and storage settings with the same defaults as the CLI:
 
 ```python

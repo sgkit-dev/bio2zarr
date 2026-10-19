@@ -2,6 +2,7 @@ import logging
 import os
 import pathlib
 import shutil
+import tempfile
 
 import click
 import coloredlogs
@@ -684,6 +685,17 @@ plink2zarr_main.add_command(convert_plink)
     help="UTF-8 file with one sample ID per line, in BGEN sample order.",
 )
 @click.option(
+    "--sample-file",
+    type=click.Path(exists=True, dir_okay=False),
+    help="Oxford .sample file in BGEN sample order; overrides embedded IDs. "
+    "Only IDs are imported, not phenotypes/covariates. Exclusive with --sample-ids.",
+)
+@click.option(
+    "--sample-id-column",
+    help="Identifier column in --sample-file (default: first column). "
+    "Use ID_2 explicitly when the first column contains family IDs.",
+)
+@click.option(
     "--dimension-source",
     type=click.Choice(["actual", "declared"]),
     default=None,
@@ -715,6 +727,8 @@ def convert_bgen(
     bgen_path,
     zarr_path,
     sample_ids,
+    sample_file,
+    sample_id_column,
     force,
     worker_processes,
     progress,
@@ -733,6 +747,10 @@ def convert_bgen(
 ):
     """Convert BGEN genotype and phased haplotype probabilities to VCF Zarr."""
     setup_logging(verbose)
+    if sample_ids is not None and sample_file is not None:
+        raise click.UsageError("--sample-ids and --sample-file are mutually exclusive")
+    if sample_id_column is not None and sample_file is None:
+        raise click.UsageError("--sample-id-column requires --sample-file")
     if not probabilities and not dosage:
         raise click.UsageError(
             "At least one of probabilities or dosage must be enabled"
@@ -745,10 +763,9 @@ def convert_bgen(
     if sample_ids is not None:
         with open(sample_ids, encoding="utf-8") as f:
             ids = f.read().splitlines()
-    check_overwrite_dir(zarr_path, force)
-    bgen.convert(
-        bgen_path,
-        zarr_path,
+    kwargs = dict(
+        sample_file=sample_file,
+        sample_id_column=sample_id_column,
         sample_ids=ids,
         worker_processes=worker_processes,
         show_progress=progress,
@@ -764,6 +781,19 @@ def convert_bgen(
         probability_model=probability_model,
         max_ploidy=max_ploidy,
     )
+    destination = pathlib.Path(zarr_path)
+    if destination.exists():
+        # Validate and encode before an overwrite can remove existing output.
+        with tempfile.TemporaryDirectory(
+            prefix=".bio2zarr-bgen-cli-", dir=destination.parent
+        ) as tmp:
+            staged = pathlib.Path(tmp) / destination.name
+            root = bgen.convert(bgen_path, staged, **kwargs)
+            root.store.close()
+            check_overwrite_dir(destination, force)
+            os.rename(staged, destination)
+    else:
+        bgen.convert(bgen_path, destination, **kwargs)
 
 
 @version
