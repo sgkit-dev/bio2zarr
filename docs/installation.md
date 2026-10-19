@@ -34,6 +34,13 @@ and Windows x86-64; other platforms, including Intel macOS, require a source
 build with the backend's native build dependencies (C/C++, CMake, zlib and
 zstd). Bioconda packaging may lag PyPI's BGEN extra.
 
+**Development release gate:** the dimension strategies in this development
+version additionally require the backend's new `read_dimensions` and compact
+`max_actual_ncomb` interfaces. These are not in the published 4.13.0 wheel;
+installing the registry extra alone is not sufficient for this work-in-progress
+version. A locally built backend wheel is required until those interfaces are
+released, after which the dependency minimum and lockfile must be updated.
+
 Alternatively, calling for example: 
 ```bash
 python3 -m bio2zarr vcf2zarr <args>

@@ -683,6 +683,27 @@ plink2zarr_main.add_command(convert_plink)
     type=click.Path(exists=True, dir_okay=False),
     help="UTF-8 file with one sample ID per line, in BGEN sample order.",
 )
+@click.option(
+    "--dimension-source",
+    type=click.Choice(["actual", "declared"]),
+    default=None,
+    help="Discover widths from actual ploidies (default) or declared bounds. "
+    "Mutually exclusive with --max-ploidy.",
+)
+@click.option(
+    "--probability-model",
+    type=click.Choice(["auto", "unphased", "phased", "mixed"]),
+    default="auto",
+    show_default=True,
+    help="Discover phase models, or allocate explicit models and validate on decode.",
+)
+@click.option(
+    "--max-ploidy",
+    type=click.IntRange(0, 63),
+    default=None,
+    help="Checked sample-ploidy bound; skips dimension discovery with an explicit "
+    "--probability-model.",
+)
 @force
 @worker_processes
 @progress
@@ -706,12 +727,19 @@ def convert_bgen(
     float_dtype,
     compressor,
     compression_level,
+    dimension_source,
+    probability_model,
+    max_ploidy,
 ):
     """Convert BGEN genotype and phased haplotype probabilities to VCF Zarr."""
     setup_logging(verbose)
     if not probabilities and not dosage:
         raise click.UsageError(
             "At least one of probabilities or dosage must be enabled"
+        )
+    if max_ploidy is not None and dimension_source is not None:
+        raise click.UsageError(
+            "--max-ploidy and --dimension-source are mutually exclusive"
         )
     ids = None
     if sample_ids is not None:
@@ -732,6 +760,9 @@ def convert_bgen(
         float_dtype=float_dtype,
         compressor=compressor,
         compression_level=compression_level,
+        dimension_source=dimension_source,
+        probability_model=probability_model,
+        max_ploidy=max_ploidy,
     )
 
 

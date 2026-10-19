@@ -40,26 +40,31 @@ def test_all_fields_share_one_decode(tmp_path, layout, compression, zarr_format)
     with cbgen.BgenFile(path) as source:
         count = source.nvariants
     decode = cbgen.BgenFile.read_genotypes_batch
-    metadata = cbgen.BgenFile.read_genotype_metadata
+    dimensions = cbgen.BgenFile.read_dimensions
     seen = []
     scanned = []
     events = []
 
-    def read(source, offsets, *, max_ncomb, precision):
+    def read(source, offsets, *, max_actual_ncomb, precision):
         assert precision == 64
-        assert max_ncomb is not None
+        assert max_actual_ncomb is not None
         seen.extend(offsets)
         events.append("decode")
-        return decode(source, offsets, max_ncomb=max_ncomb, precision=precision)
+        return decode(
+            source, offsets, max_actual_ncomb=max_actual_ncomb, precision=precision
+        )
 
-    def scan(source, offsets):
+    def scan(source, offsets, **kwargs):
         scanned.extend(offsets)
-        events.append("metadata")
-        return metadata(source, offsets)
+        events.append("dimensions")
+        return dimensions(source, offsets, **kwargs)
 
     with (
         mock.patch.object(cbgen.BgenFile, "read_genotypes_batch", read),
-        mock.patch.object(cbgen.BgenFile, "read_genotype_metadata", scan),
+        mock.patch.object(cbgen.BgenFile, "read_dimensions", scan),
+        mock.patch.object(
+            cbgen.BgenFile, "read_genotype_metadata", side_effect=AssertionError
+        ),
         mock.patch.object(cbgen.BgenFile, "read_genotype", side_effect=AssertionError),
         mock.patch.object(bgen.BgenFormat, "iter_field", side_effect=AssertionError),
     ):
@@ -70,7 +75,7 @@ def test_all_fields_share_one_decode(tmp_path, layout, compression, zarr_format)
             zarr_format=zarr_format,
         )
     assert len(seen) == len(set(seen)) == count
-    assert scanned == seen
+    assert scanned == (seen if layout == 2 else [])
     assert events == sorted(events, key=lambda event: event == "decode")
     assert root["call_DS"].shape[0] == count
 

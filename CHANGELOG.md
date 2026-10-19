@@ -29,6 +29,11 @@
 - Reuse existing native BGEN `.metafile` sidecars read-only; generate a temporary
   index only when absent, and reject stale or variant-count-mismatched indexes
   without replacing them.
+- Add BGEN actual/declared ploidy dimension discovery and explicit phase-model
+  allocation. A checked user-supplied maximum ploidy plus an explicit model skips
+  genotype-dimension discovery. Decode compact native batches without allocating
+  probability padding from loose declared bounds; validate assumptions before
+  publishing output. Record dimension settings in `bio2zarr_bgen_dimensions`.
 
 # 0.2.1 2026-06-04
 

@@ -62,6 +62,32 @@ and variant/sample metadata remain in either mode. Codec settings apply to
 schema-defined output arrays; auxiliary shared-writer arrays retain their
 standard compression. See {ref}`sec-bgen2zarr` for full tradeoffs.
 
+Dimension discovery is configurable independently of storage:
+
+```python
+# Default: actual sample-ploidy scan, discover phased/unphased records.
+root = bgen.convert("input.bgen", dimension_source="actual")
+
+# Allocate from declared ploidy bounds; loose bounds increase padding.
+root = bgen.convert("input.bgen", dimension_source="declared")
+
+# Independently known bound/model: no genotype-dimension discovery.
+root = bgen.convert("input.bgen", max_ploidy=2, probability_model="unphased")
+
+# Permit either phase model, deliberately allocating both GP and HP.
+root = bgen.convert("input.bgen", max_ploidy=2, probability_model="mixed")
+dimension_settings = root.attrs["bio2zarr_bgen_dimensions"]
+```
+
+`max_ploidy` accepts integers from 0 to 63 and is mutually exclusive with an
+explicit `dimension_source`. `probability_model` defaults to `"auto"`; with
+`max_ploidy` it still scans to discover which phase models are present.
+Explicit `"unphased"` or `"phased"` assumptions and every provided ploidy bound
+are checked during full decoding, including missing samples. Violations reject
+conversion; no probability entries are truncated or silently discarded.
+`"mixed"` always allocates both models. See {ref}`sec-bgen2zarr` for the
+codec-specific discovery matrix and the backend release requirement.
+
 ## API reference
 
 ```{eval-rst}

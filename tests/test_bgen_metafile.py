@@ -21,10 +21,11 @@ def test_native_handles_closed_before_temporary_cleanup(
     tmp_path, monkeypatch, layout, failure
 ):
     path = tmp_path / "input.bgen"
+    nvariants = 1025 if failure == "metadata" else 3
     if layout == 1:
-        write_layout1(path, 1)
+        write_layout1(path, 1, nvariants=nvariants)
     else:
-        write_bgen(path)
+        write_bgen(path, nvariants=nvariants)
     active = set()
     iterators = []
     native_metafile = bgen.native_metafile
@@ -37,7 +38,7 @@ def test_native_handles_closed_before_temporary_cleanup(
 
         return wrapped
 
-    for name in ("iter_variants", "iter_metadata", "iter_decoded_blocks"):
+    for name in ("iter_variants", "iter_decoded_blocks"):
         monkeypatch.setattr(
             bgen.BgenFormat, name, retain(getattr(bgen.BgenFormat, name))
         )
@@ -72,7 +73,7 @@ def test_native_handles_closed_before_temporary_cleanup(
     file_enter, file_exit = track(cbgen.BgenFile)
     index_enter, index_exit = track(cbgen.BgenMetafile)
     target = {
-        "metadata": (bgen, "probability_lengths"),
+        "metadata": (bgen.BgenFormat, "scan_variant"),
         "decode": (bgen.BgenFormat, "validate_genotype"),
         "write": (bgen.BgenZarrWriter, "call_field"),
     }

@@ -8,9 +8,11 @@ as the other bio2zarr converters. It does not depend on sgkit.
 Install the optional backend with `python3 -m pip install 'bio2zarr[bgen]'`.
 This installs [bgen-limix](https://github.com/jpfeuffer/bgen-limix), **not**
 the legacy cbgen distribution. The maintained distribution intentionally
-retains the Python import namespace `cbgen`. Version 4.13.0 or later is
-required for structured native batch decoding and metadata discovery across
-every supported encoding. See {ref}`sec-installation`
+retains the Python import namespace `cbgen`. Dimension strategies require
+the backend's public `read_dimensions` and compact `max_actual_ncomb` batch
+interfaces; these are not present in the published 4.13.0 release.
+Until a backend release includes these interfaces, this development version
+requires a locally built backend wheel. See {ref}`sec-installation`
 for platform requirements.
 
 ```bash
@@ -62,7 +64,9 @@ the order is 0/0, 0/1, 1/1. For diploid triallelic records it is 0/0, 0/1,
 `ploidy * alleles` (at least 1). For diploid biallelic records HP contains
 `[P(haplotype 0, allele 0), P(haplotype 0, allele 1),
 P(haplotype 1, allele 0), P(haplotype 1, allele 1)]`.
-GP or HP is omitted entirely if no records use that probability model.
+By default, GP or HP is omitted entirely if no records use that probability
+model. Explicit dimension/model options can allocate larger padded widths or
+both arrays, as described below.
 
 For an entirely biallelic input DS has dimensions `(variants, samples)`.
 If any record is multiallelic, DS has dimensions
@@ -158,14 +162,78 @@ ensure it belongs to the unchanged BGEN input. This is the bgen-limix native
 metafile format, **not** the SQLite `.bgi` index produced by bgenix; a `.bgi`
 does not replace a native metafile.
 
-The first pass reads genotype metadata without decoding probabilities, determining GP/HP
-dimensions from actual sample ploidies, including missing samples. A larger
-declared BGEN maximum ploidy affects native decode capacity, not output padding.
-For compressed layout 2, metadata discovery still decompresses genotype blocks;
-it is not a cheap header-only seek. Layout 1 must inspect its probability
-triplets to determine missingness.
+### Dimension discovery
 
-The second pass decodes a block of variants once into native float64 arrays.
+The default, `--dimension-source actual --probability-model auto`, discovers
+GP/HP dimensions from actual sample ploidies, including missing samples,
+without decoding probabilities. Larger declared ploidy bounds do not inflate
+native probability buffers or output padding.
+
+Use `--dimension-source declared` to size from the record's declared maximum
+instead. This can avoid scanning sample ploidies, at the cost of extra global
+padding if annotations are loose. `--probability-model unphased|phased|mixed`
+avoids discovering the phase model: unphased/phased is an assumption checked
+during decoding, while mixed allocates both arrays even if only one is used.
+Do not assume that all BGEN records share a phase model.
+
+If a bound is known independently, `--max-ploidy 2` is an alternative to
+`--dimension-source`; these options are mutually exclusive. With an explicit
+model it removes genotype-dimension discovery altogether:
+
+```bash
+# Only for data independently known to be unphased with sample ploidy <= 2.
+bgen2zarr convert input.bgen output.vcz --max-ploidy 2 --probability-model unphased
+
+# Known ploidy bound, either or both phase models allowed; allocate GP and HP.
+bgen2zarr convert input.bgen output.vcz --max-ploidy 2 --probability-model mixed
+
+# Trust declared bounds for allocation, but discover which models are present.
+bgen2zarr convert input.bgen output.vcz --dimension-source declared
+```
+
+These are allocation controls, not permission to truncate or discard data.
+Actual ploidies (including missing samples) and explicit model assumptions
+are checked during conversion. A violation fails conversion without publishing
+the requested output. A human-genetics label alone is not evidence of a
+diploid bound: sex chromosomes, unusual ploidy and mixed records still require
+an appropriate bound/model.
+
+The layout 2 discovery combinations are:
+
+| Ploidy source | Probability model | Uncompressed | zlib | zstd |
+| --- | --- | --- | --- | --- |
+| actual | auto or explicit | Read sample-ploidy prefix | Decompress prefix and scan sample ploidies | Decompress full block and scan sample ploidies |
+| declared | auto | Read declared bounds and seek phase | Decompress through phase, discard sample ploidies | Decompress full block; use declared bounds and phase |
+| declared | explicit | Read first 8 uncompressed bytes | Decompress first 8 bytes | Decompress full block; use declared bounds |
+| provided bound | auto | Discover phase | Decompress through phase | Decompress full block to discover phase |
+| provided bound | explicit | No genotype-dimension read | No genotype-dimension read | No genotype-dimension read |
+
+“Explicit” means unphased, phased or mixed. The provided-bound/auto mode
+still discovers which models are present; it is not scan-free. Layout 1 has
+fixed biallelic/diploid/unphased dimensions and needs no genotype payload for
+dimension discovery, irrespective of compression. Its missingness is determined
+when probabilities are decoded, not during discovery.
+
+Prefix/header-only discovery is **not full payload validation**: it can miss
+trailing corruption. Full decoding remains mandatory. zstd uses full block
+decompression deliberately; streaming prefix reads were not consistently
+faster in synthetic benchmarks. The table describes algorithms, not a
+guaranteed speedup or a cohort-scale runtime prediction.
+
+All output blocks share global GP/HP axes; they do not need the same actual
+ploidy, allele count, or phase model. With a provided bound, conservative global
+widths are calculated from that bound and indexed maximum allele count.
+Native decoding checks actual widths against the selected capacity instead
+of requiring buffers sized to a larger BGEN header declaration. Declared-source
+mode still deliberately allocates its larger selected widths.
+Index generation/variant metadata traversal, sample checks and
+full probability decoding still occur in the scan-free mode.
+
+The root attribute `bio2zarr_bgen_dimensions` records the resolved
+`dimension_source` (`actual`, `declared`, or `provided`), `probability_model`,
+and optional `max_ploidy`. Storage options remain in `bio2zarr_bgen`.
+
+Conversion decodes a block of variants once into native float64 arrays.
 Every selected field uses this same batch: GP/HP, DS, ploidy, missingness and
 phase do not trigger separate genotype reads. Blocks stop at output variant-chunk
 boundaries. Each output field is assembled and written one sample-chunk slab at
