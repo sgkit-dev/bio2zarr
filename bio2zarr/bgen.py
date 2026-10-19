@@ -50,6 +50,32 @@ def check_backend():
             "BGEN conversion requires bgen-limix>=4.13.0 with the native "
             "batch interface. Upgrade with bio2zarr[bgen]."
         )
+    if not hasattr(cbgen.BgenFile, "read_dimensions"):
+        raise ImportError(
+            "BGEN dimension strategies require a bgen-limix build with "
+            "read_dimensions and compact batch decoding. "
+            "The published 4.13.0 backend does not include these interfaces."
+        )
+
+
+def validate_dimension_options(dimension_source, probability_model, max_ploidy):
+    if dimension_source not in (None, "actual", "declared"):
+        raise ValueError("dimension_source must be 'actual' or 'declared'")
+    if probability_model not in ("auto", "unphased", "phased", "mixed"):
+        raise ValueError(
+            "probability_model must be 'auto', 'unphased', 'phased', or 'mixed'"
+        )
+    if max_ploidy is not None:
+        if (
+            not isinstance(max_ploidy, int)
+            or isinstance(max_ploidy, bool)
+            or not 0 <= max_ploidy <= 63
+        ):
+            raise ValueError("max_ploidy must be an integer from 0 to 63")
+        if dimension_source is not None:
+            raise ValueError("max_ploidy and dimension_source are mutually exclusive")
+        return "provided"
+    return "actual" if dimension_source is None else dimension_source
 
 
 @contextmanager
@@ -127,6 +153,9 @@ class BgenFormat(vcz.Source):
         float_dtype="float64",
         compressor="zstd",
         compression_level=7,
+        dimension_source=None,
+        probability_model="auto",
+        max_ploidy=None,
     ):
         import cbgen  # noqa: PLC0415
 
@@ -140,6 +169,11 @@ class BgenFormat(vcz.Source):
             "compressor": compressor,
             "compression_level": compression_level,
         }
+        self.dimension_source = validate_dimension_options(
+            dimension_source, probability_model, max_ploidy
+        )
+        self.probability_model = probability_model
+        self.max_ploidy = max_ploidy
         check_backend()
         self._path = str(pathlib.Path(path).resolve())
         self.metafile_path = str(metafile_path)
@@ -199,70 +233,100 @@ class BgenFormat(vcz.Source):
         self.max_haplotype_probabilities = 0
         self.has_phased = False
         self.has_unphased = False
-        self.decode_widths = np.empty(self.num_records, dtype=np.uint32)
         with (
             self.open_reader() as source,
-            closing(self.iter_metadata(source)) as metadata,
+            closing(self.iter_variants(0, self.num_records)) as records,
         ):
-            for j, (variant, genotype, width) in enumerate(metadata):
-                if variant.nalleles < 2:
-                    raise ValueError(f"BGEN variant {j}: expected at least two alleles")
-                if not variant.chrom or variant.chrom == ".":
-                    raise ValueError(f"BGEN variant {j}: missing chromosome")
-                if variant.position < 1:
-                    raise ValueError(f"BGEN variant {j}: position must be positive")
-                if variant.position < last_position.get(variant.chrom, 0):
-                    raise ValueError(
-                        f"BGEN variant {j}: positions must be nondecreasing "
-                        "within each chromosome"
-                    )
-                last_position[variant.chrom] = variant.position
-                if any(not a or a == "." for a in variant.allele_ids):
-                    raise ValueError(f"BGEN variant {j}: missing allele")
-                if variant.chrom not in self._contigs:
-                    self._contigs.append(variant.chrom)
-                self.max_position = max(self.max_position, variant.position)
-                self.max_ref_length = max(
-                    self.max_ref_length, len(variant.allele_ids[0])
-                )
-                self.decode_widths[j] = width
-                self.max_alleles = max(self.max_alleles, variant.nalleles)
-                length = int(max(probability_lengths(genotype, variant.nalleles)))
-                if genotype.phased:
-                    self.has_phased = True
-                    self.max_haplotype_probabilities = max(
-                        self.max_haplotype_probabilities, length
-                    )
-                else:
+            cursor = 0
+            while variants := list(islice(records, 1024)):
+                for j, variant in enumerate(variants, start=cursor):
+                    self.scan_variant(variant, j, last_position)
+                if self.layout == 1:
                     self.has_unphased = True
-                    self.max_genotypes = max(self.max_genotypes, length)
-                del genotype
+                    self.max_genotypes = 3
+                elif (
+                    self.dimension_source != "provided"
+                    or self.probability_model == "auto"
+                ):
+                    dimensions = source.read_dimensions(
+                        [variant.offset for variant in variants],
+                        ploidy_source=(
+                            "actual"
+                            if self.dimension_source == "actual"
+                            else "declared"
+                        ),
+                        probability_model=self.probability_model,
+                        **(
+                            {"max_ploidy": max_ploidy}
+                            if self.dimension_source == "provided"
+                            else {}
+                        ),
+                    )
+                    self.has_phased |= dimensions.hp_width > 0
+                    self.has_unphased |= dimensions.gp_width > 0
+                    self.max_genotypes = max(self.max_genotypes, dimensions.gp_width)
+                    self.max_haplotype_probabilities = max(
+                        self.max_haplotype_probabilities, dimensions.hp_width
+                    )
+                cursor += len(variants)
+        if self.layout == 1:
+            if self.probability_model == "phased":
+                raise ValueError("Layout 1 is unphased, not phased")
+            if max_ploidy is not None and max_ploidy < 2:
+                raise ValueError("Layout 1 is diploid; max_ploidy must be at least 2")
+        if probability_model != "auto":
+            self.has_phased = probability_model in ("phased", "mixed")
+            self.has_unphased = probability_model in ("unphased", "mixed")
+            if self.layout == 1 and self.has_phased:
+                self.max_haplotype_probabilities = 4
+        if self.dimension_source == "provided":
+            self.max_genotypes = (
+                math.comb(max_ploidy + self.max_alleles - 1, max_ploidy)
+                if self.has_unphased
+                else 0
+            )
+            self.max_haplotype_probabilities = (
+                max(1, max_ploidy * self.max_alleles) if self.has_phased else 0
+            )
+        self.decode_width = max(self.max_genotypes, self.max_haplotype_probabilities)
+        if self.decode_width > np.iinfo(np.uint32).max:
+            raise ValueError(
+                "BGEN probability dimension exceeds the uint32 backend limit"
+            )
+        logger.info(
+            "BGEN dimensions: source=%s model=%s max_ploidy=%s GP=%s HP=%s",
+            self.dimension_source,
+            probability_model,
+            max_ploidy,
+            self.max_genotypes,
+            self.max_haplotype_probabilities,
+        )
         logger.info(
             "Scanned BGEN with %s samples and %s variants",
             self.num_samples,
             self.num_records,
         )
 
-    def iter_metadata(self, source):
-        with closing(self.iter_variants(0, self.num_records)) as variants:
-            size = max(1, min(1024, BLOCK_MEMORY // (6 * self.num_samples + 8)))
-            while records := list(islice(variants, size)):
-                batch = source.read_genotype_metadata([v.offset for v in records])
-                for j, variant in enumerate(records):
-                    if int(batch.nalleles[j]) != variant.nalleles:
-                        raise ValueError(
-                            "BGEN allele count differs from variant metadata"
-                        )
-                    yield (
-                        variant,
-                        SimpleNamespace(
-                            ploidy=batch.ploidy[j],
-                            missing=batch.missing[j],
-                            phased=bool(batch.phased[j]),
-                        ),
-                        int(batch.ncombs[j]),
-                    )
-                del batch
+    def scan_variant(self, variant, j, last_position):
+        if variant.nalleles < 2:
+            raise ValueError(f"BGEN variant {j}: expected at least two alleles")
+        if not variant.chrom or variant.chrom == ".":
+            raise ValueError(f"BGEN variant {j}: missing chromosome")
+        if variant.position < 1:
+            raise ValueError(f"BGEN variant {j}: position must be positive")
+        if variant.position < last_position.get(variant.chrom, 0):
+            raise ValueError(
+                f"BGEN variant {j}: positions must be nondecreasing "
+                "within each chromosome"
+            )
+        last_position[variant.chrom] = variant.position
+        if any(not a or a == "." for a in variant.allele_ids):
+            raise ValueError(f"BGEN variant {j}: missing allele")
+        if variant.chrom not in self._contigs:
+            self._contigs.append(variant.chrom)
+        self.max_position = max(self.max_position, variant.position)
+        self.max_ref_length = max(self.max_ref_length, len(variant.allele_ids[0]))
+        self.max_alleles = max(self.max_alleles, variant.nalleles)
 
     def iter_decoded_blocks(self, start, stop, chunk_size, output_row_bytes):
         """Yield owned native batches; consumers finish all fields before advancing."""
@@ -275,9 +339,7 @@ class BgenFormat(vcz.Source):
                         width = 0
                         count = 0
                         while cursor + count < chunk_stop:
-                            next_width = max(
-                                width, int(self.decode_widths[cursor + count])
-                            )
+                            next_width = self.decode_width
                             # Native output, one-variant scratch, metadata and one
                             # sample-chunk slab. Native allocator overhead is extra.
                             estimate = (
@@ -297,9 +359,15 @@ class BgenFormat(vcz.Source):
                             )
                         records = list(islice(variants, count))
                         batch = source.read_genotypes_batch(
-                            [v.offset for v in records], max_ncomb=width, precision=64
+                            [v.offset for v in records],
+                            max_actual_ncomb=width,
+                            precision=64,
                         )
                         for j, variant in enumerate(records):
+                            if int(batch.nalleles[j]) != variant.nalleles:
+                                raise ValueError(
+                                    "BGEN allele count differs from variant metadata"
+                                )
                             self.validate_genotype(
                                 self.batch_genotype(batch, j), variant
                             )
@@ -319,7 +387,14 @@ class BgenFormat(vcz.Source):
 
     @property
     def root_attrs(self):
-        return {"bio2zarr_bgen": dict(self.storage_options)}
+        return {
+            "bio2zarr_bgen": dict(self.storage_options),
+            "bio2zarr_bgen_dimensions": {
+                "dimension_source": self.dimension_source,
+                "probability_model": self.probability_model,
+                "max_ploidy": self.max_ploidy,
+            },
+        }
 
     @property
     def path(self):
@@ -359,6 +434,21 @@ class BgenFormat(vcz.Source):
 
     def validate_genotype(self, genotype, variant):
         label = f"{variant.chrom}:{variant.position}"
+        if (
+            self.probability_model == "phased"
+            and not genotype.phased
+            or self.probability_model == "unphased"
+            and genotype.phased
+        ):
+            raise ValueError(
+                f"BGEN variant {label}: phase model violates "
+                f"probability_model={self.probability_model!r}"
+            )
+        if self.max_ploidy is not None and np.any(genotype.ploidy > self.max_ploidy):
+            raise ValueError(
+                f"BGEN variant {label}: sample ploidy exceeds max_ploidy="
+                f"{self.max_ploidy}"
+            )
         probability = genotype.probability
         lengths = probability_lengths(genotype, variant.nalleles)
         if (
@@ -683,6 +773,9 @@ def convert(
     float_dtype="float64",
     compressor="zstd",
     compression_level=7,
+    dimension_source=None,
+    probability_model="auto",
+    max_ploidy=None,
 ):
     """Convert BGEN genotype or phased haplotype probabilities to VCF Zarr.
 
@@ -718,6 +811,19 @@ def convert(
         Blosc codec for schema-defined output arrays, default zstd.
     compression_level : int
         Blosc compression level from 0 to 9, default 7; byte shuffle is retained.
+    dimension_source : {"actual", "declared"}, optional
+        Use actual sample ploidies (default), or declared BGEN ploidy bounds
+        when discovering GP/HP widths. Declared bounds may increase padding.
+        Mutually exclusive with max_ploidy.
+    probability_model : {"auto", "unphased", "phased", "mixed"}
+        Discover phase models (default), or allocate the specified models.
+        Explicit unphased/phased assumptions are checked during conversion.
+        Mixed allocates both GP and HP even if one is unused.
+    max_ploidy : int, optional
+        User-supplied maximum sample ploidy, 0 to 63. With an explicit
+        probability_model, skip genotype-dimension discovery entirely.
+        With auto, still discover which phase models are present.
+        Bounds are checked during conversion; no probabilities are truncated.
 
     Returns
     -------
@@ -748,6 +854,7 @@ def convert(
     validate_storage_options(
         probabilities, dosage, float_dtype, compressor, compression_level
     )
+    validate_dimension_options(dimension_source, probability_model, max_ploidy)
     logger.info(
         "BGEN storage: probabilities=%s dosage=%s float_dtype=%s "
         "compressor=%s compression_level=%s",
@@ -771,6 +878,9 @@ def convert(
             float_dtype=float_dtype,
             compressor=compressor,
             compression_level=compression_level,
+            dimension_source=dimension_source,
+            probability_model=probability_model,
+            max_ploidy=max_ploidy,
         )
         schema = source.generate_schema(variants_chunk_size, samples_chunk_size)
         kwargs = dict(

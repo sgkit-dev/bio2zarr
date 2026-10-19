@@ -406,7 +406,7 @@ def test_bounded_reads(example):
     offsets = []
 
     def read(source, batch_offsets, *args, **kwargs):
-        assert kwargs["max_ncomb"] == 3
+        assert kwargs["max_actual_ncomb"] == 3
         assert kwargs["precision"] == 64
         offsets.extend(batch_offsets)
         genotype = original(source, batch_offsets, *args, **kwargs)
