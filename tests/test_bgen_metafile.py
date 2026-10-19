@@ -2,15 +2,128 @@
 
 import os
 import pathlib
+from contextlib import contextmanager
 from unittest import mock
 
 import cbgen
+import numpy as np
 import numpy.testing as nt
 import pytest
 
 from bio2zarr import bgen
 from tests.test_bgen import write_bgen
 from tests.test_bgen_general import write_layout1
+
+
+@pytest.mark.parametrize("layout", [1, 2])
+@pytest.mark.parametrize("failure", [None, "metadata", "decode", "write"])
+def test_native_handles_closed_before_temporary_cleanup(
+    tmp_path, monkeypatch, layout, failure
+):
+    path = tmp_path / "input.bgen"
+    if layout == 1:
+        write_layout1(path, 1)
+    else:
+        write_bgen(path)
+    active = set()
+    iterators = []
+    native_metafile = bgen.native_metafile
+
+    def retain(method):
+        def wrapped(*args, **kwargs):
+            iterator = method(*args, **kwargs)
+            iterators.append(iterator)
+            return iterator
+
+        return wrapped
+
+    for name in ("iter_variants", "iter_metadata", "iter_decoded_blocks"):
+        monkeypatch.setattr(
+            bgen.BgenFormat, name, retain(getattr(bgen.BgenFormat, name))
+        )
+
+    @contextmanager
+    def checked_metafile(path):
+        with native_metafile(path) as index:
+            try:
+                yield index
+            finally:
+                assert not active, "Native handles still open at temporary cleanup"
+
+    def track(cls):
+        enter, exit = cls.__enter__, cls.__exit__
+
+        def tracked_enter(handle):
+            result = enter(handle)
+            active.add(id(handle))
+            return result
+
+        def tracked_exit(handle, *args):
+            try:
+                return exit(handle, *args)
+            finally:
+                active.remove(id(handle))
+
+        return (
+            mock.patch.object(cls, "__enter__", tracked_enter),
+            mock.patch.object(cls, "__exit__", tracked_exit),
+        )
+
+    file_enter, file_exit = track(cbgen.BgenFile)
+    index_enter, index_exit = track(cbgen.BgenMetafile)
+    target = {
+        "metadata": (bgen, "probability_lengths"),
+        "decode": (bgen.BgenFormat, "validate_genotype"),
+        "write": (bgen.BgenZarrWriter, "call_field"),
+    }
+    with (
+        file_enter,
+        file_exit,
+        index_enter,
+        index_exit,
+        mock.patch.object(bgen, "native_metafile", checked_metafile),
+    ):
+        if failure is None:
+            bgen.convert(path, variants_chunk_size=1)
+        else:
+            obj, method = target[failure]
+            with (
+                mock.patch.object(obj, method, side_effect=ValueError("injected")),
+                pytest.raises(ValueError, match="injected"),
+            ):
+                bgen.convert(path, variants_chunk_size=1)
+    assert not active
+
+
+@pytest.mark.parametrize("layout", [1, 2])
+@pytest.mark.parametrize("workers", [0, 2])
+@pytest.mark.parametrize("invalid", [False, True])
+def test_temporary_index_cleanup_with_workers(tmp_path, layout, workers, invalid):
+    path = tmp_path / "input.bgen"
+    if layout == 1:
+        probabilities = np.array([[32768, 32768, 0]], dtype="<u2") if invalid else None
+        write_layout1(path, 1, probabilities=probabilities)
+    else:
+        write_bgen(path, invalid=invalid)
+    created = []
+    create = cbgen.BgenFile.create_metafile
+
+    def record(source, index_path):
+        created.append(pathlib.Path(index_path))
+        return create(source, index_path)
+
+    out = tmp_path / "out.vcz"
+    with mock.patch.object(cbgen.BgenFile, "create_metafile", record):
+        if invalid:
+            with pytest.raises(ValueError, match="invalid genotype probabilities"):
+                bgen.convert(path, out, worker_processes=workers, variants_chunk_size=1)
+            assert not out.exists()
+        else:
+            bgen.convert(path, out, worker_processes=workers, variants_chunk_size=1)
+            assert out.exists()
+    assert len(created) == 1
+    assert not created[0].parent.exists()
+    assert not list(tmp_path.glob(".bio2zarr-bgen-*"))
 
 
 @pytest.mark.parametrize("layout", [1, 2])
