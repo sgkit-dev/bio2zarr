@@ -21,7 +21,7 @@
 - Validate BGEN conversion against pinned, licensed Oxford reference BGEN
   files and independent GEN/VCF/HAPS companions in offline CI, including
   probability vectors, dosage/frequency summaries, missingness and phase.
-- Encode BGEN block-first using bgen-limix >=4.14.0 native batches: discover
+- Encode BGEN block-first using bgen-limix >=4.15.0 native batches: discover
   dimensions from metadata, then decode each variant's probabilities once for
   all output fields. Reuse the standard partition/index pipeline, bound estimated
   per-worker working buffers, and stage final output until validation succeeds.

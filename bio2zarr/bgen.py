@@ -113,12 +113,12 @@ def check_backend():
         for name in ("layout", "read_genotype_metadata", "read_genotypes_batch")
     ):
         raise ImportError(
-            "BGEN conversion requires bgen-limix>=4.14.0 with the native "
+            "BGEN conversion requires bgen-limix>=4.15.0 with the native "
             "batch interface. Upgrade with bio2zarr[bgen]."
         )
     if not hasattr(cbgen.BgenFile, "read_dimensions"):
         raise ImportError(
-            "BGEN dimension strategies require bgen-limix>=4.14.0 with "
+            "BGEN dimension strategies require bgen-limix>=4.15.0 with "
             "read_dimensions and compact batch decoding. "
             "Upgrade with bio2zarr[bgen]."
         )
