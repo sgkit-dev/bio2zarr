@@ -55,11 +55,11 @@ zipzarr = "bio2zarr.cli:zipzarr"
 [project.optional-dependencies]
 tskit = ["tskit>=1"]
 vcf = ["cyvcf2"]
-bgen = ["bgen-limix>=4.14.0,<5"]
+bgen = ["bgen-limix>=4.15.0,<5"]
 all = [
   "tskit>=1",
   "cyvcf2",
-  "bgen-limix>=4.14.0,<5",
+  "bgen-limix>=4.15.0,<5",
 ]
 
 [dependency-groups]
@@ -74,7 +74,7 @@ test = [
   "tqdm",
   "tskit>=1",
   "bed_reader",
-  "bgen-limix>=4.14.0,<5",
+  "bgen-limix>=4.15.0,<5",
   "zstandard",
   "cyvcf2 ; sys_platform != 'win32'",
   "xarray<2025.03.1",
