@@ -50,6 +50,9 @@ local wheel command above does not establish hosted-CI coverage.
 The required `Required BGEN interoperability` CI job builds exporter commit
 `8c7c06396471f7f47d812dfbd5e68c354a857190` from the approved
 [`jpfeuffer/vcztools` fork](https://github.com/jpfeuffer/vcztools).
+This is an immutable staging dependency for the exporter changes in
+[sgkit-dev/vcztools#440](https://github.com/sgkit-dev/vcztools/pull/440),
+not a merged or released exporter dependency.
 It installs that wheel in a dedicated Python 3.12 environment with published
 `bgen-limix` 4.15.0, explicitly checks required APIs, and rejects any result
 other than 30 executed tests with zero skips, failures, or errors. The
