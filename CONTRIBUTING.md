@@ -47,13 +47,19 @@ source revision, never an invented registry version. Remote integration CI
 requires a reachable, approved immutable exporter source or artifact; the
 local wheel command above does not establish hosted-CI coverage.
 
-The current local interoperability baseline uses exporter commit
-`8c7c06396471f7f47d812dfbd5e68c354a857190`, wheel
+The required `Required BGEN interoperability` CI job builds exporter commit
+`8c7c06396471f7f47d812dfbd5e68c354a857190` from the approved
+[`jpfeuffer/vcztools` fork](https://github.com/jpfeuffer/vcztools).
+It installs that wheel in a dedicated Python 3.12 environment with published
+`bgen-limix` 4.15.0, explicitly checks required APIs, and rejects any result
+other than 30 executed tests with zero skips, failures, or errors. The
+`bgen-interoperability` artifact contains the built exporter wheel, its SHA-256,
+the source commit, package versions, and the JUnit report. Ordinary unit CI
+continues to run without the exporter.
+
+The corresponding locally verified wheel is
 `vcztools-0.2.1.dev9-cp312-cp312-macosx_15_0_arm64.whl` (SHA-256
-`b5238f14b6f8bbe0fe1117c2164c090609608c3516e4010020972da72f119318`),
-and published `bgen-limix` 4.15.0. The exporter revision is not yet available
-from an approved remote: a required hosted integration job remains blocked
-until it is. Ordinary unit CI does not substitute for this integration suite.
+`b5238f14b6f8bbe0fe1117c2164c090609608c3516e4010020972da72f119318`).
 
 ## Linting
 

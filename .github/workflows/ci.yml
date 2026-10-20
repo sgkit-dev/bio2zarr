@@ -227,6 +227,62 @@ jobs:
           ./cli-test/bin/bgen2zarr convert tests/data/bgen/haplotypes.bgen bgen.vcz --max-ploidy 2 --probability-model phased
           ./cli-test/bin/python -m bio2zarr bgen2zarr convert tests/data/bgen/haplotypes.bgen bgen.vcz.zip --dimension-source declared --zarr-format 3
 
+  bgen-interoperability:
+    name: Required BGEN interoperability
+    runs-on: ubuntu-latest
+    env:
+      UV_PROJECT_ENVIRONMENT: .venv-integration
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: jpfeuffer/bio2zarr
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out the immutable exporter from the approved fork
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: jpfeuffer/vcztools
+          ref: 8c7c06396471f7f47d812dfbd5e68c354a857190
+          path: exporter-source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install uv and set the python version
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Install the dedicated importer test environment
+        run: uv sync --locked --group test --no-default-groups
+
+      - name: Build and install the pinned exporter wheel
+        run: |
+          test "$(git -C exporter-source rev-parse HEAD)" = "8c7c06396471f7f47d812dfbd5e68c354a857190"
+          uv build --wheel --out-dir "$PWD/exporter-wheels" exporter-source
+          for wheel in exporter-wheels/*.whl; do
+            uv pip install --python=.venv-integration "$wheel[bgen]"
+          done
+          git -C exporter-source rev-parse HEAD > exporter-wheels/source-commit.txt
+          sha256sum exporter-wheels/*.whl > exporter-wheels/SHA256SUMS
+          uv run --no-sync python -c "import importlib.metadata as m; import cbgen; from bio2zarr import bgen; from vcztools import bgen as exporter; bgen.check_backend(); assert callable(cbgen.encode_layout2); assert callable(exporter.write_bgen); assert m.version('bgen-limix') == '4.15.0'; assert m.distribution('bgen-limix').read_text('direct_url.json') is None; print({name: m.version(name) for name in ('bio2zarr', 'vcztools', 'bgen-limix')})" > exporter-wheels/environment.txt
+          cat exporter-wheels/source-commit.txt exporter-wheels/SHA256SUMS exporter-wheels/environment.txt
+
+      - name: Execute all required roundtrips without skips
+        run: |
+          uv run --no-sync python -m pytest integration -v --no-cov --junitxml=integration-results.xml
+          uv run --no-sync python -c "import xml.etree.ElementTree as e; suites = list(e.parse('integration-results.xml').getroot().iter('testsuite')); assert sum(int(s.attrib['tests']) for s in suites) == 30; assert all(int(s.attrib.get(k, 0)) == 0 for s in suites for k in ('skipped', 'failures', 'errors')); print('Required BGEN interoperability: 30 executed, 0 skipped, 0 failures, 0 errors')"
+
+      - name: Preserve exporter provenance and integration results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: bgen-interoperability
+          path: |
+            exporter-wheels/
+            integration-results.xml
+          if-no-files-found: error
+
   test-zarr-version:
     name: Test Zarr versions
     runs-on: ubuntu-latest
