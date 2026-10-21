@@ -28,7 +28,7 @@ def test_native_handles_closed_before_temporary_cleanup(
         write_bgen(path, nvariants=nvariants)
     active = set()
     iterators = []
-    native_metafile = bgen.native_metafile
+    metafile = bgen.bgen_limix_metafile
 
     def retain(method):
         def wrapped(*args, **kwargs):
@@ -45,7 +45,7 @@ def test_native_handles_closed_before_temporary_cleanup(
 
     @contextmanager
     def checked_metafile(path):
-        with native_metafile(path) as index:
+        with metafile(path) as index:
             try:
                 yield index
             finally:
@@ -82,7 +82,7 @@ def test_native_handles_closed_before_temporary_cleanup(
         file_exit,
         index_enter,
         index_exit,
-        mock.patch.object(bgen, "native_metafile", checked_metafile),
+        mock.patch.object(bgen, "bgen_limix_metafile", checked_metafile),
     ):
         if failure is None:
             bgen.convert(path, variants_chunk_size=1)
@@ -129,7 +129,7 @@ def test_temporary_index_cleanup_with_workers(tmp_path, layout, workers, invalid
 
 @pytest.mark.parametrize("layout", [1, 2])
 @pytest.mark.parametrize("workers", [0, 2])
-def test_reuse_existing_native_metafile(tmp_path, layout, workers):
+def test_reuse_existing_bgen_limix_metafile(tmp_path, layout, workers):
     path = tmp_path / "input.bgen"
     if layout == 1:
         write_layout1(path, 1)
@@ -161,7 +161,7 @@ def test_reuse_existing_native_metafile(tmp_path, layout, workers):
     assert index_path.stat().st_mtime_ns == timestamp
 
 
-def test_missing_native_metafile_is_temporary(tmp_path):
+def test_missing_bgen_limix_metafile_is_temporary(tmp_path):
     path = tmp_path / "input.bgen"
     write_bgen(path)
     create = cbgen.BgenFile.create_metafile
@@ -216,7 +216,7 @@ def test_bad_existing_index_is_not_replaced(tmp_path, failure):
     assert index_path.read_bytes() == original
 
 
-def test_bgi_is_not_mistaken_for_native_metafile(tmp_path):
+def test_bgi_is_not_mistaken_for_bgen_limix_metafile(tmp_path):
     path = tmp_path / "input.bgen"
     write_bgen(path)
     bgi = path.with_name(path.name + ".bgi")

@@ -241,12 +241,6 @@ def test_provided_bound_auto_ignores_huge_declared_width(tmp_path):
     assert_all_fill_float(root["call_HP"][1])
 
 
-def test_old_backend_dimension_interface_error(tmp_path, monkeypatch):
-    monkeypatch.delattr(cbgen.BgenFile, "read_dimensions")
-    with pytest.raises(ImportError, match=r"bgen-limix>=4\.15\.0"):
-        bgen.convert(tmp_path / "input.bgen")
-
-
 @pytest.mark.parametrize("source", ["actual", "declared", "provided"])
 @pytest.mark.parametrize("compression", [0, 1, 2])
 def test_zero_ploidy_phased_retains_model(tmp_path, source, compression):

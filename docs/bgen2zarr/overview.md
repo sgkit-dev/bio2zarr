@@ -188,15 +188,15 @@ Layout 1's three independently rounded probabilities are decoded directly
 as their original integers divided by 32768. Triplets whose sum is not
 exactly one are retained without renormalization.
 
-A native metadata index provides bounded metadata reads. An existing
+A bgen-limix metadata index provides bounded metadata reads. An existing
 `input.bgen.metafile` sidecar is reused read-only; only when it is absent is
 an index generated in a temporary directory. Existing sidecars are never
 overwritten or silently regenerated. An older modification time or mismatched
 variant count is rejected with an error. These checks are heuristics, not source
-authentication: the native index stores no source fingerprint, and users must
-ensure it belongs to the unchanged BGEN input. This is the bgen-limix native
+authentication: the bgen-limix index stores no source fingerprint, and users must
+ensure it belongs to the unchanged BGEN input. This is the bgen-limix
 metafile format, **not** the SQLite `.bgi` index produced by bgenix; a `.bgi`
-does not replace a native metafile.
+does not replace a bgen-limix metafile.
 
 ### Dimension discovery
 
@@ -295,7 +295,7 @@ and renamed only after successful conversion. Invalid input therefore leaves no
 partial output at the requested path. This stages the final output, not a second
 decoded genotype representation. Temporary output and any generated temporary
 index are removed on failure; pre-existing sidecars are left unchanged.
-The input is not modified, and no generated native index or rewritten BGEN
+The input is not modified, and no generated bgen-limix index or rewritten BGEN
 file is placed alongside it.
 
 ## Explicit limitations

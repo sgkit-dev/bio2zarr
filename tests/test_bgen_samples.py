@@ -45,6 +45,17 @@ def test_reference_sample_conversion(tmp_path):
         ("ID_1\n0\nz\na\n", None, ["z", "a"]),
         ("ID\n0\n001\n0\n", None, ["001", "0"]),
         (
+            "ID\n0\n00001\n0\nna\nNa\n\u00e9chantillon\n\u6837\u672c\n",
+            None,
+            ["00001", "0", "na", "Na", "\u00e9chantillon", "\u6837\u672c"],
+        ),
+        (
+            "ID_1 ID_2 missing\n0 0 0\nf1 00001 NA\nf2 na .\nf3 Na 0\n",
+            "ID_2",
+            ["00001", "na", "Na"],
+        ),
+        ('ID\n0\n#sample\n"sample"\n', None, ["#sample", '"sample"']),
+        (
             "ID sex case covariate\n0 D B C\nz M control 0.1\na F case NA\n",
             None,
             ["z", "a"],
@@ -82,6 +93,20 @@ def test_parser(tmp_path, contents, column, expected):
         ("ID_1\n0\n\n", None, 3, "expected 1 columns, found 0"),
         ("ID_1 ID_2\n0 0\nz\n", None, 3, "expected 2 columns, found 1"),
         ("ID_1\n0\nz extra\n", None, 3, "expected 1 columns, found 2"),
+        ("ID_1 ID_2\n0 0\nf1 a\nf2\n", "ID_2", 4, "expected 2 columns, found 1"),
+        (
+            "ID_1 ID_2\n0 0\nf1 a\nf2 b extra\n",
+            "ID_2",
+            4,
+            "expected 2 columns, found 3",
+        ),
+        ("ID_1 ID_2\n0 0\nf1 a\n \t\nf2 b\n", "ID_2", 4, "found 0"),
+        (
+            'ID_1 ID_2\n0 0\nf1 a\nf2 "two words"\n',
+            "ID_2",
+            4,
+            "expected 2 columns, found 3",
+        ),
         ("ID_1\n0\nNA\n", None, 3, "missing identifier"),
         ("ID_1\n0\n.\n", None, 3, "missing identifier"),
         ("ID_1\n0\nz\nz\n", None, 4, "duplicate identifier"),

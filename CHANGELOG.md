@@ -3,45 +3,9 @@
 *New features*
 
 - Add `bgen2zarr convert` and `bio2zarr.bgen.convert` using the `bgen-limix`
-  optional backend. Support layout 1 (raw/zlib) and layout 2 (raw/zlib/zstd),
-  including phased/unphased, multiallelic and variable-ploidy data.
-  Preserve GP/HP probabilities, ploidy, original missingness and
-  variant/sample metadata; derive per-alternate-allele dosage without
-  inferring hard calls. Index and decode every supported encoding directly
-  through the backend's public API, retaining exact layout-1 probabilities.
-  Support memory, directory and zip output with Zarr formats 2 and 3.
-  Invalid inputs are rejected rather than silently coerced or reordered. (#417)
-- Add BGEN probability/dosage selection, float64/float32 storage precision,
-  and Blosc zstd/lz4 output compression with levels 0-9. Defaults retain both
-  applicable GP/HP and DS as float64 with zstd level 7 and byte shuffle.
-  Preserve dtype-specific missing/fill sentinels and calculate dosage before
-  any downcast. Record settings in `bio2zarr_bgen` root metadata. Dosage-only
-  output discards uncertainty and haplotype probabilities; float32 explicitly
-  rounds values, without renormalization or hard-call inference.
-- Validate BGEN conversion against pinned, licensed Oxford reference BGEN
-  files and independent GEN/VCF/HAPS companions in offline CI, including
-  probability vectors, dosage/frequency summaries, missingness and phase.
-- Encode BGEN block-first using bgen-limix >=4.15.0 native batches: discover
-  dimensions from metadata, then decode each variant's probabilities once for
-  all output fields. Reuse the standard partition/index pipeline, bound estimated
-  per-worker working buffers, and stage final output until validation succeeds.
-  No intermediate ICF probability store is created.
-- Reuse existing native BGEN `.metafile` sidecars read-only; generate a temporary
-  index only when absent, and reject stale or variant-count-mismatched indexes
-  without replacing them.
-- Support explicit Oxford/QCTOOL `.sample` sidecars with BGEN `sample_file` /
-  `--sample-file`, including one-column Oxford references and vcztools exports.
-  Default to the first identifier column; `sample_id_column` /
-  `--sample-id-column` selects another explicitly. Preserve row order and
-  override embedded IDs; validate structure, selected IDs and sample count.
-  Import identifiers only, not phenotypes/covariates. Keep plain `--sample-ids`
-  compatible and mutually exclusive. Failed validation preserves existing
-  CLI output even with `--force`; no automatic sidecar discovery is performed.
-- Add BGEN actual/declared ploidy dimension discovery and explicit phase-model
-  allocation. A checked user-supplied maximum ploidy plus an explicit model skips
-  genotype-dimension discovery. Decode compact native batches without allocating
-  probability padding from loose declared bounds; validate assumptions before
-  publishing output. Record dimension settings in `bio2zarr_bgen_dimensions`.
+  optional backend, preserving genotype/haplotype probabilities and metadata
+  with derived dosage. Support layouts 1/2, variable ploidy, Oxford `.sample`
+  identifiers, dimension controls and configurable Zarr 2/3 output. (#417)
 
 # 0.2.1 2026-06-04
 

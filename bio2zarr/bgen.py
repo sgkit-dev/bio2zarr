@@ -1,6 +1,6 @@
 """BGEN conversion using the bgen-limix distribution (Python namespace cbgen)."""
 
-import importlib.metadata
+import csv
 import logging
 import math
 import os
@@ -12,6 +12,7 @@ from itertools import islice
 from types import SimpleNamespace
 
 import numpy as np
+import pandas as pd
 import zarr
 
 from bio2zarr import constants, core, vcz, zarr_utils
@@ -55,15 +56,32 @@ def read_sample_file(path, *, sample_id_column=None):
         index = columns.index(selected)
         if types[index] != "0" or selected == "missing":
             raise error(2, f"selected identifier column {selected!r} must have type 0")
-        ids = []
-        seen = {}
+        body_start = f.tell()
+        rows = 0
+        # pandas pads short rows and can infer an index from long rows.
+        # Check widths explicitly so malformed sample files are never repaired.
         for line, text in enumerate(f, start=3):
-            values = text.split()
-            if len(values) != len(columns):
-                raise error(
-                    line, f"expected {len(columns)} columns, found {len(values)}"
-                )
-            identifier = values[index]
+            width = len(text.split())
+            if width != len(columns):
+                raise error(line, f"expected {len(columns)} columns, found {width}")
+            rows += 1
+        if rows == 0:
+            raise error(3, "expected at least one sample row")
+        f.seek(body_start)
+        body = pd.read_csv(
+            f,
+            sep=r"\s+",
+            header=None,
+            names=columns,
+            dtype=str,
+            na_filter=False,
+            keep_default_na=False,
+            skip_blank_lines=False,
+            quoting=csv.QUOTE_NONE,
+        )
+        ids = body.iloc[:, index].tolist()
+        seen = {}
+        for line, identifier in enumerate(ids, start=3):
             if identifier in (".", "NA"):
                 raise error(line, f"missing identifier in column {selected!r}")
             if identifier in seen:
@@ -75,9 +93,6 @@ def read_sample_file(path, *, sample_id_column=None):
                     "identifier column if appropriate",
                 )
             seen[identifier] = line
-            ids.append(identifier)
-        if not ids:
-            raise error(3, "expected at least one sample row")
     return ids
 
 
@@ -86,42 +101,6 @@ def validate_sample_options(sample_ids, sample_file, sample_id_column):
         raise ValueError("sample_ids and sample_file are mutually exclusive")
     if sample_id_column is not None and sample_file is None:
         raise ValueError("sample_id_column requires sample_file")
-
-
-def check_backend():
-    """Check distribution identity and capabilities beyond the dependency pin."""
-    import cbgen  # noqa: PLC0415
-
-    try:
-        importlib.metadata.distribution("bgen-limix")
-    except importlib.metadata.PackageNotFoundError:
-        raise ImportError(
-            "BGEN conversion requires bgen-limix, not the legacy cbgen "
-            "distribution. Install bio2zarr[bgen]."
-        ) from None
-    try:
-        importlib.metadata.distribution("cbgen")
-    except importlib.metadata.PackageNotFoundError:
-        pass
-    else:
-        raise ImportError(
-            "The legacy cbgen distribution conflicts with bgen-limix. "
-            "Use an environment containing only bio2zarr[bgen]."
-        )
-    if not all(
-        hasattr(cbgen.BgenFile, name)
-        for name in ("layout", "read_genotype_metadata", "read_genotypes_batch")
-    ):
-        raise ImportError(
-            "BGEN conversion requires bgen-limix>=4.15.0 with the native "
-            "batch interface. Upgrade with bio2zarr[bgen]."
-        )
-    if not hasattr(cbgen.BgenFile, "read_dimensions"):
-        raise ImportError(
-            "BGEN dimension strategies require bgen-limix>=4.15.0 with "
-            "read_dimensions and compact batch decoding. "
-            "Upgrade with bio2zarr[bgen]."
-        )
 
 
 def validate_dimension_options(dimension_source, probability_model, max_ploidy):
@@ -145,8 +124,8 @@ def validate_dimension_options(dimension_source, probability_model, max_ploidy):
 
 
 @contextmanager
-def native_metafile(path):
-    """Reuse native index sidecars; generate a temporary index only if absent."""
+def bgen_limix_metafile(path):
+    """Reuse bgen-limix index sidecars; create a temporary index only if absent."""
     path = pathlib.Path(path)
     candidate = path.with_name(path.name + ".metafile")
     if candidate.exists():
@@ -225,8 +204,6 @@ class BgenFormat(vcz.Source):
         probability_model="auto",
         max_ploidy=None,
     ):
-        import cbgen  # noqa: PLC0415
-
         validate_sample_options(sample_ids, sample_file, sample_id_column)
         if sample_file is not None:
             sample_ids = read_sample_file(
@@ -247,7 +224,6 @@ class BgenFormat(vcz.Source):
         )
         self.probability_model = probability_model
         self.max_ploidy = max_ploidy
-        check_backend()
         self._path = str(pathlib.Path(path).resolve())
         self.metafile_path = str(metafile_path)
         with self.open_reader() as source:
@@ -280,28 +256,34 @@ class BgenFormat(vcz.Source):
             self._samples = [vcz.Sample(id=s) for s in sample_ids]
             index_path = pathlib.Path(self.metafile_path)
             if index_path.exists():
-                with cbgen.BgenMetafile(self.metafile_path) as index:
-                    if index.nvariants != self.num_records:
-                        raise ValueError(
-                            f"BGEN metafile {index_path} has a different variant count"
-                        )
-                    if not 1 <= index.npartitions <= self.num_records:
-                        raise ValueError(
-                            f"BGEN metafile {index_path} has an invalid partition count"
-                        )
-                if (
-                    index_path.stat().st_mtime_ns
-                    < pathlib.Path(self.path).stat().st_mtime_ns
-                ):
-                    raise ValueError(
-                        f"BGEN metafile {index_path} is older than the input; "
-                        "regenerate the native index before converting"
-                    )
-                logger.info("Reusing BGEN metafile %s", index_path)
+                self.validate_metafile()
+                logger.info("Reusing bgen-limix metafile %s", index_path)
             else:
-                logger.info("Creating temporary BGEN metafile %s", index_path)
+                logger.info("Creating temporary bgen-limix metafile %s", index_path)
                 source.create_metafile(self.metafile_path)
 
+        self.scan_metadata()
+
+    def validate_metafile(self):
+        import cbgen  # noqa: PLC0415
+
+        index_path = pathlib.Path(self.metafile_path)
+        with cbgen.BgenMetafile(self.metafile_path) as index:
+            if index.nvariants != self.num_records:
+                raise ValueError(
+                    f"BGEN metafile {index_path} has a different variant count"
+                )
+            if not 1 <= index.npartitions <= self.num_records:
+                raise ValueError(
+                    f"BGEN metafile {index_path} has an invalid partition count"
+                )
+        if index_path.stat().st_mtime_ns < pathlib.Path(self.path).stat().st_mtime_ns:
+            raise ValueError(
+                f"BGEN metafile {index_path} is older than the input; "
+                "regenerate the bgen-limix index before converting"
+            )
+
+    def scan_metadata(self):
         self._contigs = []
         last_position = {}
         self.max_position = 0
@@ -335,7 +317,7 @@ class BgenFormat(vcz.Source):
                         ),
                         probability_model=self.probability_model,
                         **(
-                            {"max_ploidy": max_ploidy}
+                            {"max_ploidy": self.max_ploidy}
                             if self.dimension_source == "provided"
                             else {}
                         ),
@@ -347,6 +329,16 @@ class BgenFormat(vcz.Source):
                         self.max_haplotype_probabilities, dimensions.hp_width
                     )
                 cursor += len(variants)
+        self.finalize_dimensions()
+        logger.info(
+            "Scanned BGEN with %s samples and %s variants",
+            self.num_samples,
+            self.num_records,
+        )
+
+    def finalize_dimensions(self):
+        max_ploidy = self.max_ploidy
+        probability_model = self.probability_model
         if self.layout == 1:
             if self.probability_model == "phased":
                 raise ValueError("Layout 1 is unphased, not phased")
@@ -378,11 +370,6 @@ class BgenFormat(vcz.Source):
             max_ploidy,
             self.max_genotypes,
             self.max_haplotype_probabilities,
-        )
-        logger.info(
-            "Scanned BGEN with %s samples and %s variants",
-            self.num_samples,
-            self.num_records,
         )
 
     def scan_variant(self, variant, j, last_position):
@@ -923,7 +910,7 @@ def convert(
 
     Notes
     -----
-    An existing native <input filename>.metafile sidecar is reused read-only.
+    An existing bgen-limix <input filename>.metafile sidecar is reused read-only.
     If absent, metadata is indexed in a temporary directory. Stale or
     variant-count-mismatched sidecars are rejected, not overwritten.
     Every supported encoding is read natively from the original file.
@@ -958,7 +945,7 @@ def convert(
         raise ValueError("mode must be 'r' or 'r+'")
     if out is not None and str(out).endswith(".zip") and mode != "r":
         raise ValueError("Zip output is read-only; use mode='r'")
-    with native_metafile(bgen_path) as metafile:
+    with bgen_limix_metafile(bgen_path) as metafile:
         source = BgenFormat(
             bgen_path,
             metafile,
