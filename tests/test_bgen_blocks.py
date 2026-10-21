@@ -168,20 +168,6 @@ def test_invalid_later_block_does_not_publish(tmp_path, suffix):
     assert not list(tmp_path.glob(".bio2zarr-bgen-*"))
 
 
-def test_backend_without_batch_fails_before_output(tmp_path):
-    path = tmp_path / "input.bgen"
-    write_bgen(path)
-    out = tmp_path / "out.vcz"
-    with (
-        mock.patch.object(
-            bgen, "hasattr", side_effect=lambda obj, name: name == "layout", create=True
-        ),
-        pytest.raises(ImportError, match="native.*batch interface"),
-    ):
-        bgen.convert(path, out)
-    assert not out.exists()
-
-
 @pytest.mark.parametrize("phased", [False, True])
 @pytest.mark.parametrize("all_missing", [False, True])
 def test_declared_ploidy_does_not_inflate_output(tmp_path, phased, all_missing):

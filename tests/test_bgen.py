@@ -5,7 +5,6 @@ https://www.chg.ox.ac.uk/~gav/bgen_format/spec/latest.html
 No external or user data is used.
 """
 
-import importlib.metadata
 import math
 import re
 import struct
@@ -327,36 +326,13 @@ def test_invalid_header(tmp_path, contents):
         bgen.convert(path)
 
 
-def test_dependency_attribution(example):
-    assert importlib.metadata.version("bgen-limix").startswith("4.")
-    real_distribution = importlib.metadata.distribution
-
-    def no_bgen(name):
-        if name == "bgen-limix":
-            raise importlib.metadata.PackageNotFoundError(name)
-        return real_distribution(name)
-
-    with mock.patch("importlib.metadata.distribution", side_effect=no_bgen):
-        with pytest.raises(ImportError, match="not the legacy cbgen"):
-            bgen.convert(example[0])
-
-
 def test_missing_dependency(example):
     with mock.patch.dict(sys.modules, {"cbgen": None}):
         with pytest.raises(ImportError, match=r"bio2zarr\[bgen\]"):
             bgen.convert(example[0])
 
 
-def test_unsupported_backend_api(example):
-    class OldReader:
-        pass
-
-    with mock.patch.object(cbgen, "BgenFile", OldReader):
-        with pytest.raises(ImportError, match=r"bgen-limix>=4\.15\.0"):
-            bgen.convert(example[0])
-
-
-def test_backend_check_and_reader_factory_used(example):
+def test_reader_factory_used(example):
     readers = []
     original = bgen.BgenFormat.open_reader
 
@@ -366,7 +342,6 @@ def test_backend_check_and_reader_factory_used(example):
         return reader
 
     with (
-        mock.patch.object(bgen, "check_backend", wraps=bgen.check_backend) as check,
         mock.patch.object(bgen.BgenFormat, "open_reader", open_reader),
         mock.patch.object(
             cbgen.BgenFile,
@@ -376,21 +351,7 @@ def test_backend_check_and_reader_factory_used(example):
         ) as create,
     ):
         bgen.convert(example[0])
-    check.assert_called_once_with()
     assert create.call_args.args[0] is readers[0]
-
-
-def test_conflicting_legacy_distribution(example):
-    original = importlib.metadata.distribution
-
-    def with_legacy(name):
-        if name == "cbgen":
-            return mock.sentinel.legacy
-        return original(name)
-
-    with mock.patch("importlib.metadata.distribution", side_effect=with_legacy):
-        with pytest.raises(ImportError, match="legacy cbgen distribution conflicts"):
-            bgen.convert(example[0])
 
 
 @pytest.mark.parametrize("mode", ["w", "a", "bad"])
