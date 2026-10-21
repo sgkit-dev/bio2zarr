@@ -71,7 +71,7 @@ def test_reference_sample_conversion(tmp_path):
 )
 def test_parser(tmp_path, contents, column, expected):
     path = tmp_path / "input.sample"
-    path.write_text(contents)
+    path.write_text(contents, encoding="utf-8")
     assert bgen.read_sample_file(path, sample_id_column=column) == expected
 
 
@@ -122,7 +122,7 @@ def test_parser(tmp_path, contents, column, expected):
 )
 def test_invalid_parser(tmp_path, contents, column, line, message):
     path = tmp_path / "invalid.sample"
-    path.write_text(contents)
+    path.write_text(contents, encoding="utf-8")
     with pytest.raises(ValueError, match="Oxford sample file") as exc:
         bgen.read_sample_file(path, sample_id_column=column)
     assert f"{path}, line {line}:" in str(exc.value)
