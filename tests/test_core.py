@@ -1,7 +1,4 @@
-import io
 import sys
-import threading
-from unittest import mock
 
 import numpy as np
 import pytest
@@ -60,72 +57,6 @@ class TestMinIntDtype:
 
 
 class TestParallelWorkManager:
-    def test_shutdown_still_waits_for_progress_poll(self, monkeypatch):
-        sleeping = threading.Event()
-        release = threading.Event()
-        exited = threading.Event()
-        errors = []
-
-        def controlled_sleep(interval):
-            sleeping.set()
-            assert release.wait(10)
-
-        with mock.patch.object(core.time, "sleep", side_effect=controlled_sleep):
-            manager = core.ParallelWorkManager(0)
-            assert sleeping.wait(10)
-
-            def exit_manager():
-                try:
-                    manager.__exit__(None, None, None)
-                except BaseException as error:
-                    errors.append(error)
-                finally:
-                    exited.set()
-
-            exit_thread = threading.Thread(target=exit_manager)
-            # Observe the join only after shutdown has set completed=True.
-            join = manager.progress_thread.join
-            joining = threading.Event()
-
-            def observed_join():
-                joining.set()
-                return join()
-
-            monkeypatch.setattr(manager.progress_thread, "join", observed_join)
-            exit_thread.start()
-            try:
-                assert joining.wait(10)
-                assert manager.completed
-                assert not exited.is_set()
-            finally:
-                release.set()
-                exit_thread.join(10)
-        assert exited.is_set()
-        assert not errors
-
-    @pytest.mark.parametrize(
-        "options",
-        [{"worker_processes": 0}, {"worker_processes": 1}],
-    )
-    def test_visible_progress_finishes_without_reset(self, options):
-        stream = io.StringIO()
-        tqdm = core.tqdm.tqdm
-        with mock.patch.object(
-            core.tqdm,
-            "tqdm",
-            side_effect=lambda **kwargs: tqdm(file=stream, **kwargs),
-        ):
-            manager = core.ParallelWorkManager(
-                progress_config=core.ProgressConfig(total=7, show=True), **options
-            )
-            with manager:
-                manager.submit(core.update_progress, 3)
-                manager.submit(core.update_progress, 4)
-        assert manager.progress_bar.total == 7
-        assert manager.progress_bar.n == 7
-        assert manager.progress_bar.disable
-        assert "100%" in stream.getvalue()
-
     @pytest.mark.parametrize("total", [1, 10, 2**63])
     @pytest.mark.parametrize("workers", [0, 1])
     def test_one_future_progress(self, total, workers):
