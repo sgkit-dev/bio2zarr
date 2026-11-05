@@ -8,6 +8,7 @@ import argparse
 import gzip
 import hashlib
 import importlib.metadata
+import inspect
 import json
 import os
 import pathlib
@@ -271,6 +272,9 @@ def worker(args):
         details = infer_ploidy(args.input)
         details["temporary_icf_bytes"] = 0
     elif args.method == "production_direct":
+        kwargs = {}
+        if args.production_batch_size is not None:
+            kwargs["batch_size"] = args.production_batch_size
         vcf.convert(
             [args.input],
             args.work / "output",
@@ -279,7 +283,12 @@ def worker(args):
             samples_chunk_size=args.sample_chunk,
             worker_processes=0,
             zarr_format=2,
+            **kwargs,
         )
+        api_default = inspect.signature(vcf.convert).parameters["batch_size"].default
+        details["batch_size_requested"] = args.production_batch_size
+        details["batch_size_api_default"] = api_default
+        details["batch_size"] = args.production_batch_size or api_default or args.chunk
         details["temporary_icf_bytes"] = 0
     details["wall_seconds"] = time.perf_counter() - start
     rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
@@ -332,6 +341,8 @@ def main():
     parser.add_argument("--repeats", type=positive, default=3)
     parser.add_argument("--seed", type=int, default=12345)
     parser.add_argument("--production-direct", action="store_true")
+    parser.add_argument("--production-batch-size", type=positive)
+    parser.add_argument("--skip-prototype", action="store_true")
     parser.add_argument("--info-bytes", type=int, default=0)
     parser.add_argument("--large", action="store_true")
     parser.add_argument("--result", type=pathlib.Path)
@@ -343,6 +354,8 @@ def main():
     if args.worker:
         worker(args)
         return
+    if args.skip_prototype and not args.production_direct:
+        parser.error("--skip-prototype requires --production-direct")
     if args.info_bytes < 0 or args.info_bytes > 2048:
         parser.error("INFO payload must be between zero and 2048 bytes")
     allele_cap = 100_000_000 if args.large else 40_000_000
@@ -374,6 +387,7 @@ def main():
                 "repeats",
                 "seed",
                 "info_bytes",
+                "production_batch_size",
             )
         },
         "environment": {
@@ -394,7 +408,9 @@ def main():
         },
         "runs": [],
     }
-    methods = ["icf", "two_pass", "ploidy_scan"]
+    methods = ["icf"]
+    if not args.skip_prototype:
+        methods.extend(["two_pass", "ploidy_scan"])
     if args.production_direct:
         methods.append("production_direct")
     with tempfile.TemporaryDirectory(prefix="bio2zarr-benchmark-") as tmp:
@@ -420,6 +436,11 @@ def main():
                 work = base / f"{repeat}-{method}"
                 work.mkdir()
                 env = dict(os.environ, OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1")
+                extra_args = (
+                    ["--production-batch-size", str(args.production_batch_size)]
+                    if args.production_batch_size is not None
+                    else []
+                )
                 process = subprocess.Popen(
                     [
                         sys.executable,
@@ -435,6 +456,7 @@ def main():
                         str(args.chunk),
                         "--sample-chunk",
                         str(args.sample_chunk),
+                        *extra_args,
                     ],
                     env=env,
                     text=True,

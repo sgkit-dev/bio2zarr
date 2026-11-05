@@ -15,7 +15,10 @@ converter. It compares:
 
 The optional `--production-direct` additionally measures
 `vcf.convert(..., infer_ploidy=True)` on a revision providing that API. It does
-not add a redundant GT scan before production conversion.
+not add a redundant GT scan before production conversion. It omits `batch_size`
+by default to exercise the production default. `--production-batch-size N`
+explicitly selects a tuned cap, and `--skip-prototype` measures only ICF and
+production conversion while retaining complete output comparison.
 
 ## Reproduction
 
@@ -253,3 +256,80 @@ ICF serialization still dominates in this measured case.
 The larger results support removing the materialized ICF for these cases.
 They do not establish production-API throughput, cold/S3 performance or
 terabyte-scale extrapolation.
+
+## Real production implementation and default-batch regression
+
+The same case definitions were subsequently measured against the actual
+production implementation from `50aba63d93b94e73720127c3af8101073cfda196`
+(locally cherry-picked as `0e581bf`). Hardware is an Apple M2 Max, 12 logical
+CPUs, 64 GiB RAM. Execution remains serial, one compression thread, warm/cache-
+sized synthetic gzip input. All numbers below are single-run observations.
+
+### Explicitly tuned, chunk-aligned batches
+
+Add `--production-direct --production-batch-size 1024` to the genotype-heavy
+command above, or `--production-direct --production-batch-size 4096` to the
+two row-heavy commands. These runs used the default 64 MiB batch payload cap.
+They are **tuned settings, not the original production default of 1,000**.
+
+| Case | ICF wall s | Prototype wall s | Production tuned wall s | Production speedup vs ICF | ICF RSS MiB | Production RSS MiB |
+|---|---:|---:|---:|---:|---:|---:|
+| 263.8 MB genotype-heavy | 85.40 | 30.02 | 28.52 | 2.99x | 712.7 | 169.7 |
+| 121.1 MB row/INFO-heavy | 82.24 | 23.43 | 31.30 | 2.63x | 1,018.9 | 91.0 |
+| 4.4 MB low-payload, 500k rows | 42.34 | 24.91 | 37.82 | 1.12x | 693.0 | 63.0 |
+
+Final Zarr and ICF byte sizes match the preceding large-run table exactly.
+Production also creates no ICF. Random INFO, all other arrays, attributes and
+indexes match the baseline in full. Additional production smoke comparisons
+covered haploid and mixed haploid/triploid calls with partial chunks.
+
+### Original default: actual regression on cheap rows
+
+The three cases were then rerun **without** an explicit `batch_size`, using
+`--production-direct --skip-prototype` and their same row/sample/chunk settings.
+On the original implementation this selected 1,000:
+
+| Case | ICF wall s | Production original-default wall s | Result |
+|---|---:|---:|---|
+| Genotype-heavy, chunk 1,024 | 79.70 | 28.92 | 2.76x speedup |
+| Row/INFO-heavy, chunk 4,096 | 79.65 | 41.04 | 1.94x speedup |
+| Low-payload, chunk 4,096 | 43.37 | 49.89 | **15.0% slower than ICF** |
+
+This is a measured regression, not just a theoretical two-pass worst case.
+Many rows with little genotype work leave per-row processing and repeated
+partial-chunk compression/writes dominant. It is also not solely a two-pass
+parsing problem: changing batch/chunk alignment materially affects the result.
+All output comparisons still passed.
+
+### Corrected default: automatic chunk alignment
+
+Production follow-up `5561334700c37041b92cb17e0322bb5ba6c88696` (locally
+`909daec`) resolves unspecified `batch_size=None` from the output variant chunk
+size, while retaining explicit user caps and the byte budget. The low-payload
+regression case was remeasured on this corrected API with **no explicit batch
+size**, not just relabeled from the tuned run:
+
+```sh
+uv run --no-sync python benchmarks/vcf_two_pass.py --large \
+  --production-direct --skip-prototype \
+  --variants 500000 --samples 4 --chunk 4096 --sample-chunk 4 --repeats 1 \
+  --result aligned-default-row-low-payload-500000x4.json
+```
+
+| Case | ICF wall s | Production corrected-default wall s | Resolved batch size | ICF RSS MiB | Production RSS MiB |
+|---|---:|---:|---:|---:|---:|
+| Low-payload, 500k rows x 4 samples | 41.20 | 37.79 | 4,096 | 649.3 | 62.4 |
+
+The corrected default is **1.09x faster than ICF in this paired run**, with
+identical output and zero ICF. The two hundreds-of-MB cases were not remeasured
+on the corrected-default revision; their explicit chunk-aligned measurements
+above remain labeled tuned. Single runs are sensitive to host load and do not
+establish significance for the relatively narrow 1.09x margin.
+
+Raw JSON artifacts from these experiments are named
+`large-gt-dp-pl-40000x1000.json`, `large-row-info-300000x4.json`,
+`row-low-payload-500000x4.json`, their `production-` and `default-` prefixed
+counterparts, and `aligned-default-row-low-payload-500000x4.json` in the
+benchmark session's artifact directory. They include actual compressed/raw
+bytes, generation time, paired per-method wall time, OS RSS, temporary/output
+sizes and correctness array lists. No large input/output data is committed.
