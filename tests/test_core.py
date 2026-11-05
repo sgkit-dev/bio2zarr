@@ -1,4 +1,7 @@
+import io
 import sys
+import threading
+from unittest import mock
 
 import numpy as np
 import pytest
@@ -57,6 +60,183 @@ class TestMinIntDtype:
 
 
 class TestParallelWorkManager:
+    @pytest.mark.parametrize("worker_error", [False, True])
+    def test_shutdown_cancels_pending_but_waits_for_running(self, worker_error):
+        started = threading.Event()
+        release = threading.Event()
+        shutdown_started = threading.Event()
+        exited = threading.Event()
+        errors = []
+        manager = core.ParallelWorkManager(0, worker_threads=1)
+        shutdown = manager.executor.shutdown
+
+        def running_task():
+            started.set()
+            assert release.wait(10)
+            core.update_progress(1)
+            if worker_error:
+                raise ValueError("worker failed")
+
+        def observed_shutdown(*args, **kwargs):
+            shutdown_started.set()
+            return shutdown(*args, **kwargs)
+
+        def exit_manager():
+            try:
+                manager.__exit__(ValueError, ValueError("body failed"), None)
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                exited.set()
+
+        running = manager.submit(running_task)
+        assert started.wait(10)
+        queued = manager.submit(core.update_progress, 100)
+        exit_thread = threading.Thread(target=exit_manager)
+        with mock.patch.object(
+            manager.executor, "shutdown", side_effect=observed_shutdown
+        ) as shutdown_mock:
+            exit_thread.start()
+            try:
+                assert shutdown_started.wait(10)
+                assert queued.cancelled()
+                assert not running.done()
+                assert not exited.is_set()
+                assert manager.progress_thread.is_alive()
+            finally:
+                release.set()
+                exit_thread.join(10)
+            shutdown_mock.assert_called_once_with(wait=True, cancel_futures=True)
+        assert exited.is_set()
+        assert not errors
+        assert not manager.progress_thread.is_alive()
+        assert core.get_progress() == 1
+        if worker_error:
+            assert isinstance(running.exception(), ValueError)
+        else:
+            assert running.exception() is None
+
+    def test_worker_failure_waits_and_preserves_partial_progress(self):
+        started = threading.Event()
+        release = threading.Event()
+        shutdown_started = threading.Event()
+        exited = threading.Event()
+        errors = []
+        manager = core.ParallelWorkManager(
+            0, core.ProgressConfig(total=2, show=True), worker_threads=2
+        )
+        shutdown = manager.executor.shutdown
+
+        def running_task():
+            started.set()
+            assert release.wait(10)
+            core.update_progress(1)
+
+        def failing_task():
+            raise ValueError("worker failed")
+
+        def observed_shutdown(*args, **kwargs):
+            shutdown_started.set()
+            return shutdown(*args, **kwargs)
+
+        def exit_manager():
+            try:
+                manager.__exit__(None, None, None)
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                exited.set()
+
+        running = manager.submit(running_task)
+        assert started.wait(10)
+        failed = manager.submit(failing_task)
+        with pytest.raises(ValueError, match="worker failed"):
+            failed.result(timeout=10)
+        exit_thread = threading.Thread(target=exit_manager)
+        with mock.patch.object(
+            manager.executor, "shutdown", side_effect=observed_shutdown
+        ):
+            exit_thread.start()
+            try:
+                assert shutdown_started.wait(10)
+                assert not exited.is_set()
+                assert not running.done()
+            finally:
+                release.set()
+                exit_thread.join(10)
+        assert exited.is_set()
+        assert len(errors) == 1
+        assert errors[0] is failed.exception()
+        assert not manager.progress_thread.is_alive()
+        assert manager.progress_bar.total == 2
+        assert manager.progress_bar.n == 1
+
+    def test_shutdown_still_waits_for_progress_poll(self, monkeypatch):
+        sleeping = threading.Event()
+        release = threading.Event()
+        exited = threading.Event()
+        errors = []
+
+        def controlled_sleep(interval):
+            sleeping.set()
+            assert release.wait(10)
+
+        with mock.patch.object(core.time, "sleep", side_effect=controlled_sleep):
+            manager = core.ParallelWorkManager(0, worker_threads=1)
+            assert sleeping.wait(10)
+
+            def exit_manager():
+                try:
+                    manager.__exit__(None, None, None)
+                except BaseException as error:
+                    errors.append(error)
+                finally:
+                    exited.set()
+
+            exit_thread = threading.Thread(target=exit_manager)
+            # Observe the join only after shutdown has set completed=True.
+            join = manager.progress_thread.join
+            joining = threading.Event()
+
+            def observed_join():
+                joining.set()
+                return join()
+
+            monkeypatch.setattr(manager.progress_thread, "join", observed_join)
+            exit_thread.start()
+            try:
+                assert joining.wait(10)
+                assert manager.completed
+                assert not exited.is_set()
+            finally:
+                release.set()
+                exit_thread.join(10)
+        assert exited.is_set()
+        assert not errors
+
+    @pytest.mark.parametrize(
+        "options",
+        [{"worker_processes": 0}, {"worker_processes": 1}, {"worker_threads": 2}],
+    )
+    def test_visible_progress_finishes_without_reset(self, options):
+        stream = io.StringIO()
+        tqdm = core.tqdm.tqdm
+        with mock.patch.object(
+            core.tqdm,
+            "tqdm",
+            side_effect=lambda **kwargs: tqdm(file=stream, **kwargs),
+        ):
+            manager = core.ParallelWorkManager(
+                progress_config=core.ProgressConfig(total=7, show=True), **options
+            )
+            with manager:
+                manager.submit(core.update_progress, 3)
+                manager.submit(core.update_progress, 4)
+        assert manager.progress_bar.total == 7
+        assert manager.progress_bar.n == 7
+        assert manager.progress_bar.disable
+        assert "100%" in stream.getvalue()
+
     def test_threads(self):
         with core.ParallelWorkManager(0, worker_threads=3) as manager:
             for _ in range(10):
