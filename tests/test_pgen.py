@@ -1,5 +1,6 @@
 import os
 import sys
+from functools import partial
 from unittest import mock
 
 import click.testing
@@ -9,7 +10,7 @@ import numpy.testing as nt
 import pytest
 import zarr
 
-from bio2zarr import cli, constants, pgen, plink, vcf
+from bio2zarr import cli, constants, pgen, plink, vcf, vcz
 
 pgenlib = pytest.importorskip("pgenlib")
 
@@ -133,6 +134,42 @@ def test_metadata_only_planning(fileset):
         schema = source.generate_schema(2, 3)
     assert source.has_phase
     assert schema.get_shape(["variants", "samples", "ploidy"]) == [5, 5, 2]
+
+
+@pytest.mark.parametrize("worker_threads", [None, 3])
+@pytest.mark.parametrize("zarr_format", [2, 3])
+def test_shared_writer_interface(
+    fileset, tmp_path, monkeypatch, worker_threads, zarr_format
+):
+    prefix, _, _ = fileset
+    source = pgen.PgenFormat(prefix)
+    schema = source.generate_schema(2, 2)
+    opened = []
+    open_array = vcz.VcfZarrWriter.open_partition_array
+
+    def observed_open(writer, partition_index, name):
+        opened.append((partition_index, name))
+        return open_array(writer, partition_index, name)
+
+    monkeypatch.setattr(vcz.VcfZarrWriter, "open_partition_array", observed_open)
+    out = tmp_path / "output"
+    root = vcz.encode(
+        source,
+        schema,
+        out,
+        zarr_format=zarr_format,
+        writer_class=partial(pgen.PgenZarrWriter, worker_threads=worker_threads),
+    )
+    num_partitions = 1 if worker_threads is None else 3
+    assert sorted(opened) == [
+        (partition, name)
+        for partition in range(num_partitions)
+        for name in sorted(schema.field_map())
+    ]
+    assert root["call_genotype"].chunks == (2, 2, 2)
+    assert root["call_genotype"].shape == (5, 5, 2)
+    assert "region_index" in root
+    assert not (out / "wip").exists()
 
 
 @pytest.mark.parametrize("zarr_format", [2, 3])

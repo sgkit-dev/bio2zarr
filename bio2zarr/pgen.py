@@ -3,8 +3,8 @@
 import logging
 import os
 import pathlib
-import shutil
 import tempfile
+from functools import partial
 
 import numpy as np
 import pandas as pd
@@ -279,14 +279,26 @@ class PgenFormat(plink.PlinkFormat):
 
 
 class PgenZarrWriter(vcz.VcfZarrWriter):
+    """Encode native tiles through the shared VCZ writer lifecycle."""
+
+    def __init__(self, source_type, path, zarr_format=None, *, worker_threads=None):
+        super().__init__(source_type, path, zarr_format)
+        self.worker_threads = worker_threads
+
+    def init(self, source, *, target_num_partitions, schema, max_variant_chunks=None):
+        if self.worker_threads is not None:
+            target_num_partitions = max(target_num_partitions, self.worker_threads * 4)
+        return super().init(
+            source,
+            target_num_partitions=target_num_partitions,
+            schema=schema,
+            max_variant_chunks=max_variant_chunks,
+        )
+
     def prepare_partition(self, partition_index):
         self.wip_partition_path(partition_index).mkdir(exist_ok=True)
         for field in self.schema.fields:
-            shutil.copytree(
-                self.arrays_path / field.name,
-                self.wip_partition_array_path(partition_index, field.name),
-                dirs_exist_ok=True,
-            )
+            self.open_partition_array(partition_index, field.name)
 
     def open_partition_arrays(self, partition_index, *, calls):
         return {
@@ -481,12 +493,12 @@ class PgenZarrWriter(vcz.VcfZarrWriter):
                 partition_index, start, min(start + chunk, self.source.num_samples)
             )
 
-    def encode_all_partitions(
-        self, *, worker_processes=0, show_progress=False, worker_threads=None
-    ):
+    def encode_all_partitions(self, *, worker_processes=0, show_progress=False):
+        worker_threads = self.worker_threads
         if worker_threads is None:
             return super().encode_all_partitions(
-                worker_processes=worker_processes, show_progress=show_progress
+                worker_processes=worker_processes,
+                show_progress=show_progress,
             )
         # Metadata is immutable; each task owns a reader and disjoint full chunks.
         for j in range(self.num_partitions):
@@ -559,10 +571,9 @@ def convert(
     options = dict(
         mode=mode,
         worker_processes=worker_processes,
-        worker_threads=worker_threads,
         show_progress=show_progress,
         zarr_format=zarr_format,
-        writer_class=PgenZarrWriter,
+        writer_class=partial(PgenZarrWriter, worker_threads=worker_threads),
     )
     if out is None:
         return vcz.encode(source, schema, **options)

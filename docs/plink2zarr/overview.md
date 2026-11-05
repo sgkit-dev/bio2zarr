@@ -134,6 +134,8 @@ This option deliberately omits any stored dosages.
 Metadata and file-wide phasedness are read once, without decoding genotypes to
 discover output dimensions. Native batch reads release the GIL. Each thread owns
 an independent PGEN reader and writes disjoint variant-by-sample chunk tiles.
+PGEN uses the shared VCZ writer interface for array initialization, partition
+finalization and indexing; thread configuration remains specific to its writer.
 Decoded working arrays scale with chunk dimensions, not the entire sample
 cohort. Dosages are streamed one alternate allele at a time, with unit-sized
 chunks on the DS alternate/HDS vector axes, so highly multiallelic sites do not

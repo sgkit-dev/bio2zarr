@@ -604,7 +604,6 @@ def encode(
     show_progress=False,
     zarr_format=None,
     writer_class=None,
-    worker_threads=None,
 ):
     """Encode a source format object into a Zarr store.
 
@@ -634,9 +633,6 @@ def encode(
     writer_class : type, optional
         Writer implementation, default :class:`VcfZarrWriter`. Specialised
         writers can share the lifecycle while encoding fields together.
-    worker_threads : int, optional
-        Thread count for writers supporting threaded encoding, instead of
-        worker processes.
 
     Returns
     -------
@@ -648,19 +644,15 @@ def encode(
         writer_class = VcfZarrWriter if writer_class is None else writer_class
         vzw = writer_class(source_type, zr.dir, zarr_format=zarr_format)
         # Rough heuristic to split work up enough to keep utilisation high
-        target_num_partitions = max(1, (worker_threads or worker_processes) * 4)
+        target_num_partitions = max(1, worker_processes * 4)
         vzw.init(
             source_format,
             target_num_partitions=target_num_partitions,
             schema=schema,
         )
-        parallel_options = {}
-        if worker_threads is not None:
-            parallel_options["worker_threads"] = worker_threads
         vzw.encode_all_partitions(
             worker_processes=worker_processes,
             show_progress=show_progress,
-            **parallel_options,
         )
         vzw.finalise(show_progress)
         vzw.create_index()
