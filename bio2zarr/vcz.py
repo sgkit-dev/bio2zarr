@@ -243,8 +243,7 @@ class ZarrArraySpec:
                     f"Max number of values {max_number} exceeds max alt alleles "
                     f"{max_alt_alleles} for {vcf_field.full_name}"
                 )
-            if max_alt_alleles > 0:
-                dimensions.append("alt_alleles")
+            dimensions.append("alt_alleles")
         elif vcf_field.vcf_number == "G":
             max_genotypes = schema.dimensions["genotypes"].size
             if max_number > max_genotypes:

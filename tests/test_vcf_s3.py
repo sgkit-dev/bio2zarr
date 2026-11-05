@@ -84,8 +84,8 @@ def upload(s3, filename):
 )
 def test_s3_input(s3, filename):
     uri = upload(s3, filename)
-    expected = vcf_mod.convert([f"tests/data/vcf/{filename}"], infer_ploidy=True)
-    actual = vcf_mod.convert([uri], infer_ploidy=True)
+    expected = vcf_mod.convert([f"tests/data/vcf/{filename}"], infer_shape=True)
+    actual = vcf_mod.convert([uri], infer_shape=True)
     assert_zarr_equal(expected, actual)
     _, request_queue = s3
     requests = []

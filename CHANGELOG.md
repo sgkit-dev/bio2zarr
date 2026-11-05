@@ -3,7 +3,9 @@
 *New features*
 
 - Add bounded VCF row batches, no-ICF conversion with explicit `--max-ploidy`
-  or combined `--infer-ploidy` discovery, and reusable dimension-scan metadata.
+  / `--max-alleles` bounds or combined `--infer-shape` discovery, and reusable
+  dimension-scan metadata. Allele counts include REF; supplied bounds can be
+  combined with shape inference and are checked without truncation.
   Preserve variable-width fields and reject insufficient bounds. Add S3
   VCF/BCF input with indexes, S3 ICF read/write (including distributed stages),
   and configurable automatically cleaned-up temporary ICF storage.

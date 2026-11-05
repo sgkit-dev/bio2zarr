@@ -67,7 +67,7 @@ def test_direct_and_batched_match_icf(tmp_path, filename, zarr_format):
     with mock.patch.object(vcf_mod, "explode", side_effect=AssertionError("ICF used")):
         actual = vcf_mod.convert(
             [path],
-            infer_ploidy=True,
+            infer_shape=True,
             variants_chunk_size=3,
             samples_chunk_size=2,
             batch_size=2,
@@ -98,7 +98,7 @@ def test_reusable_dimensions():
     dimensions = vcf_mod.scan_vcf_dimensions([path])
     with mock.patch.object(vcf_mod, "scan_vcf_dimensions", side_effect=AssertionError):
         result = vcf_mod.convert(
-            [path], infer_ploidy=True, dimension_metadata=dimensions
+            [path], infer_shape=True, dimension_metadata=dimensions
         )
     assert result["call_genotype"].shape[2] == 3
 
@@ -168,7 +168,7 @@ def test_batch_payload_and_chunk_bounds(tmp_path):
     ):
         result = vcf_mod.convert(
             [path],
-            infer_ploidy=True,
+            infer_shape=True,
             dimension_metadata=dimensions,
             variants_chunk_size=3,
             batch_size=64,
@@ -197,7 +197,7 @@ def test_default_batch_matches_output_chunk(batch_size):
     ):
         vcf_mod.convert(
             ["tests/data/vcf/sample.vcf.gz"],
-            infer_ploidy=True,
+            infer_shape=True,
             variants_chunk_size=4,
             batch_size=batch_size,
         )
@@ -224,7 +224,7 @@ def test_default_batch_exceeds_legacy_row_cap(tmp_path):
     with mock.patch.object(
         vcf_mod.BatchedVcfZarrWriter, "write_batch", side_effect=record
     ):
-        result = vcf_mod.convert([path], infer_ploidy=True, variants_chunk_size=1004)
+        result = vcf_mod.convert([path], infer_shape=True, variants_chunk_size=1004)
     assert writes == [(0, 1004), (1004, 1)]
     nt.assert_array_equal(result["variant_position"][:], np.arange(1, 1006))
 
@@ -329,11 +329,182 @@ def test_cli_conflicting_options(tmp_path):
             str(tmp_path / "out"),
             "--max-ploidy",
             "2",
-            "--infer-ploidy",
+            "--ploidy",
+            "2",
         ],
     )
     assert result.exit_code == 2
     assert "mutually exclusive" in result.output
+
+
+@pytest.mark.parametrize("bound", [0, -1, True, 2.5])
+def test_invalid_max_alleles(bound):
+    with pytest.raises(ValueError, match="max_alleles must be a positive integer"):
+        vcf_mod.convert(["tests/data/vcf/sample.vcf.gz"], max_alleles=bound)
+    with pytest.raises(ValueError, match="max_alleles must be a positive integer"):
+        vcf_mod.scan_vcf_dimensions(["tests/data/vcf/sample.vcf.gz"], max_alleles=bound)
+
+
+@pytest.mark.parametrize("bound", [1, 2, 3])
+def test_max_alleles_overflow(bound):
+    with pytest.raises(ValueError, match=f"exceeds max_alleles={bound}"):
+        vcf_mod.convert(["tests/data/vcf/sample.vcf.gz"], max_alleles=bound)
+
+
+@pytest.mark.parametrize("max_ploidy", [None, 2, 4])
+@pytest.mark.parametrize("infer_shape", [False, True])
+def test_allele_bound_and_shape_inference(tmp_path, max_ploidy, infer_shape):
+    path = "tests/data/vcf/sample.vcf.gz"
+    icf = vcf_mod.explode(tmp_path / "icf", [path])
+    schema = icf.generate_schema(ploidy=max_ploidy, max_alleles=5)
+    schema_path = tmp_path / "schema.json"
+    schema_path.write_text(schema.asjson())
+    expected = vcf_mod.encode(icf.path, schema_path=schema_path)
+    with mock.patch.object(vcf_mod, "explode", side_effect=AssertionError("ICF used")):
+        actual = vcf_mod.convert(
+            [path], max_alleles=5, max_ploidy=max_ploidy, infer_shape=infer_shape
+        )
+    assert_zarr_equal(expected, actual)
+    assert actual["variant_allele"].shape == (9, 5)
+    assert actual["call_genotype"].shape[2] == (max_ploidy or 2)
+
+
+def test_max_alleles_number_g_padding(tmp_path):
+    path = "tests/data/vcf/triploid.vcf.gz"
+    icf = vcf_mod.explode(tmp_path / "icf", [path])
+    schema = icf.generate_schema(max_alleles=4)
+    file = tmp_path / "schema.json"
+    file.write_text(schema.asjson())
+    expected = vcf_mod.encode(icf.path, schema_path=file)
+    actual = vcf_mod.convert([path], max_alleles=4, infer_shape=True)
+    assert_zarr_equal(expected, actual)
+    assert actual["call_PL"].shape[2] == 20
+
+
+def test_allele_bound_with_reused_dimensions():
+    path = "tests/data/vcf/sample.vcf.gz"
+    dimensions = vcf_mod.scan_vcf_dimensions([path])
+    with pytest.raises(ValueError, match="exceeds max_alleles=2"):
+        vcf_mod.convert([path], max_alleles=2, dimension_metadata=dimensions)
+    actual = vcf_mod.convert([path], max_alleles=5, dimension_metadata=dimensions)
+    assert actual["variant_allele"].shape == (9, 5)
+
+
+def test_bounded_scan_reused_with_bound():
+    path = "tests/data/vcf/sample.vcf.gz"
+    dimensions = vcf_mod.scan_vcf_dimensions([path], max_alleles=5, max_ploidy=2)
+    root = vcf_mod.convert(
+        [path],
+        infer_shape=True,
+        max_alleles=5,
+        max_ploidy=2,
+        dimension_metadata=dimensions,
+    )
+    assert root["variant_allele"].shape == (9, 5)
+
+
+def test_genotype_allele_bound(tmp_path):
+    path = tmp_path / "input.vcf"
+    path.write_text(
+        "##fileformat=VCFv4.3\n##contig=<ID=1>\n"
+        '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts\n"
+        "1\t1\t.\tA\tC\t.\t.\t.\tGT\t0/2\n"
+    )
+    with pytest.raises(ValueError, match="Genotype allele index exceeds allele-count"):
+        vcf_mod.convert([path], max_alleles=2)
+
+
+def test_reused_metadata_genotype_dtype_not_truncated(tmp_path):
+    path = tmp_path / "input.vcf"
+    path.write_text(
+        "##fileformat=VCFv4.3\n##contig=<ID=1>\n"
+        '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts\n"
+        f"1\t1\t.\tA\t{','.join(['C'] * 128)}\t.\t.\t.\tGT\t0/128\n"
+    )
+    dimensions = vcf_mod.scan_vcf_dimensions([path], max_alleles=129)
+    gt = next(f for f in dimensions[0].fields if f.name == "GT")
+    gt.summary.max_value = 1  # stale/narrow metadata must not permit an i1 wrap
+    with pytest.raises(ValueError, match="Genotype allele index exceeds schema dtype"):
+        vcf_mod.convert([path], max_alleles=129, dimension_metadata=dimensions)
+
+
+@pytest.mark.parametrize("zarr_format", [2, 3])
+def test_max_alleles_one_monomorphic(tmp_path, zarr_format):
+    path = tmp_path / "monomorphic.vcf"
+    path.write_text(
+        "##fileformat=VCFv4.3\n##contig=<ID=1>\n"
+        '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        '##INFO=<ID=AC,Number=A,Type=Integer,Description="Count">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts\n"
+        "1\t1\t.\tA\t.\t.\t.\t.\tGT\t0/0\n"
+    )
+    actual = vcf_mod.convert([path], max_alleles=1, zarr_format=zarr_format)
+    assert actual["variant_allele"].shape == (1, 1)
+    assert actual["variant_AC"].shape == (1, 0)
+    nt.assert_array_equal(actual["call_genotype"][:], [[[0, 0]]])
+
+
+def test_no_gt_number_g_bounds(tmp_path):
+    path = tmp_path / "input.vcf"
+    path.write_text(
+        "##fileformat=VCFv4.3\n##contig=<ID=1>\n"
+        '##INFO=<ID=GP,Number=G,Type=Float,Description="Probability">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        "1\t1\t.\tA\tC\t.\t.\tGP=0.2,0.3,0.5\n"
+    )
+    root = vcf_mod.convert([path], max_alleles=3, max_ploidy=2)
+    assert root["variant_GP"].shape == (1, 6)
+    nt.assert_allclose(root["variant_GP"][0, :3], [0.2, 0.3, 0.5])
+    with pytest.raises(ValueError, match="exceeds max genotypes"):
+        vcf_mod.convert([path], max_alleles=2, max_ploidy=1)
+
+
+def test_max_alleles_with_variable_fields():
+    path = "tests/data/vcf/field_type_combos.vcf.gz"
+    dimensions = vcf_mod.scan_vcf_dimensions([path])
+    observed = next(
+        f.summary.max_number + 1 for f in dimensions[0].fields if f.name == "ALT"
+    )
+    root = vcf_mod.convert([path], max_alleles=max(2, observed))
+    expected = vcf_mod.convert([path], infer_shape=True)
+    assert_zarr_equal(expected, root)
+
+
+def test_shape_with_known_ploidy_without_allele_bound():
+    root = vcf_mod.convert(
+        ["tests/data/vcf/sample.vcf.gz"], infer_shape=True, max_ploidy=2
+    )
+    assert root["call_genotype"].shape == (9, 3, 2)
+    assert root["variant_allele"].shape == (9, 4)
+
+
+def test_legacy_ploidy_padding_with_shape_inference():
+    root = vcf_mod.convert(["tests/data/vcf/sample.vcf.gz"], infer_shape=True, ploidy=4)
+    assert root["call_genotype"].shape == (9, 3, 4)
+    nt.assert_array_equal(root["call_genotype"][:, :, 2:], -2)
+
+
+def test_cli_shape_and_bounds(tmp_path):
+    out = tmp_path / "out"
+    result = click.testing.CliRunner().invoke(
+        cli.vcf2zarr_main,
+        [
+            "convert",
+            "tests/data/vcf/sample.vcf.gz",
+            str(out),
+            "--infer-shape",
+            "--max-ploidy",
+            "2",
+            "--max-alleles",
+            "5",
+            "-Q",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert vcf_mod.zarr_utils.open_vcf_zarr(out)["variant_allele"].shape == (9, 5)
 
 
 def test_s3_final_output_rejected_before_overwrite():

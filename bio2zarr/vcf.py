@@ -1116,11 +1116,20 @@ class IntermediateColumnarFormat(vcz.Source):
         samples_chunk_size=None,
         local_alleles=None,
         ploidy=None,
+        max_alleles=None,
     ):
         if local_alleles is None:
             local_alleles = False
 
-        max_alleles = max(self.fields["ALT"].vcf_field.summary.max_number + 1, 2)
+        observed_alleles = self.fields["ALT"].vcf_field.summary.max_number + 1
+        if max_alleles is None:
+            max_alleles = max(observed_alleles, 2)
+        else:
+            validate_positive_int("max_alleles", max_alleles)
+            if observed_alleles > max_alleles:
+                raise ValueError(
+                    f"Allele count {observed_alleles} exceeds max_alleles={max_alleles}"
+                )
 
         # Add ploidy and genotypes dimensions only when needed
         max_genotypes = 0
@@ -1150,6 +1159,8 @@ class IntermediateColumnarFormat(vcz.Source):
                 # there is no GT field, but there is at least one Number=G field,
                 # so need to define genotypes dimension
                 genotypes_size = max_genotypes
+                if ploidy is not None:
+                    genotypes_size = math.comb(max_alleles + ploidy - 1, ploidy)
 
         dimensions = vcz.standard_dimensions(
             variants_size=self.num_records,
@@ -1161,6 +1172,8 @@ class IntermediateColumnarFormat(vcz.Source):
             ploidy_size=ploidy,
             genotypes_size=genotypes_size,
         )
+        if max_alleles == 1:
+            dimensions["alt_alleles"] = vcz.VcfZarrDimension.unchunked(0)
 
         schema_instance = vcz.VcfZarrSchema(
             format_version=vcz.ZARR_SCHEMA_FORMAT_VERSION,
@@ -1324,6 +1337,7 @@ def scan_vcf_dimensions(
     vcfs,
     *,
     max_ploidy=None,
+    max_alleles=None,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
     max_batch_bytes=DEFAULT_MAX_BATCH_BYTES,
@@ -1332,10 +1346,15 @@ def scan_vcf_dimensions(
 
     With max_ploidy, skip GT decoding and check the supplied bound while writing.
     Otherwise infer GT width in this same pass. Other fields, including variable
-    Number fields, are inspected one row at a time in both modes.
+    Number fields, are inspected one row at a time in both modes. max_alleles
+    bounds the allele count including REF and is checked during discovery.
+    Returned summaries describe observed widths, not padded output widths.
+    Repeat any desired bounds when passing this result to convert.
     """
     if max_ploidy is not None:
         validate_positive_int("max_ploidy", max_ploidy)
+    if max_alleles is not None:
+        validate_positive_int("max_alleles", max_alleles)
     validate_positive_int("max_batch_bytes", max_batch_bytes)
     paths = [storage.path(p) for p in vcfs]
     if not paths:
@@ -1355,6 +1374,12 @@ def scan_vcf_dimensions(
         last_position = None
         with vcf_utils.VcfFile(partition.vcf_path) as file:
             for variant in file.variants(partition.region):
+                if max_alleles is not None and len(variant.ALT) + 1 > max_alleles:
+                    raise ValueError(
+                        f"Allele count {len(variant.ALT) + 1} at "
+                        f"{variant.CHROM}:{variant.POS} exceeds "
+                        f"max_alleles={max_alleles} (including REF)"
+                    )
                 values = variant_values(variant, metadata, genotypes=max_ploidy is None)
                 row_bytes = 0
                 for name, value in values.items():
@@ -1527,6 +1552,8 @@ class VcfRowConverter:
             limits = np.iinfo(spec.dtype)
             if np.any(gt < limits.min) or np.any(gt > limits.max):
                 raise ValueError("Genotype allele index exceeds schema dtype")
+            if np.any(gt >= alleles_size):
+                raise ValueError("Genotype allele index exceeds allele-count bound")
             result["call_genotype"] = gt
             result["call_genotype_phased"] = phased
             result["call_genotype_mask"] = gt < 0
@@ -2056,7 +2083,8 @@ def convert(
     icf_path=None,
     zarr_format=None,
     max_ploidy=None,
-    infer_ploidy=False,
+    max_alleles=None,
+    infer_shape=False,
     dimension_metadata=None,
     batch_size=None,
     max_batch_bytes=DEFAULT_MAX_BATCH_BYTES,
@@ -2104,12 +2132,18 @@ def convert(
         Positive maximum genotype ploidy. Selects no-ICF conversion: a metadata
         pass discovers other widths/dtypes without decoding GT, followed by row
         conversion that checks this bound. Mutually exclusive with ploidy.
-    infer_ploidy : bool
-        Select no-ICF conversion, discovering GT width in the same metadata pass.
-        Mutually exclusive with max_ploidy.
+    max_alleles : int, optional
+        Positive allele-count bound including REF (2 means biallelic). Selects
+        no-ICF conversion; infer ploidy unless max_ploidy is supplied. Sizes
+        alleles and alt_alleles, and Number=G with the inferred/supplied ploidy.
+        Other field dimensions and dtypes are still discovered in a metadata pass.
+    infer_shape : bool
+        Select no-ICF conversion, discovering array dimensions and dtypes in a
+        metadata pass. May accompany max_ploidy and max_alleles; supplied bounds
+        are checked, and GT discovery is skipped when max_ploidy is supplied.
     dimension_metadata : tuple, optional
         Reuse a (metadata, header) result from scan_vcf_dimensions. Requires
-        max_ploidy or infer_ploidy and matching input VCF paths.
+        max_ploidy, max_alleles or infer_shape and matching input VCF paths.
     batch_size : int
         Maximum rows per shared conversion batch. By default, use the output
         variant chunk size to avoid repeatedly recompressing partial chunks.
@@ -2131,31 +2165,34 @@ def convert(
     validate_positive_int("max_batch_bytes", max_batch_bytes)
     if vcz_path is not None:
         vcz.local_zarr_path(vcz_path)
-    if not isinstance(infer_ploidy, bool):
-        raise ValueError("infer_ploidy must be a boolean")
+    if not isinstance(infer_shape, bool):
+        raise ValueError("infer_shape must be a boolean")
     vcfs = [storage.path(p) for p in vcfs]
     if not vcfs:
         raise ValueError("At least one VCF path is required")
     if len(set(vcfs)) != len(vcfs):
         raise ValueError("Duplicate path provided")
-    direct = max_ploidy is not None or infer_ploidy
+    direct = max_ploidy is not None or max_alleles is not None or infer_shape
     if max_ploidy is not None:
         validate_positive_int("max_ploidy", max_ploidy)
-    if max_ploidy is not None and (ploidy is not None or infer_ploidy):
-        raise ValueError(
-            "max_ploidy is mutually exclusive with ploidy and infer_ploidy"
-        )
+    if max_alleles is not None:
+        validate_positive_int("max_alleles", max_alleles)
+    if max_ploidy is not None and ploidy is not None:
+        raise ValueError("max_ploidy is mutually exclusive with ploidy")
     if icf_path is not None and temp_icf_dir is not None:
         raise ValueError("icf_path and temp_icf_dir are mutually exclusive")
     if direct and (icf_path is not None or temp_icf_dir is not None):
         raise ValueError("No-ICF conversion cannot specify ICF storage")
     if dimension_metadata is not None and not direct:
-        raise ValueError("dimension_metadata requires max_ploidy or infer_ploidy")
+        raise ValueError(
+            "dimension_metadata requires max_ploidy, max_alleles or infer_shape"
+        )
     if direct:
         if dimension_metadata is None:
             metadata, header = scan_vcf_dimensions(
                 vcfs,
                 max_ploidy=max_ploidy,
+                max_alleles=max_alleles,
                 worker_processes=worker_processes,
                 show_progress=show_progress,
                 max_batch_bytes=max_batch_bytes,
@@ -2176,6 +2213,7 @@ def convert(
                 samples_chunk_size=samples_chunk_size,
                 local_alleles=local_alleles,
                 ploidy=max_ploidy if max_ploidy is not None else ploidy,
+                max_alleles=max_alleles,
             )
             with vcz.open_zarr(vcz_path, mode=mode) as zr:
                 writer = BatchedVcfZarrWriter(

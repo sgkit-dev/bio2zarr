@@ -582,9 +582,15 @@ def dencode_finalise(zarr_path, verbose, progress):
     help="Skip ICF; discover other dimensions, then check this GT ploidy bound.",
 )
 @click.option(
-    "--infer-ploidy",
+    "--max-alleles",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Skip ICF; bound alleles including REF (2=biallelic); infer other dimensions.",
+)
+@click.option(
+    "--infer-shape",
     is_flag=True,
-    help="Skip ICF; infer GT and other dimensions together in a metadata pass.",
+    help="Skip ICF; infer remaining dimensions and dtypes in a metadata pass.",
 )
 @click.option(
     "--icf-path",
@@ -613,7 +619,8 @@ def convert_vcf(
     batch_size,
     max_batch_bytes,
     max_ploidy,
-    infer_ploidy,
+    max_alleles,
+    infer_shape,
     icf_path,
     temp_icf_dir,
 ):
@@ -621,11 +628,9 @@ def convert_vcf(
     Convert input VCF(s) to VCF Zarr using shared row batches.
     """
     setup_logging(verbose)
-    if max_ploidy is not None and (ploidy is not None or infer_ploidy):
-        raise click.UsageError(
-            "--max-ploidy is mutually exclusive with --ploidy and --infer-ploidy"
-        )
-    if (max_ploidy is not None or infer_ploidy) and (
+    if max_ploidy is not None and ploidy is not None:
+        raise click.UsageError("--max-ploidy is mutually exclusive with --ploidy")
+    if (max_ploidy is not None or max_alleles is not None or infer_shape) and (
         icf_path is not None or temp_icf_dir is not None
     ):
         raise click.UsageError("No-ICF conversion cannot specify ICF storage")
@@ -634,8 +639,10 @@ def convert_vcf(
     options = row_options(batch_size, max_batch_bytes)
     if max_ploidy is not None:
         options["max_ploidy"] = max_ploidy
-    if infer_ploidy:
-        options["infer_ploidy"] = True
+    if max_alleles is not None:
+        options["max_alleles"] = max_alleles
+    if infer_shape:
+        options["infer_shape"] = True
     if icf_path is not None:
         options["icf_path"] = icf_path
     if temp_icf_dir is not None:
