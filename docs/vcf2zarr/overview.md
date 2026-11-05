@@ -93,6 +93,78 @@ across cores on a single machine (via the ``--worker-processes`` argument)
 or distributed across a cluster by the three-part ``init``, ``partition``
 and ``finalise`` commands.
 
+## Batched conversion without ICF
+
+`convert` uses row batches (at most 1000 rows by default). With a known maximum
+ploidy, it can avoid writing ICF entirely:
+
+```bash
+vcf2zarr convert sample.vcf.gz sample.vcz --max-ploidy 2
+vcf2zarr convert sample.vcf.gz sample.vcz --infer-ploidy
+```
+
+Maximum ploidy alone does not bound allele counts, variable-width INFO/FORMAT
+fields, or integer values. The no-ICF path therefore makes a streaming metadata
+pass to discover these dimensions and dtypes, keeping only summaries, then
+reads records again and converts all fields from shared row batches. With
+`--max-ploidy`, metadata discovery does not decode GT; the bound is checked
+during conversion. `--infer-ploidy` instead discovers GT width in the same
+metadata pass. Neither path writes genotype or other field ICF data.
+
+`--batch-size` limits rows; `--max-batch-bytes` limits approximate batch payload
+(default 64 MiB per worker, including string contents). Batches also stop at
+output variant-chunk boundaries, so narrow rows normally write each chunk once.
+Decoder objects, Zarr codec/chunk buffers and
+Python overhead add to this payload; this is not a process RSS limit. A single
+row exceeding the budget raises an error rather than being truncated. Larger
+rows require an explicitly increased budget. Ploidy, allele-count, field-width
+and integer-dtype overflows raise errors.
+
+The existing `--ploidy` option pads the conventional ICF-based conversion.
+It is mutually exclusive with `--max-ploidy`. Local alleles, missing/fill
+sentinels, phasing, zip output and Zarr 2/3 remain available. For explicit
+ICF workflows, `encode --batch-size N` batches source fields one column at a
+time (rather than retaining a decompressed ICF chunk for every field).
+`dencode-init --batch-size N` records this choice for subsequent workers;
+the existing distributed lifecycle is unchanged.
+
+## S3 input and intermediate storage
+
+Install `bio2zarr[vcf,s3]` to use `s3://bucket/key` VCF/BCF input and
+`s3://bucket/prefix` ICF storage:
+
+```bash
+vcf2zarr convert s3://my-bucket/input/sample.vcf.gz sample.vcz --max-ploidy 2
+vcf2zarr explode s3://my-bucket/input/sample.vcf.gz s3://my-bucket/work/sample.icf
+vcf2zarr encode s3://my-bucket/work/sample.icf sample.vcz --batch-size 64
+vcf2zarr convert sample.vcf.gz sample.vcz --temp-icf-dir s3://my-bucket/tmp
+```
+
+S3 VCF data is read by htslib using signed HTTP URLs with range requests;
+only small adjacent `.tbi`/`.csi` indexes are downloaded to a temporary local
+directory. Indexed multi-contig input and local input have the same partition
+semantics. The cyvcf2/htslib build must support HTTP. URLs are freshly signed
+for each opened partition, valid for up to 24 hours (or the remaining credential
+lifetime, if shorter). Very long individual partition reads require smaller
+partitions or longer-lived credentials. Native HTTP/authentication errors
+propagate rather than being replaced by empty results.
+
+Credentials come from the standard AWS credential chain (environment, profiles,
+or IAM roles). `AWS_ENDPOINT_URL_S3` or `AWS_ENDPOINT_URL` selects an
+S3-compatible endpoint. Every distributed worker needs the same credentials
+and endpoint configuration. Credentials and signed URLs are not written to
+ICF or conversion metadata. Buckets must already exist. Use a dedicated,
+otherwise-empty prefix for each ICF run; a prefix containing existing data is
+rejected.
+
+`--icf-path` retains intermediate data; `--temp-icf-dir` chooses a local parent
+directory or S3 parent prefix for temporary ICF. The latter creates a unique
+run prefix and removes only that prefix on success or failure. These options
+are mutually exclusive, and neither may be used with no-ICF conversion.
+`explode`, `inspect`, `mkschema`, `encode` and all distributed ICF commands
+accept S3 ICF prefixes. Final VCZ output remains local (directory or zip);
+S3 VCZ output is not supported by this converter.
+
 ## Local alleles
 
 As discussed in our [preprint](
@@ -149,4 +221,3 @@ see [issue 302](https://github.com/sgkit-dev/bio2zarr/issues/302) for details.
 Document process of copying VCF Zarr datasets to an object store like S3.
 See [Issue 234](https://github.com/sgkit-dev/bio2zarr/issues/234)
 :::
-

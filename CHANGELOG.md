@@ -2,6 +2,13 @@
 
 *New features*
 
+- Add bounded VCF row batches, no-ICF conversion with explicit `--max-ploidy`
+  or combined `--infer-ploidy` discovery, and reusable dimension-scan metadata.
+  Preserve variable-width fields and reject insufficient bounds. Add S3
+  VCF/BCF input with indexes, S3 ICF read/write (including distributed stages),
+  and configurable automatically cleaned-up temporary ICF storage.
+- Preserve missing local-allele AD/PL rows when batching VCF conversion.
+
 - Add `bgen2zarr convert` and `bio2zarr.bgen.convert` using the `bgen-limix`
   optional backend, preserving genotype/haplotype probabilities and metadata
   with derived dosage. Support layouts 1/2, variable ploidy, Oxford `.sample`

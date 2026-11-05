@@ -1,9 +1,9 @@
 import contextlib
 import gzip
 import logging
-import os
 import pathlib
 import struct
+import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
@@ -12,7 +12,7 @@ from typing import IO, Any
 import humanfriendly
 import numpy as np
 
-from bio2zarr import core
+from bio2zarr import core, storage
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +216,7 @@ def read_csi(
     ValueError
         If the file is not a CSI file.
     """
-    with gzip.open(file) as f:
+    with storage.path(file).open("rb") as raw, gzip.GzipFile(fileobj=raw) as f:
         magic = read_bytes_as_value(f, "4s")
         if magic != b"CSI\x01":
             raise ValueError("File not in CSI format.")
@@ -335,7 +335,7 @@ def read_tabix(
     ValueError
         If the file is not a tabix file.
     """
-    with gzip.open(file) as f:
+    with storage.path(file).open("rb") as raw, gzip.GzipFile(fileobj=raw) as f:
         magic = read_bytes_as_value(f, "4s")
         if magic != b"TBI\x01":
             raise ValueError("File not in Tabix format.")
@@ -406,8 +406,9 @@ class VcfFile(contextlib.AbstractContextManager):
         self.vcf = None
         self.file_type = None
         self.index_type = None
+        self._temporary_index = None
 
-        vcf_path = pathlib.Path(vcf_path)
+        vcf_path = storage.path(vcf_path)
         if not vcf_path.exists():
             raise FileNotFoundError(vcf_path)
         if index_path is None:
@@ -422,7 +423,7 @@ class VcfFile(contextlib.AbstractContextManager):
                     # No supported index found
                     index_path = None
         else:
-            index_path = pathlib.Path(index_path)
+            index_path = storage.path(index_path)
             if not index_path.exists():
                 raise FileNotFoundError(
                     f"Specified index path {index_path} does not exist"
@@ -439,9 +440,29 @@ class VcfFile(contextlib.AbstractContextManager):
             else:
                 raise ValueError("Only .tbi or .csi indexes are supported.")
 
-        self.vcf = cyvcf2.VCF(vcf_path)
-        if self.index_path is not None:
-            self.vcf.set_index(str(self.index_path))
+        input_path = vcf_path
+        native_index_path = self.index_path
+        if isinstance(vcf_path, storage.S3Path):
+            input_path = vcf_path.url()
+        if isinstance(native_index_path, storage.S3Path):
+            self._temporary_index = tempfile.TemporaryDirectory(
+                prefix="bio2zarr-vcf-index-"
+            )
+            local_index = pathlib.Path(self._temporary_index.name) / (
+                "index" + native_index_path.suffix
+            )
+            with native_index_path.open("rb") as src, local_index.open("wb") as dst:
+                dst.write(src.read())
+            native_index_path = local_index
+        if isinstance(vcf_path, storage.S3Path) and native_index_path is not None:
+            input_path = f"{input_path}##idx##{native_index_path}"
+        try:
+            self.vcf = cyvcf2.VCF(str(input_path))
+            if native_index_path is not None:
+                self.vcf.set_index(str(native_index_path))
+        except BaseException:
+            self.__exit__(None, None, None)
+            raise
 
         logger.debug(f"Loaded {vcf_path} with index {self.index_path}")
         self.sequence_names = None
@@ -471,12 +492,15 @@ class VcfFile(contextlib.AbstractContextManager):
                 self.sequence_names = [var.CHROM]
                 self.vcf.close()
                 # There doesn't seem to be a way to reset the iterator
-                self.vcf = cyvcf2.VCF(vcf_path)
+                self.vcf = cyvcf2.VCF(str(input_path))
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.vcf is not None:
             self.vcf.close()
             self.vcf = None
+        if self._temporary_index is not None:
+            self._temporary_index.cleanup()
+            self._temporary_index = None
         return False
 
     def contig_record_counts(self):
@@ -501,7 +525,12 @@ class VcfFile(contextlib.AbstractContextManager):
                 yield var
         else:
             start = 1 if region.start is None else region.start
-            for var in self.vcf(str(region)):
+            # cyvcf2 dispatches on a filename suffix, which a signed BCF URL
+            # lacks. Use its native BCF iterator when the parsed index is BCF.
+            query = (
+                self.vcf._bcf_region if self.file_type == VcfFileType.BCF else self.vcf
+            )
+            for var in query(str(region)):
                 # Need to filter because of indels overlapping the region
                 if var.POS >= start:
                     yield var
@@ -551,7 +580,7 @@ class VcfFile(contextlib.AbstractContextManager):
             return []
 
         # Calculate the desired part file boundaries
-        file_length = os.stat(self.vcf_path).st_size
+        file_length = storage.file_size(self.vcf_path)
         if num_parts is not None:
             target_part_size_bytes = file_length // num_parts
         elif target_part_size_bytes is not None:

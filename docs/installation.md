@@ -9,6 +9,7 @@ need to be specified:
 ```bash
 python3 -m pip install bio2zarr #Base package with only plink support
 python3 -m pip install bio2zarr[vcf] #Install with VCF support
+python3 -m pip install 'bio2zarr[vcf,s3]' #VCF support with S3 input/intermediate data
 python3 -m pip install bio2zarr[tskit] #Install with tskit support
 python3 -m pip install 'bio2zarr[bgen]' #Install with BGEN support
 python3 -m pip install bio2zarr[all] #Install with all optional dependencies

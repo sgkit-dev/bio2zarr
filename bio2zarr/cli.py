@@ -9,7 +9,7 @@ import coloredlogs
 import numcodecs
 import tabulate
 
-from . import bgen, core, plink, provenance, vcf_utils, zarr_utils
+from . import bgen, core, plink, provenance, storage, vcf_utils, zarr_utils
 from . import tskit as tskit_mod
 from . import vcf as vcf_mod
 
@@ -25,17 +25,28 @@ class NaturalOrderGroup(click.Group):
         return self.commands.keys()
 
 
+class StoragePath(click.Path):
+    def convert(self, value, param, ctx):
+        if str(value).startswith("s3://"):
+            try:
+                storage.path(value)
+            except ValueError as e:
+                self.fail(str(e), param, ctx)
+            return str(value)
+        return super().convert(value, param, ctx)
+
+
 # Common arguments/options
 vcfs = click.argument(
-    "vcfs", nargs=-1, required=True, type=click.Path(exists=True, dir_okay=False)
+    "vcfs", nargs=-1, required=True, type=StoragePath(exists=True, dir_okay=False)
 )
 
 new_icf_path = click.argument(
-    "icf_path", type=click.Path(file_okay=False, dir_okay=True)
+    "icf_path", type=StoragePath(file_okay=False, dir_okay=True)
 )
 
 icf_path = click.argument(
-    "icf_path", type=click.Path(exists=True, file_okay=False, dir_okay=True)
+    "icf_path", type=StoragePath(exists=True, file_okay=False, dir_okay=True)
 )
 
 new_zarr_path = click.argument("zarr_path", type=click.Path())
@@ -179,6 +190,30 @@ ploidy = click.option(
     ),
 )
 
+batch_size = click.option(
+    "--batch-size",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Shared row batch size (convert default: 1000 variants).",
+)
+
+max_batch_bytes = click.option(
+    "--max-batch-bytes",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Approximate row-batch payload limit per worker in bytes (default: 67108864).",
+)
+
+
+def row_options(batch_size, max_batch_bytes):
+    options = {}
+    if batch_size is not None:
+        options["batch_size"] = batch_size
+    if max_batch_bytes is not None:
+        options["max_batch_bytes"] = max_batch_bytes
+        options.setdefault("batch_size", vcf_mod.DEFAULT_BATCH_SIZE)
+    return options
+
 
 def setup_logging(verbosity):
     level = "WARNING"
@@ -192,7 +227,7 @@ def setup_logging(verbosity):
 
 
 def check_overwrite_dir(path, force):
-    path = pathlib.Path(path)
+    path = storage.path(path)
     if path.exists():
         if not force:
             click.confirm(
@@ -202,6 +237,9 @@ def check_overwrite_dir(path, force):
         # These trees can be mondo-big and on slow file systems, so it's entirely
         # feasible that the delete would fail or be killed. This makes it less likely
         # that partially deleted paths are mistaken for good paths.
+        if isinstance(path, storage.S3Path):
+            storage.remove_tree(path)
+            return
         tmp_delete_path = path.with_suffix(f"{path.suffix}.{os.getpid()}.DELETING")
         logger.info(f"Deleting {path} (renamed to {tmp_delete_path} while in progress)")
         os.rename(path, tmp_delete_path)
@@ -342,7 +380,7 @@ def dexplode_finalise(icf_path, verbose):
 
 
 @click.command
-@click.argument("path", type=click.Path(exists=True))
+@click.argument("path", type=StoragePath(exists=True))
 @verbose
 def inspect(path, verbose):
     """
@@ -392,6 +430,8 @@ def mkschema(icf_path, variants_chunk_size, samples_chunk_size, local_alleles, p
 @progress
 @worker_processes
 @zarr_format
+@batch_size
+@max_batch_bytes
 def encode(
     icf_path,
     zarr_path,
@@ -405,6 +445,8 @@ def encode(
     progress,
     worker_processes,
     zarr_format,
+    batch_size,
+    max_batch_bytes,
 ):
     """
     Convert intermediate columnar format to VCF Zarr.
@@ -422,6 +464,7 @@ def encode(
         max_memory=max_memory,
         show_progress=progress,
         zarr_format=zarr_format,
+        **row_options(batch_size, max_batch_bytes),
     )
 
 
@@ -438,6 +481,8 @@ def encode(
 @progress
 @verbose
 @zarr_format
+@batch_size
+@max_batch_bytes
 def dencode_init(
     icf_path,
     zarr_path,
@@ -451,6 +496,8 @@ def dencode_init(
     progress,
     verbose,
     zarr_format,
+    batch_size,
+    max_batch_bytes,
 ):
     """
     Initialise conversion of intermediate format to VCF Zarr. This will
@@ -478,6 +525,7 @@ def dencode_init(
         max_variant_chunks=max_variant_chunks,
         show_progress=progress,
         zarr_format=zarr_format,
+        **row_options(batch_size, max_batch_bytes),
     )
     show_work_summary(work_summary, json)
 
@@ -524,6 +572,31 @@ def dencode_finalise(zarr_path, verbose, progress):
 @local_alleles
 @ploidy
 @zarr_format
+@batch_size
+@max_batch_bytes
+@click.option(
+    "--max-ploidy",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Skip ICF; discover other dimensions, then check this GT ploidy bound.",
+)
+@click.option(
+    "--infer-ploidy",
+    is_flag=True,
+    help="Skip ICF; infer GT and other dimensions together in a metadata pass.",
+)
+@click.option(
+    "--icf-path",
+    type=StoragePath(),
+    default=None,
+    help="Retain intermediate data at a local directory or S3 prefix.",
+)
+@click.option(
+    "--temp-icf-dir",
+    type=StoragePath(),
+    default=None,
+    help="Parent local directory or S3 prefix for automatically removed temporary ICF.",
+)
 def convert_vcf(
     vcfs,
     zarr_path,
@@ -536,11 +609,36 @@ def convert_vcf(
     local_alleles,
     ploidy,
     zarr_format,
+    batch_size,
+    max_batch_bytes,
+    max_ploidy,
+    infer_ploidy,
+    icf_path,
+    temp_icf_dir,
 ):
     """
-    Convert input VCF(s) directly to VCF Zarr (not recommended for large files).
+    Convert input VCF(s) to VCF Zarr using shared row batches.
     """
     setup_logging(verbose)
+    if max_ploidy is not None and (ploidy is not None or infer_ploidy):
+        raise click.UsageError(
+            "--max-ploidy is mutually exclusive with --ploidy and --infer-ploidy"
+        )
+    if (max_ploidy is not None or infer_ploidy) and (
+        icf_path is not None or temp_icf_dir is not None
+    ):
+        raise click.UsageError("No-ICF conversion cannot specify ICF storage")
+    if icf_path is not None and temp_icf_dir is not None:
+        raise click.UsageError("--icf-path and --temp-icf-dir are mutually exclusive")
+    options = row_options(batch_size, max_batch_bytes)
+    if max_ploidy is not None:
+        options["max_ploidy"] = max_ploidy
+    if infer_ploidy:
+        options["infer_ploidy"] = True
+    if icf_path is not None:
+        options["icf_path"] = icf_path
+    if temp_icf_dir is not None:
+        options["temp_icf_dir"] = temp_icf_dir
     check_overwrite_dir(zarr_path, force)
     vcf_mod.convert(
         vcfs,
@@ -552,6 +650,7 @@ def convert_vcf(
         local_alleles=local_alleles,
         ploidy=ploidy,
         zarr_format=zarr_format,
+        **options,
     )
 
 
