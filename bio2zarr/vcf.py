@@ -2058,7 +2058,7 @@ def convert(
     max_ploidy=None,
     infer_ploidy=False,
     dimension_metadata=None,
-    batch_size=DEFAULT_BATCH_SIZE,
+    batch_size=None,
     max_batch_bytes=DEFAULT_MAX_BATCH_BYTES,
     temp_icf_dir=None,
 ):
@@ -2111,8 +2111,9 @@ def convert(
         Reuse a (metadata, header) result from scan_vcf_dimensions. Requires
         max_ploidy or infer_ploidy and matching input VCF paths.
     batch_size : int
-        Maximum rows per shared conversion batch, default 1000. Batches also end
-        at output variant-chunk boundaries.
+        Maximum rows per shared conversion batch. By default, use the output
+        variant chunk size to avoid repeatedly recompressing partial chunks.
+        Batches also end at output variant-chunk boundaries.
     max_batch_bytes : int
         Approximate bound on transformed/output batch payload per worker,
         including string contents. A single oversized row is rejected.
@@ -2125,7 +2126,8 @@ def convert(
     zarr.Group
         The root group of the Zarr store containing the converted data.
     """
-    validate_positive_int("batch_size", batch_size)
+    if batch_size is not None:
+        validate_positive_int("batch_size", batch_size)
     validate_positive_int("max_batch_bytes", max_batch_bytes)
     if vcz_path is not None:
         vcz.local_zarr_path(vcz_path)
@@ -2180,7 +2182,11 @@ def convert(
                     DirectVcfSource,
                     zr.dir,
                     zarr_format,
-                    batch_size=batch_size,
+                    batch_size=(
+                        schema.dimensions["variants"].chunk_size
+                        if batch_size is None
+                        else batch_size
+                    ),
                     max_batch_bytes=max_batch_bytes,
                 )
                 writer.init(
@@ -2218,7 +2224,11 @@ def convert(
             show_progress=show_progress,
             local_alleles=local_alleles,
             ploidy=ploidy,
-            batch_size=batch_size,
+            batch_size=(
+                variants_chunk_size or DEFAULT_BATCH_SIZE
+                if batch_size is None
+                else batch_size
+            ),
             max_batch_bytes=max_batch_bytes,
         )
 

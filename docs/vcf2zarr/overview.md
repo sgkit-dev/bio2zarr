@@ -95,7 +95,8 @@ and ``finalise`` commands.
 
 ## Batched conversion without ICF
 
-`convert` uses row batches (at most 1000 rows by default). With a known maximum
+`convert` uses row batches sized to the output variant chunks by default
+(normally 1000 rows). With a known maximum
 ploidy, it can avoid writing ICF entirely:
 
 ```bash

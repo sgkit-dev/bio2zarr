@@ -183,6 +183,52 @@ def test_batch_payload_and_chunk_bounds(tmp_path):
         assert start // 3 == (start + length - 1) // 3
 
 
+@pytest.mark.parametrize("batch_size", [None, 2])
+def test_default_batch_matches_output_chunk(batch_size):
+    writes = []
+    original = vcf_mod.BatchedVcfZarrWriter.write_batch
+
+    def record(arrays, start, batch):
+        writes.append((start, len(batch)))
+        original(arrays, start, batch)
+
+    with mock.patch.object(
+        vcf_mod.BatchedVcfZarrWriter, "write_batch", side_effect=record
+    ):
+        vcf_mod.convert(
+            ["tests/data/vcf/sample.vcf.gz"],
+            infer_ploidy=True,
+            variants_chunk_size=4,
+            batch_size=batch_size,
+        )
+    expected = [(0, 4), (4, 4), (8, 1)]
+    if batch_size == 2:
+        expected = [(0, 2), (2, 2), (4, 2), (6, 2), (8, 1)]
+    assert writes == expected
+
+
+def test_default_batch_exceeds_legacy_row_cap(tmp_path):
+    path = tmp_path / "input.vcf"
+    path.write_text(
+        "##fileformat=VCFv4.3\n##contig=<ID=1>\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        + "".join(f"1\t{j + 1}\t.\tA\tC\t.\t.\t.\n" for j in range(1005))
+    )
+    writes = []
+    original = vcf_mod.BatchedVcfZarrWriter.write_batch
+
+    def record(arrays, start, batch):
+        writes.append((start, len(batch)))
+        original(arrays, start, batch)
+
+    with mock.patch.object(
+        vcf_mod.BatchedVcfZarrWriter, "write_batch", side_effect=record
+    ):
+        result = vcf_mod.convert([path], infer_ploidy=True, variants_chunk_size=1004)
+    assert writes == [(0, 1004), (1004, 1)]
+    nt.assert_array_equal(result["variant_position"][:], np.arange(1, 1006))
+
+
 def test_integer_dtype_bound(tmp_path):
     icf = vcf_mod.explode(tmp_path / "icf", ["tests/data/vcf/sample.vcf.gz"])
     schema = icf.generate_schema()

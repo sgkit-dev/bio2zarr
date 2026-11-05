@@ -194,7 +194,7 @@ batch_size = click.option(
     "--batch-size",
     type=click.IntRange(min=1),
     default=None,
-    help="Shared row batch size (convert default: 1000 variants).",
+    help="Shared row batch size (convert default: output variant chunk size).",
 )
 
 max_batch_bytes = click.option(
@@ -211,7 +211,6 @@ def row_options(batch_size, max_batch_bytes):
         options["batch_size"] = batch_size
     if max_batch_bytes is not None:
         options["max_batch_bytes"] = max_batch_bytes
-        options.setdefault("batch_size", vcf_mod.DEFAULT_BATCH_SIZE)
     return options
 
 
