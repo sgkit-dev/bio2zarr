@@ -4,7 +4,6 @@ import logging
 import os
 import pathlib
 import tempfile
-from functools import partial
 
 import numpy as np
 import pandas as pd
@@ -281,20 +280,6 @@ class PgenFormat(plink.PlinkFormat):
 class PgenZarrWriter(vcz.VcfZarrWriter):
     """Encode native tiles through the shared VCZ writer lifecycle."""
 
-    def __init__(self, source_type, path, zarr_format=None, *, worker_threads=None):
-        super().__init__(source_type, path, zarr_format)
-        self.worker_threads = worker_threads
-
-    def init(self, source, *, target_num_partitions, schema, max_variant_chunks=None):
-        if self.worker_threads is not None:
-            target_num_partitions = max(target_num_partitions, self.worker_threads * 4)
-        return super().init(
-            source,
-            target_num_partitions=target_num_partitions,
-            schema=schema,
-            max_variant_chunks=max_variant_chunks,
-        )
-
     def prepare_partition(self, partition_index):
         self.wip_partition_path(partition_index).mkdir(exist_ok=True)
         for field in self.schema.fields:
@@ -493,48 +478,6 @@ class PgenZarrWriter(vcz.VcfZarrWriter):
                 partition_index, start, min(start + chunk, self.source.num_samples)
             )
 
-    def encode_all_partitions(self, *, worker_processes=0, show_progress=False):
-        worker_threads = self.worker_threads
-        if worker_threads is None:
-            return super().encode_all_partitions(
-                worker_processes=worker_processes,
-                show_progress=show_progress,
-            )
-        # Metadata is immutable; each task owns a reader and disjoint full chunks.
-        for j in range(self.num_partitions):
-            self.prepare_partition(j)
-        progress = core.ProgressConfig(
-            total=sum(
-                zarr.open(self.arrays_path / f.name).nbytes for f in self.schema.fields
-            ),
-            title="Encode",
-            units="B",
-            show=show_progress,
-        )
-        chunk = self.schema.dimensions["samples"].chunk_size
-        # Limit queued tasks as well as live buffers for very wide cohorts.
-        with core.ParallelWorkManager(
-            0, progress, worker_threads=worker_threads
-        ) as manager:
-            pending = []
-            for j in range(self.num_partitions):
-                pending.append(manager.submit(self.encode_metadata, j))
-                for start in range(0, self.source.num_samples, chunk):
-                    pending.append(
-                        manager.submit(
-                            self.encode_tile,
-                            j,
-                            start,
-                            min(start + chunk, self.source.num_samples),
-                        )
-                    )
-                    if len(pending) >= 2 * worker_threads:
-                        core.wait_on_futures(pending)
-                        manager.futures.difference_update(pending)
-                        pending.clear()
-        for j in range(self.num_partitions):
-            os.rename(self.wip_partition_path(j), self.partition_path(j))
-
 
 def convert(
     prefix,
@@ -544,7 +487,6 @@ def convert(
     variants_chunk_size=None,
     samples_chunk_size=None,
     worker_processes=0,
-    worker_threads=None,
     show_progress=False,
     zarr_format=None,
     ploidy_mode="metadata",
@@ -553,7 +495,6 @@ def convert(
 ):
     for name, value, minimum in (
         ("worker_processes", worker_processes, 0),
-        ("worker_threads", worker_threads, 1),
         ("variants_chunk_size", variants_chunk_size, 1),
         ("samples_chunk_size", samples_chunk_size, 1),
     ):
@@ -561,8 +502,6 @@ def convert(
             not isinstance(value, int) or isinstance(value, bool) or value < minimum
         ):
             raise ValueError(f"{name} must be an integer >= {minimum}")
-    if worker_processes and worker_threads is not None:
-        raise ValueError("Choose worker_processes or worker_threads, not both")
     source = PgenFormat(
         prefix, ploidy_mode=ploidy_mode, genome_build=genome_build, dosages=dosages
     )
@@ -573,7 +512,7 @@ def convert(
         worker_processes=worker_processes,
         show_progress=show_progress,
         zarr_format=zarr_format,
-        writer_class=partial(PgenZarrWriter, worker_threads=worker_threads),
+        writer_class=PgenZarrWriter,
     )
     if out is None:
         return vcz.encode(source, schema, **options)

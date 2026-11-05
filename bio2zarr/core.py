@@ -1,5 +1,4 @@
 import concurrent.futures as cf
-import concurrent.futures.process  # noqa: F401 -- load cf.process for thread-only runs
 import contextlib
 import dataclasses
 import functools
@@ -265,19 +264,13 @@ def setup_progress_counter(counter):
 
 
 class ParallelWorkManager(contextlib.AbstractContextManager):
-    def __init__(
-        self, worker_processes=1, progress_config=None, *, worker_threads=None
-    ):
+    def __init__(self, worker_processes=1, progress_config=None):
         # Need to specify this explicitly to suppport Macs and
         # for future proofing.
         ctx = multiprocessing.get_context("spawn")
         global _progress_counter
         _progress_counter = ctx.Value("Q", 0)
-        if worker_threads is not None:
-            if worker_threads < 1:
-                raise ValueError("worker_threads must be positive")
-            self.executor = cf.ThreadPoolExecutor(max_workers=worker_threads)
-        elif worker_processes <= 0:
+        if worker_processes <= 0:
             # NOTE: this is only for testing and debugging, not for
             # production. See note on the SynchronousExecutor class.
             self.executor = SynchronousExecutor()
@@ -340,8 +333,8 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
             else:
                 cancel_futures(self.futures)
         finally:
-            # Cancellation does not stop running workers; join them before
-            # stopping progress tracking or letting callers clean up output.
+            # Running workers must release files before callers remove staging
+            # directories, including when waiting on a failed future raises.
             self.executor.shutdown(wait=True, cancel_futures=True)
             # There's probably a much cleaner way of doing this with a Condition
             # or something, but this seems to work OK for now. This setup might

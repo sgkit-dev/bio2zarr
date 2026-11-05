@@ -11,7 +11,7 @@ filesets are supported. PLINK 2 requires the optional
 
 ```bash
 python -m pip install 'bio2zarr[plink2]'
-plink2zarr convert cohort out.vcz --worker-threads 4 \
+plink2zarr convert cohort out.vcz --worker-processes 4 \
     --variants-chunk-size 1000 --samples-chunk-size 1000
 ```
 
@@ -65,7 +65,7 @@ forms, and human numeric chromosome codes 23-26 are recognized.
 For unsplit X with male samples, specify the reference genome:
 
 ```bash
-plink2zarr convert cohort out.vcz --genome-build hg38 --worker-threads 4
+plink2zarr convert cohort out.vcz --genome-build hg38 --worker-processes 4
 ```
 
 `hg19` and `hg38` use their respective one-based, inclusive PAR intervals.
@@ -132,24 +132,24 @@ This option deliberately omits any stored dosages.
 ### Parallel encoding
 
 Metadata and file-wide phasedness are read once, without decoding genotypes to
-discover output dimensions. Native batch reads release the GIL. Each thread owns
-an independent PGEN reader and writes disjoint variant-by-sample chunk tiles.
+discover output dimensions. `--worker-processes` uses the existing shared
+process-based encoder, with partitions aligned to output variant chunks.
+Within each partition, native batch reads decode fixed variant-by-sample tiles
+using an independent PGEN reader.
 PGEN uses the shared VCZ writer interface for array initialization, partition
-finalization and indexing; thread configuration remains specific to its writer.
+finalization, process scheduling and indexing.
 Decoded working arrays scale with chunk dimensions, not the entire sample
 cohort. Dosages are streamed one alternate allele at a time, with unit-sized
 chunks on the DS alternate/HDS vector axes, so highly multiallelic sites do not
 multiply working memory by the global allele count.
 DS/HDS use bitshuffle before Zstandard compression, matching PGEN's limited
 fixed-point precision.
-A bounded queue limits outstanding thread tasks.
-Alternatively, `--worker-processes` uses the shared process-based encoder;
-do not combine it with `--worker-threads`.
+The default of zero worker processes runs in the main process.
 
 PGEN's compression is variant-oriented: reading separate sample tiles can
 repeat decompression of the same variant. Larger sample chunks reduce that
 overhead, at the cost of larger per-worker buffers. There is no claim that
-more threads always improve throughput; storage and compression can dominate.
+more workers always improve throughput; storage and compression can dominate.
 
 Phenotype/pedigree columns and additional PVAR annotations are **not** exported.
 Directory and ZIP outputs are published only after encoding and indexing

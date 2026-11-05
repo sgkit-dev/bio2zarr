@@ -609,12 +609,6 @@ vcf2zarr_main.add_command(dencode_finalise)
     help="PLINK fileset format; auto rejects prefixes with both BED and PGEN.",
 )
 @click.option(
-    "--worker-threads",
-    type=click.IntRange(min=1),
-    default=None,
-    help="PGEN encoding threads (alternative to --worker-processes).",
-)
-@click.option(
     "--ploidy-mode",
     type=click.Choice(["metadata", "diploid"]),
     default="metadata",
@@ -642,7 +636,6 @@ def convert_plink(
     samples_chunk_size,
     zarr_format,
     input_format,
-    worker_threads,
     ploidy_mode,
     genome_build,
     dosages,
@@ -664,7 +657,6 @@ def convert_plink(
         variants_chunk_size=variants_chunk_size,
         zarr_format=zarr_format,
         input_format=input_format,
-        worker_threads=worker_threads,
         ploidy_mode=ploidy_mode,
         genome_build=genome_build,
         dosages=dosages,

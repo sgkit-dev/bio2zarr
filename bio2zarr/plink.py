@@ -313,7 +313,6 @@ def convert(
     show_progress=False,
     zarr_format=None,
     input_format="auto",
-    worker_threads=None,
     ploidy_mode="metadata",
     genome_build=None,
     dosages=True,
@@ -354,10 +353,6 @@ def convert(
     input_format : {"auto", "bed", "pgen"}
         Select the input fileset. Auto detects the genotype file and rejects
         ambiguous prefixes with both BED and PGEN files.
-    worker_threads : int, optional
-        PGEN-only thread count, mutually exclusive with worker_processes.
-        Native batch decoding releases the GIL. Each worker owns a reader and
-        writes disjoint chunk-aligned tiles.
     ploidy_mode : {"metadata", "diploid"}
         PGEN only: reconstruct human chromosome ploidy using PSAM sex and PAR
         metadata (default), or retain pgenlib's duplicated diploid encoding.
@@ -400,20 +395,14 @@ def convert(
             variants_chunk_size=variants_chunk_size,
             samples_chunk_size=samples_chunk_size,
             worker_processes=worker_processes,
-            worker_threads=worker_threads,
             show_progress=show_progress,
             zarr_format=zarr_format,
             ploidy_mode=ploidy_mode,
             genome_build=genome_build,
             dosages=dosages,
         )
-    if (
-        worker_threads is not None
-        or genome_build is not None
-        or ploidy_mode != "metadata"
-        or not dosages
-    ):
-        raise ValueError("Threads, dosage and ploidy/PAR options require PGEN input")
+    if genome_build is not None or ploidy_mode != "metadata" or not dosages:
+        raise ValueError("Dosage and ploidy/PAR options require PGEN input")
     plink_format = PlinkFormat(prefix)
     schema = plink_format.generate_schema(
         variants_chunk_size=variants_chunk_size,

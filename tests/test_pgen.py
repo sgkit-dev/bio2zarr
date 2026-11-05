@@ -1,6 +1,5 @@
 import os
 import sys
-from functools import partial
 from unittest import mock
 
 import click.testing
@@ -88,7 +87,7 @@ def fileset(tmp_path):
 @pytest.mark.parametrize("zarr_format", [2, 3])
 @pytest.mark.parametrize(
     "workers",
-    [dict(), dict(worker_threads=1), dict(worker_threads=3), dict(worker_processes=2)],
+    [dict(), dict(worker_processes=1), dict(worker_processes=2)],
 )
 @pytest.mark.parametrize("chunks", [(2, 2), (1, 1), (20, 20)])
 def test_roundtrip(fileset, tmp_path, zarr_format, workers, chunks):
@@ -136,11 +135,14 @@ def test_metadata_only_planning(fileset):
     assert schema.get_shape(["variants", "samples", "ploidy"]) == [5, 5, 2]
 
 
-@pytest.mark.parametrize("worker_threads", [None, 3])
 @pytest.mark.parametrize("zarr_format", [2, 3])
-def test_shared_writer_interface(
-    fileset, tmp_path, monkeypatch, worker_threads, zarr_format
-):
+def test_shared_writer_interface(fileset, tmp_path, monkeypatch, zarr_format):
+    assert pgen.PgenZarrWriter.__init__ is vcz.VcfZarrWriter.__init__
+    assert pgen.PgenZarrWriter.init is vcz.VcfZarrWriter.init
+    assert (
+        pgen.PgenZarrWriter.encode_all_partitions
+        is vcz.VcfZarrWriter.encode_all_partitions
+    )
     prefix, _, _ = fileset
     source = pgen.PgenFormat(prefix)
     schema = source.generate_schema(2, 2)
@@ -158,14 +160,9 @@ def test_shared_writer_interface(
         schema,
         out,
         zarr_format=zarr_format,
-        writer_class=partial(pgen.PgenZarrWriter, worker_threads=worker_threads),
+        writer_class=pgen.PgenZarrWriter,
     )
-    num_partitions = 1 if worker_threads is None else 3
-    assert sorted(opened) == [
-        (partition, name)
-        for partition in range(num_partitions)
-        for name in sorted(schema.field_map())
-    ]
+    assert sorted(opened) == [(0, name) for name in sorted(schema.field_map())]
     assert root["call_genotype"].chunks == (2, 2, 2)
     assert root["call_genotype"].shape == (5, 5, 2)
     assert "region_index" in root
@@ -214,7 +211,7 @@ def test_multiallelic(tmp_path, zarr_format):
     )
     root = plink.convert(
         prefix,
-        worker_threads=2,
+        worker_processes=2,
         variants_chunk_size=2,
         samples_chunk_size=1,
         zarr_format=zarr_format,
@@ -229,8 +226,8 @@ def test_multiallelic(tmp_path, zarr_format):
 
 
 @pytest.mark.parametrize("build", ["hg19", "hg38"])
-@pytest.mark.parametrize("threads", [None, 3])
-def test_ploidy_and_par(tmp_path, build, threads):
+@pytest.mark.parametrize("worker_processes", [0, 2])
+def test_ploidy_and_par(tmp_path, build, worker_processes):
     (par_start, par_end), _ = pgen.PAR_INTERVALS[build]
     chroms = ["1", "X", "X", "X", "X", "Y", "MT"]
     positions = [1, par_start - 1, par_start, par_end, par_end + 1, 1, 1]
@@ -249,7 +246,7 @@ def test_ploidy_and_par(tmp_path, build, threads):
     root = plink.convert(
         prefix,
         genome_build=build,
-        worker_threads=threads,
+        worker_processes=worker_processes,
         variants_chunk_size=3,
         samples_chunk_size=1,
     )
@@ -302,9 +299,9 @@ def test_missing_par_build(tmp_path):
         plink.convert(prefix)
 
 
-@pytest.mark.parametrize("threads", [None, 2])
+@pytest.mark.parametrize("worker_processes", [0, 2])
 @pytest.mark.parametrize("output", ["directory", "zip"])
-def test_late_failure_leaves_no_output(tmp_path, threads, output):
+def test_late_failure_leaves_no_output(tmp_path, worker_processes, output):
     prefix = write_fileset(
         tmp_path,
         [[[0, 0]], [[1, 1]], [[0, 1]]],
@@ -312,7 +309,9 @@ def test_late_failure_leaves_no_output(tmp_path, threads, output):
     )
     out = tmp_path / ("output.zip" if output == "zip" else "output.vcz")
     with pytest.raises(ValueError, match="Heterozygous haploid"):
-        plink.convert(prefix, out, variants_chunk_size=1, worker_threads=threads)
+        plink.convert(
+            prefix, out, variants_chunk_size=1, worker_processes=worker_processes
+        )
     assert not out.exists()
     assert not list(tmp_path.glob(".output*"))
     # Readers have closed even when the traceback is retained by pytest.
@@ -401,9 +400,7 @@ def test_variant_count_mismatch(fileset):
         (dict(input_format="bad"), "input_format"),
         (dict(ploidy_mode="bad"), "ploidy_mode"),
         (dict(genome_build="bad"), "genome_build"),
-        (dict(worker_threads=0), "worker_threads"),
         (dict(worker_processes=-1), "worker_processes"),
-        (dict(worker_processes=1, worker_threads=1), "not both"),
         (dict(variants_chunk_size=0), "chunk"),
         (dict(dosages="yes"), "dosages must be a boolean"),
     ],
@@ -453,7 +450,7 @@ def test_cli(fileset, tmp_path):
             "convert",
             str(prefix),
             str(out),
-            "--worker-threads",
+            "--worker-processes",
             "2",
             "--variants-chunk-size",
             "2",
@@ -562,7 +559,7 @@ def test_decode_is_chunk_bounded(tmp_path, monkeypatch, phased):
     source = pgen.PgenFormat(prefix)
     source.generate_schema(2, 2)
     assert not reads
-    plink.convert(prefix, variants_chunk_size=2, samples_chunk_size=2, worker_threads=3)
+    plink.convert(prefix, variants_chunk_size=2, samples_chunk_size=2)
     assert len(reads) == 9
     assert dosage_reads == reads or sorted(dosage_reads) == sorted(reads)
     assert all(start % 2 == 0 and stop - start <= 2 for start, stop, _, _ in reads)
@@ -575,7 +572,7 @@ def test_decode_is_chunk_bounded(tmp_path, monkeypatch, phased):
 
 @pytest.mark.parametrize("zarr_format", [2, 3])
 @pytest.mark.parametrize(
-    "workers", [{}, {"worker_threads": 3}, {"worker_processes": 2}]
+    "workers", [{}, {"worker_processes": 1}, {"worker_processes": 2}]
 )
 def test_stored_phased_dosages(tmp_path, zarr_format, workers):
     # Generated with PLINK 2 (15 Oct 2026):
@@ -648,7 +645,7 @@ def test_dosage_missing_and_padding(tmp_path, zarr_format):
     )
     root = plink.convert(
         prefix,
-        worker_threads=3,
+        worker_processes=2,
         variants_chunk_size=2,
         samples_chunk_size=1,
         zarr_format=zarr_format,
@@ -736,5 +733,5 @@ def test_invalid_native_dosage(fileset, tmp_path, monkeypatch, bad_value):
     )
     out = tmp_path / "output"
     with pytest.raises(ValueError, match="Invalid PGEN dosage"):
-        plink.convert(prefix, out, worker_threads=2, variants_chunk_size=2)
+        plink.convert(prefix, out, variants_chunk_size=2)
     assert not out.exists()

@@ -19,7 +19,7 @@ root = p2z.convert(
     plink_prefix,
     vcz_path,
     genome_build="hg38",
-    worker_threads=4,
+    worker_processes=4,
     variants_chunk_size=1000,
     samples_chunk_size=1000,
 )
