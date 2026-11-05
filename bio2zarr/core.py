@@ -336,15 +336,8 @@ class ParallelWorkManager(contextlib.AbstractContextManager):
             # Running workers must release files before callers remove staging
             # directories, including when waiting on a failed future raises.
             self.executor.shutdown(wait=True, cancel_futures=True)
-            # There's probably a much cleaner way of doing this with a Condition
-            # or something, but this seems to work OK for now. This setup might
-            # make small conversions a bit laggy as we wait on the sleep interval
-            # though.
             with self.completed_lock:
                 self.completed = True
-            # FIXME there's currently some thing weird happening at the end of
-            # Encode 1D for 1kg-p3. The progress bar disappears, like we're
-            # setting a total of zero or something.
             self.progress_thread.join()
             self._update_progress()
             self.progress_bar.close()
