@@ -1,4 +1,5 @@
 import concurrent.futures as cf
+import concurrent.futures.process  # noqa: F401 -- load cf.process for thread-only runs
 import contextlib
 import dataclasses
 import functools
@@ -9,7 +10,6 @@ import math
 import multiprocessing
 import threading
 import time
-from concurrent.futures.process import BrokenProcessPool
 
 import humanfriendly
 import numpy as np
@@ -135,7 +135,7 @@ def wait_on_futures(futures):
         exception = future.exception()
         if exception is not None:
             cancel_futures(futures)
-            if isinstance(exception, BrokenProcessPool):
+            if isinstance(exception, cf.process.BrokenProcessPool):
                 raise RuntimeError(
                     "Worker process died: you may have run out of memory"
                 ) from exception
