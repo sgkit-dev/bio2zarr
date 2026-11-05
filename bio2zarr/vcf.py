@@ -2127,6 +2127,8 @@ def convert(
     """
     validate_positive_int("batch_size", batch_size)
     validate_positive_int("max_batch_bytes", max_batch_bytes)
+    if vcz_path is not None:
+        vcz.local_zarr_path(vcz_path)
     if not isinstance(infer_ploidy, bool):
         raise ValueError("infer_ploidy must be a boolean")
     vcfs = [storage.path(p) for p in vcfs]
@@ -2318,7 +2320,7 @@ def encode_init(
             )  # NEEDS TEST
         with open(schema_path) as f:
             schema_instance = vcz.VcfZarrSchema.fromjson(f.read())
-    zarr_path = pathlib.Path(zarr_path)
+    zarr_path = vcz.local_zarr_path(zarr_path)
     writer_type = vcz.VcfZarrWriter if batch_size is None else BatchedVcfZarrWriter
     kwargs = (
         {}

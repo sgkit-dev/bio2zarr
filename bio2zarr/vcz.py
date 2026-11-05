@@ -577,6 +577,12 @@ class ZarrWriteResult:
     root: zarr.Group | None = None
 
 
+def local_zarr_path(path):
+    if "://" in str(path):
+        raise ValueError("Final VCZ output must be a local path")
+    return pathlib.Path(path)
+
+
 @contextlib.contextmanager
 def open_zarr(zarr_path, mode="r"):
     """Context manager that resolves zarr_path to a working directory path.
@@ -588,6 +594,8 @@ def open_zarr(zarr_path, mode="r"):
     - zarr_path ends with .zip: strips suffix, root is a ZipStore-backed group
     - otherwise: uses path directly, root is a directory-backed group
     """
+    if zarr_path is not None:
+        zarr_path = local_zarr_path(zarr_path)
     if zarr_path is None:
         with tempfile.TemporaryDirectory(prefix="bio2zarr_") as tmp:
             result = ZarrWriteResult(dir=pathlib.Path(tmp) / "zarr")
@@ -673,7 +681,7 @@ def encode(
 class VcfZarrWriter:
     def __init__(self, source_type, path, zarr_format=None):
         self.source_type = source_type
-        self.path = pathlib.Path(path)
+        self.path = local_zarr_path(path)
         self.zarr_format = zarr_format
         self.wip_path = self.path / "wip"
         self.arrays_path = self.wip_path / "arrays"

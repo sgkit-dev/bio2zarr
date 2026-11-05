@@ -226,7 +226,9 @@ def setup_logging(verbosity):
     coloredlogs.install(level=level)
 
 
-def check_overwrite_dir(path, force):
+def check_overwrite_dir(path, force, *, allow_s3=False):
+    if str(path).startswith("s3://") and not allow_s3:
+        raise click.UsageError("Final VCZ output must be a local path")
     path = storage.path(path)
     if path.exists():
         if not force:
@@ -296,7 +298,7 @@ def explode(
     Convert VCF(s) to intermediate columnar format
     """
     setup_logging(verbose)
-    check_overwrite_dir(icf_path, force)
+    check_overwrite_dir(icf_path, force, allow_s3=True)
     vcf_mod.explode(
         icf_path,
         vcfs,
@@ -335,7 +337,7 @@ def dexplode_init(
     over some number of paritions.
     """
     setup_logging(verbose)
-    check_overwrite_dir(icf_path, force)
+    check_overwrite_dir(icf_path, force, allow_s3=True)
     check_partitions(num_partitions)
     work_summary = vcf_mod.explode_init(
         icf_path,

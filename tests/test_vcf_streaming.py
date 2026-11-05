@@ -288,3 +288,25 @@ def test_cli_conflicting_options(tmp_path):
     )
     assert result.exit_code == 2
     assert "mutually exclusive" in result.output
+
+
+def test_s3_final_output_rejected_before_overwrite():
+    with mock.patch.object(cli.storage.S3Path, "exists", side_effect=AssertionError):
+        result = click.testing.CliRunner().invoke(
+            cli.vcf2zarr_main,
+            [
+                "convert",
+                "tests/data/vcf/sample.vcf.gz",
+                "s3://bucket/existing",
+                "--max-ploidy",
+                "2",
+                "--force",
+            ],
+            catch_exceptions=False,
+        )
+    assert result.exit_code == 2
+    assert "Final VCZ output must be a local path" in result.output
+    with pytest.raises(ValueError, match="Final VCZ output must be a local path"):
+        vcf_mod.convert(
+            ["tests/data/vcf/sample.vcf.gz"], "s3://bucket/existing", max_ploidy=2
+        )
