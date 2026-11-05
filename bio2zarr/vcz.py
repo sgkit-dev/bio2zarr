@@ -603,7 +603,7 @@ def encode(
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
     zarr_format=None,
-    writer_type=None,
+    writer_class=None,
     worker_threads=None,
 ):
     """Encode a source format object into a Zarr store.
@@ -631,8 +631,9 @@ def encode(
     zarr_format : int, optional
         Zarr format version of output (default: 2, or value of
         BIO2ZARR_DEFAULT_ZARR_FORMAT env var)
-    writer_type : type, optional
-        Specialized VcfZarrWriter subclass for block-oriented source formats.
+    writer_class : type, optional
+        Writer implementation, default :class:`VcfZarrWriter`. Specialised
+        writers can share the lifecycle while encoding fields together.
     worker_threads : int, optional
         Thread count for writers supporting threaded encoding, instead of
         worker processes.
@@ -644,9 +645,8 @@ def encode(
     """
     source_type = type(source_format)
     with open_zarr(zarr_path, mode=mode) as zr:
-        if writer_type is None:
-            writer_type = VcfZarrWriter
-        vzw = writer_type(source_type, zr.dir, zarr_format=zarr_format)
+        writer_class = VcfZarrWriter if writer_class is None else writer_class
+        vzw = writer_class(source_type, zr.dir, zarr_format=zarr_format)
         # Rough heuristic to split work up enough to keep utilisation high
         target_num_partitions = max(1, (worker_threads or worker_processes) * 4)
         vzw.init(
@@ -918,7 +918,7 @@ class VcfZarrWriter:
             self.encode_local_alleles_partition(partition_index)
             self.encode_local_allele_fields_partition(partition_index)
 
-    def init_partition_array(self, partition_index, name):
+    def open_partition_array(self, partition_index, name):
         field_map = self.schema.field_map()
         array_spec = field_map[name]
         # Create an empty array like the definition
@@ -926,12 +926,15 @@ class VcfZarrWriter:
         # Overwrite any existing WIP files
         wip_path = self.wip_partition_array_path(partition_index, array_spec.name)
         shutil.copytree(src, wip_path, dirs_exist_ok=True)
-        array = zarr.open_array(store=wip_path, mode="a")
+        return zarr.open_array(store=wip_path, mode="a")
+
+    def init_partition_array(self, partition_index, name):
+        array = self.open_partition_array(partition_index, name)
         partition = self.metadata.partitions[partition_index]
         ba = core.BufferedArray(array, partition.start, name)
         logger.info(
             f"Start partition {partition_index} array {name} <{array.dtype}> "
-            f"{array.shape} @ {wip_path}"
+            f"{array.shape} @ {self.wip_partition_array_path(partition_index, name)}"
         )
         return ba
 

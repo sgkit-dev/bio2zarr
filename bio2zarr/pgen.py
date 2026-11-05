@@ -562,7 +562,7 @@ def convert(
         worker_threads=worker_threads,
         show_progress=show_progress,
         zarr_format=zarr_format,
-        writer_type=PgenZarrWriter,
+        writer_class=PgenZarrWriter,
     )
     if out is None:
         return vcz.encode(source, schema, **options)

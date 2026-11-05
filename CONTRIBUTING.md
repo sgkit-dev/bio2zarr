@@ -18,6 +18,15 @@ uv sync --group dev
 uv run pytest
 ```
 
+### BGEN exporter interoperability
+
+With a compatible `vcztools` exporter installed in the test environment, run
+the optional cross-repository BGEN suite explicitly:
+
+```bash
+uv run --no-sync python -m pytest integration -v --no-cov
+```
+
 ## Linting
 
 We use [prek](https://github.com/prek-dev/prek) for pre-commit linting,

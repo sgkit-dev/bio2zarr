@@ -2,13 +2,14 @@ import logging
 import os
 import pathlib
 import shutil
+import tempfile
 
 import click
 import coloredlogs
 import numcodecs
 import tabulate
 
-from . import core, plink, provenance, vcf_utils, zarr_utils
+from . import bgen, core, plink, provenance, vcf_utils, zarr_utils
 from . import tskit as tskit_mod
 from . import vcf as vcf_mod
 
@@ -680,6 +681,168 @@ def plink2zarr_main():
 
 
 plink2zarr_main.add_command(convert_plink)
+
+
+@click.command(name="convert")
+@click.argument("bgen_path", type=click.Path(exists=True, dir_okay=False))
+@new_zarr_path
+@click.option(
+    "--probabilities/--no-probabilities",
+    default=True,
+    show_default=True,
+    help="Retain genotype/haplotype probabilities (GP/HP).",
+)
+@click.option(
+    "--dosage/--no-dosage",
+    default=True,
+    show_default=True,
+    help="Retain expected alternate-allele dosage (DS).",
+)
+@click.option(
+    "--float-dtype",
+    type=click.Choice(["float64", "float32"]),
+    default="float64",
+    show_default=True,
+    help="GP/HP/DS storage precision.",
+)
+@click.option(
+    "--compressor",
+    type=click.Choice(["zstd", "lz4"]),
+    default="zstd",
+    show_default=True,
+    help="Output Blosc codec.",
+)
+@click.option(
+    "--compression-level",
+    type=click.IntRange(0, 9),
+    default=7,
+    show_default=True,
+    help="Output Blosc compression level.",
+)
+@click.option(
+    "--sample-ids",
+    type=click.Path(exists=True, dir_okay=False),
+    help="UTF-8 file with one sample ID per line, in BGEN sample order.",
+)
+@click.option(
+    "--sample-file",
+    type=click.Path(exists=True, dir_okay=False),
+    help="Oxford .sample file in BGEN sample order; overrides embedded IDs. "
+    "Only IDs are imported, not phenotypes/covariates. Exclusive with --sample-ids.",
+)
+@click.option(
+    "--sample-id-column",
+    help="Identifier column in --sample-file (default: first column). "
+    "Use ID_2 explicitly when the first column contains family IDs.",
+)
+@click.option(
+    "--dimension-source",
+    type=click.Choice(["actual", "declared"]),
+    default=None,
+    help="Discover widths from actual ploidies (default) or declared bounds. "
+    "Mutually exclusive with --max-ploidy.",
+)
+@click.option(
+    "--probability-model",
+    type=click.Choice(["auto", "unphased", "phased", "mixed"]),
+    default="auto",
+    show_default=True,
+    help="Discover phase models, or allocate explicit models and validate on decode.",
+)
+@click.option(
+    "--max-ploidy",
+    type=click.IntRange(0, 63),
+    default=None,
+    help="Checked sample-ploidy bound; skips dimension discovery with an explicit "
+    "--probability-model.",
+)
+@force
+@worker_processes
+@progress
+@verbose
+@variants_chunk_size
+@samples_chunk_size
+@zarr_format
+def convert_bgen(
+    bgen_path,
+    zarr_path,
+    sample_ids,
+    sample_file,
+    sample_id_column,
+    force,
+    worker_processes,
+    progress,
+    verbose,
+    variants_chunk_size,
+    samples_chunk_size,
+    zarr_format,
+    probabilities,
+    dosage,
+    float_dtype,
+    compressor,
+    compression_level,
+    dimension_source,
+    probability_model,
+    max_ploidy,
+):
+    """Convert BGEN genotype and phased haplotype probabilities to VCF Zarr."""
+    setup_logging(verbose)
+    if sample_ids is not None and sample_file is not None:
+        raise click.UsageError("--sample-ids and --sample-file are mutually exclusive")
+    if sample_id_column is not None and sample_file is None:
+        raise click.UsageError("--sample-id-column requires --sample-file")
+    if not probabilities and not dosage:
+        raise click.UsageError(
+            "At least one of probabilities or dosage must be enabled"
+        )
+    if max_ploidy is not None and dimension_source is not None:
+        raise click.UsageError(
+            "--max-ploidy and --dimension-source are mutually exclusive"
+        )
+    ids = None
+    if sample_ids is not None:
+        with open(sample_ids, encoding="utf-8") as f:
+            ids = f.read().splitlines()
+    kwargs = dict(
+        sample_file=sample_file,
+        sample_id_column=sample_id_column,
+        sample_ids=ids,
+        worker_processes=worker_processes,
+        show_progress=progress,
+        variants_chunk_size=variants_chunk_size,
+        samples_chunk_size=samples_chunk_size,
+        zarr_format=zarr_format,
+        probabilities=probabilities,
+        dosage=dosage,
+        float_dtype=float_dtype,
+        compressor=compressor,
+        compression_level=compression_level,
+        dimension_source=dimension_source,
+        probability_model=probability_model,
+        max_ploidy=max_ploidy,
+    )
+    destination = pathlib.Path(zarr_path)
+    if destination.exists():
+        # Validate and encode before an overwrite can remove existing output.
+        with tempfile.TemporaryDirectory(
+            prefix=".bio2zarr-bgen-cli-", dir=destination.parent
+        ) as tmp:
+            staged = pathlib.Path(tmp) / destination.name
+            root = bgen.convert(bgen_path, staged, **kwargs)
+            root.store.close()
+            check_overwrite_dir(destination, force)
+            os.rename(staged, destination)
+    else:
+        bgen.convert(bgen_path, destination, **kwargs)
+
+
+@version
+@click.group(name="bgen2zarr")
+def bgen2zarr_main():
+    """Convert BGEN files to VCF Zarr format."""
+
+
+bgen2zarr_main.add_command(convert_bgen)
 
 
 @click.command

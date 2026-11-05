@@ -15,6 +15,9 @@ files to other formats, see [vcztools](https://github.com/sgkit-dev/vcztools).
 - {ref}`sec-plink2zarr` converts PLINK 1.0 data to
   [VCF Zarr](https://github.com/sgkit-dev/vcf-zarr-spec/) format.
 
+- {ref}`sec-bgen2zarr` converts BGEN genotype probabilities to
+  [VCF Zarr](https://github.com/sgkit-dev/vcf-zarr-spec/) format.
+
 - {ref}`sec-tskit2zarr` converts [tskit](https://tskit.dev)
   data into [VCF Zarr](https://github.com/sgkit-dev/vcf-zarr-spec/) format.
 
@@ -33,7 +36,7 @@ files to other formats, see [vcztools](https://github.com/sgkit-dev/vcztools).
 at the [GitHub repository](https://github.com/sgkit-dev/bio2zarr).
 
 If you would like to see
-support for other formats such as BGEN (or an interested in helping with implementing),
+support for other formats (or are interested in helping with implementing),
 please open an [issue on Github](https://github.com/sgkit-dev/bio2zarr/issues)
 to discuss!
 
@@ -44,4 +47,3 @@ along with the respective tools). These are in beta, and should be fully
 documented and stabilised in the coming releases. General APIs to enable
 efficient and straightforward encoding of data to VCZ are planned
 (see [issue #412](https://github.com/sgkit-dev/bio2zarr/issues/412)).
-

@@ -1,7 +1,14 @@
 # Unreleased
 
+*New features*
+
 - Add PLINK 2 PGEN/PVAR/PSAM hardcall and dosage conversion using pgenlib bindings,
   metadata-based human ploidy/PAR planning, and chunk-aligned threaded encoding.
+
+- Add `bgen2zarr convert` and `bio2zarr.bgen.convert` using the `bgen-limix`
+  optional backend, preserving genotype/haplotype probabilities and metadata
+  with derived dosage. Support layouts 1/2, variable ploidy, Oxford `.sample`
+  identifiers, dimension controls and configurable Zarr 2/3 output. (#417)
 
 # 0.2.1 2026-06-04
 

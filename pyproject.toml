@@ -49,16 +49,19 @@ vcf2zarr = "bio2zarr.cli:vcf2zarr_main"
 vcfpartition = "bio2zarr.cli:vcfpartition"
 tskit2zarr = "bio2zarr.cli:tskit2zarr_main"
 plink2zarr = "bio2zarr.cli:plink2zarr_main"
+bgen2zarr = "bio2zarr.cli:bgen2zarr_main"
 zipzarr = "bio2zarr.cli:zipzarr"
 
 [project.optional-dependencies]
 tskit = ["tskit>=1"]
 vcf = ["cyvcf2"]
 plink2 = ["pgenlib>=0.95.1"]
+bgen = ["bgen-limix>=4.15.0,<5"]
 all = [
   "tskit>=1",
   "cyvcf2",
-  "pgenlib>=0.95.1"
+  "pgenlib>=0.95.1",
+  "bgen-limix>=4.15.0,<5",
 ]
 
 [dependency-groups]
@@ -74,6 +77,8 @@ test = [
   "tskit>=1",
   "bed_reader",
   "pgenlib>=0.95.1 ; sys_platform != 'win32'",
+  "bgen-limix>=4.15.0,<5",
+  "zstandard",
   "cyvcf2 ; sys_platform != 'win32'",
   "xarray<2025.03.1",
   "dask[array]",
