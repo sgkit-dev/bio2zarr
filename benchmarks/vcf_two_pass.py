@@ -6,12 +6,14 @@ private writer APIs and is deliberately separate from production conversion.
 
 import argparse
 import gzip
+import hashlib
 import importlib.metadata
 import json
 import os
 import pathlib
 import platform
 import resource
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -43,19 +45,28 @@ def sampled_disk_bytes(path):
     return total
 
 
-def generate(path, variants, samples, seed, fields, ploidy):
+def generate(path, variants, samples, seed, fields, ploidy, info_bytes=0):
     rng = np.random.default_rng(seed)
+    raw_bytes = 0
     with gzip.open(path, "wt", compresslevel=6) as out:
-        out.write("##fileformat=VCFv4.3\n")
-        out.write(f"##contig=<ID=1,length={variants + 100}>\n")
-        out.write('##FILTER=<ID=PASS,Description="All filters passed">\n')
-        out.write('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n')
-        if fields == "GT:DP:PL":
-            out.write('##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">\n')
-            out.write(
-                '##FORMAT=<ID=PL,Number=G,Type=Integer,Description="Likelihoods">\n'
+
+        def write(text):
+            nonlocal raw_bytes
+            raw_bytes += len(text.encode("utf-8"))
+            out.write(text)
+
+        write("##fileformat=VCFv4.3\n")
+        write(f"##contig=<ID=1,length={variants + 100}>\n")
+        write('##FILTER=<ID=PASS,Description="All filters passed">\n')
+        write('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n')
+        if info_bytes:
+            write(
+                '##INFO=<ID=PAYLOAD,Number=1,Type=String,Description="Random text">\n'
             )
-        out.write(
+        if fields == "GT:DP:PL":
+            write('##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">\n')
+            write('##FORMAT=<ID=PL,Number=G,Type=Integer,Description="Likelihoods">\n')
+        write(
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"
             + "\t".join(f"S{j}" for j in range(samples))
             + "\n"
@@ -75,10 +86,18 @@ def generate(path, variants, samples, seed, fields, ploidy):
                 if fields != "GT":
                     gt += f":{depth[j]}:" + ",".join(map(str, likelihoods[j, : n + 1]))
                 row.append(gt)
-            out.write(
+            info = "."
+            if info_bytes:
+                alphabet = np.frombuffer(
+                    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
+                    dtype="S1",
+                )
+                info = "PAYLOAD=" + rng.choice(alphabet, info_bytes).tobytes().decode()
+            write(
                 f"1\t{i + 1}\t{'v' + str(i) if i % 7 else '.'}\tA\tC\t"
-                f"{i % 100}\tPASS\t.\t{fields}\t" + "\t".join(row) + "\n"
+                f"{i % 100}\tPASS\t{info}\t{fields}\t" + "\t".join(row) + "\n"
             )
+    return raw_bytes
 
 
 def raw_values(variant, fields):
@@ -313,6 +332,8 @@ def main():
     parser.add_argument("--repeats", type=positive, default=3)
     parser.add_argument("--seed", type=int, default=12345)
     parser.add_argument("--production-direct", action="store_true")
+    parser.add_argument("--info-bytes", type=int, default=0)
+    parser.add_argument("--large", action="store_true")
     parser.add_argument("--result", type=pathlib.Path)
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--method", help=argparse.SUPPRESS)
@@ -322,19 +343,24 @@ def main():
     if args.worker:
         worker(args)
         return
-    if args.variants * args.samples * args.ploidy > 40_000_000:
-        parser.error("Synthetic workload capped at 40 million genotype alleles")
+    if args.info_bytes < 0 or args.info_bytes > 2048:
+        parser.error("INFO payload must be between zero and 2048 bytes")
+    allele_cap = 100_000_000 if args.large else 40_000_000
+    if args.variants * args.samples * args.ploidy > allele_cap:
+        parser.error(f"Synthetic workload capped at {allele_cap:,} genotype alleles")
     if (
         args.samples > 2000
-        or args.variants > 20000
+        or args.variants > (1_000_000 if args.large else 20000)
         or args.ploidy > 8
-        or args.chunk > 256
-        or args.repeats > 5
+        or args.chunk > (4096 if args.large else 256)
+        or args.repeats > (2 if args.large else 5)
     ):
         parser.error(
-            "Shared-host caps: samples<=2000, variants<=20000, ploidy<=8, "
-            "chunk<=256, repeats<=5"
+            "Shared-host caps exceeded (use --large for up to 1M variants, "
+            "100M genotype alleles, chunk<=4096 and repeats<=2)"
         )
+    if args.large and shutil.disk_usage(tempfile.gettempdir()).free < 8 * 2**30:
+        parser.error("Large workloads require at least 8 GiB free temporary disk")
     results = {
         "configuration": {
             name: getattr(args, name)
@@ -347,6 +373,7 @@ def main():
                 "sample_chunk",
                 "repeats",
                 "seed",
+                "info_bytes",
             )
         },
         "environment": {
@@ -361,6 +388,9 @@ def main():
             ).strip(),
             "compression_threads": 1,
             "worker_processes": 0,
+            "benchmark_sha256": hashlib.sha256(
+                pathlib.Path(__file__).read_bytes()
+            ).hexdigest(),
         },
         "runs": [],
     }
@@ -370,7 +400,17 @@ def main():
     with tempfile.TemporaryDirectory(prefix="bio2zarr-benchmark-") as tmp:
         base = pathlib.Path(tmp)
         path = base / "input.vcf.gz"
-        generate(path, args.variants, args.samples, args.seed, args.fields, args.ploidy)
+        generation_start = time.perf_counter()
+        results["input_uncompressed_bytes"] = generate(
+            path,
+            args.variants,
+            args.samples,
+            args.seed,
+            args.fields,
+            args.ploidy,
+            args.info_bytes,
+        )
+        results["generation_seconds"] = time.perf_counter() - generation_start
         results["input_bytes"] = path.stat().st_size
         for repeat in range(args.repeats):
             outputs = {}
@@ -438,6 +478,8 @@ def main():
                         raise AssertionError("Output dimensions differ from generator")
                     results.setdefault("correctness", {})[method] = arrays
             print(f"Repeat {repeat + 1}: all output arrays identical", file=sys.stderr)
+            for method in methods:
+                shutil.rmtree(base / f"{repeat}-{method}")
     text = json.dumps(results, indent=2) + "\n"
     if args.result:
         args.result.write_text(text)

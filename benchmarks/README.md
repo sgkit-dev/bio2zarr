@@ -41,6 +41,15 @@ automatically removed; the requested JSON result persists. The shared-host caps
 are 40 million genotype alleles, 20,000 variants, 2,000 samples, ploidy eight,
 variant chunks of 256 and five repeats.
 
+`--large` explicitly enables up to one million variants, 100 million genotype
+alleles, variant chunks of 4,096 and two repeats. It requires at least 8 GiB free
+temporary disk. `--info-bytes N` adds a seeded, independently random,
+62-character-alphabet INFO string of length N to every row (maximum 2,048).
+The generator now records exact uncompressed UTF-8 bytes alongside gzip bytes
+and generation time. Output/ICF directories are removed after each repeat's
+correctness comparison, rather than accumulating across repeats. The JSON
+includes a script checksum for subsequent runs.
+
 The input is a single-contig, biallelic, ordinary gzip-compressed VCF without an
 index. Seeded independent random allele calls include phased/unphased calls,
 3% all-missing calls, shorter haploid calls and maximum-ploidy calls in the final
@@ -140,3 +149,107 @@ A GT-only inference API is useful independently, but GT width alone is
 insufficient for general schema inference (record count, alleles, Number=G/. and
 integer bounds also matter). Combining those discoveries with ploidy inference,
 or reusing returned dimension metadata, avoids a third complete parse.
+
+## Expanded hundreds-of-MB runs
+
+The larger follow-up used the same hardware/software, base benchmark commit
+`122f30c` plus the generator extensions above. These are **single-run prototype
+measurements**, not statistical medians or production API measurements. The
+cases ran serially, with ICF first, prototype second, then the GT-only scan.
+No simultaneous conversions or live cloud traffic were used. About 38 GiB
+temporary disk was available before and after the runs.
+
+```sh
+uv run --no-sync python benchmarks/vcf_two_pass.py --large \
+  --variants 40000 --samples 1000 --fields GT:DP:PL \
+  --chunk 1024 --sample-chunk 250 --repeats 1 \
+  --result large-gt-dp-pl-40000x1000.json
+uv run --no-sync python benchmarks/vcf_two_pass.py --large \
+  --variants 300000 --samples 4 --info-bytes 512 \
+  --chunk 4096 --sample-chunk 4 --repeats 1 \
+  --result large-row-info-300000x4.json
+uv run --no-sync python benchmarks/vcf_two_pass.py --large \
+  --variants 500000 --samples 4 \
+  --chunk 4096 --sample-chunk 4 --repeats 1 \
+  --result row-low-payload-500000x4.json
+```
+
+| Case | Variants x samples | Actual gzip input bytes | Actual raw input bytes | Generation s |
+|---|---:|---:|---:|---:|
+| Genotype-heavy GT:DP:PL | 40,000 x 1,000 | 263,847,034 | 698,660,307 | 140.06 |
+| Row/INFO-heavy GT + 512-byte random INFO | 300,000 x 4 | 121,117,507 | 170,124,047 | 12.46 |
+| Low-payload row-heavy GT control | 500,000 x 4 | 4,408,101 | 24,177,378 | 8.50 |
+
+The main inputs are **263.8 MB and 121.1 MB compressed**, not merely hundreds of
+MB raw. The low-payload control is intentionally much smaller on disk: it tests
+per-record overhead when genotype data is cheap, rather than meeting the size
+target. Gzip/raw size ratios are 0.378, 0.712 and 0.182 respectively. Generation
+is excluded from all conversion timings.
+
+| Case | ICF wall s | Two-pass wall s | Speedup | ICF peak RSS MiB | Two-pass peak RSS MiB | GT-only s | Combined schema scan s |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Genotype-heavy | 86.38 | 29.36 | 2.94x | 682.5 | 81.6 | 8.59 | 11.49 |
+| Row/INFO-heavy | 82.80 | 22.34 | 3.71x | 1,009.4 | 257.8 | 1.33 | 8.57 |
+| Low-payload row-heavy | 43.62 | 25.97 | 1.68x | 644.5 | 53.8 | 1.13 | 12.57 |
+
+| Case | Temporary ICF bytes | Final Zarr bytes | ICF sampled peak work bytes | Two-pass sampled peak work bytes |
+|---|---:|---:|---:|---:|
+| Genotype-heavy | 225,575,718 | 172,520,737 | 398,096,455 | 172,520,737 |
+| Row/INFO-heavy | 154,679,552 | 116,519,572 | 271,199,124 | 146,866,618 |
+| Low-payload row-heavy | 3,674,036 | 1,487,972 | 5,162,008 | 1,487,972 |
+
+Two-pass ICF remains zero. The gzip input is additional to the work-directory
+usage in this table. The largest sampled total including input was about
+662 MB logical bytes. Non-atomic directory sampling is especially visible in
+the INFO case; the sampled work size is not an exact filesystem high-water mark.
+Peak RSS includes codec/serialization/native allocations, not just buffers.
+The ICF row/INFO case reached about **1 GiB RSS**, exceeding the initial pilot
+estimate of 200-500 MiB; serial execution kept this bounded. Prototype
+`buffer_bytes` (12,349,440 / 393,216 / 327,680) counts NumPy containers only:
+variable-length strings and native codec allocations are not represented.
+
+Every output comparison passed, including the random `variant_PAYLOAD` INFO
+values, GT masks/padding/phasing, schema and region index. These observations
+remain cache-sized relative to host memory. Input generation warms the
+filesystem cache, and method ordering can favor the later run; **cold-cache
+performance was not measured**. No system cache flushing or memory-pressure
+eviction was attempted on the shared host.
+
+### Where can two-pass be worst?
+
+**Measured:** the low-payload, many-row control gives the weakest speedup,
+1.68x. Its first pass consumes about **48%** of two-pass conversion time,
+versus 39% for the genotype-heavy case and 38% for the INFO-heavy case.
+The GT-only scan is only 1.13 s, while complete schema discovery takes 12.57 s:
+cheap GT does not make full per-record metadata work free. This is reduced
+benefit, **not an observed regression against ICF**. INFO-heavy input raises
+schema work relative to a GT-only scan (8.57 versus 1.33 s), but eliminating
+ICF serialization still dominates in this measured case.
+
+**Analytic, not measured here:**
+
+- A remote or cold, slow source must be read twice without input caching. At
+  bandwidth B, an additional complete traversal transfers compressed input
+  size C again, with a transfer budget C/B; overlap with parsing, remote caching
+  and latency determine the actual wall-time penalty. For illustration,
+  263.8 MB at 10 MB/s represents 26.4 s of transfer per traversal. This is
+  arithmetic, not an S3 measurement. An ICF route parses the VCF once but
+  writes and rereads its intermediate; relative source/intermediate bandwidth
+  matters. Slow S3 plus fast local intermediate storage can favor ICF.
+- Poorly compressible, metadata-heavy inputs can make repeat decompression and
+  schema parsing more expensive than rereading a compact local ICF. Our random
+  INFO case exercises low compressibility, but does not demonstrate that
+  crossover. Highly compressible sources may instead make extra source I/O
+  cheap while ICF object serialization still dominates.
+- Many rows with very few samples expose fixed Python/header-field processing
+  costs. Extra INFO fields, complex Number=./G values or large multiallelic
+  likelihoods can make inference more expensive; one random scalar INFO field
+  is not coverage of all those cases.
+- Repeated indexed partition scans/seeks, shard fan-out, remote retries and
+  non-seekable inputs can worsen a design that silently rereads or refetches
+  data. The prototype performs exactly two full sequential parses plus the
+  existing header peek; it does not test those production behaviors.
+
+The larger results support removing the materialized ICF for these cases.
+They do not establish production-API throughput, cold/S3 performance or
+terabyte-scale extrapolation.
