@@ -27,7 +27,7 @@ class NaturalOrderGroup(click.Group):
 
 class StoragePath(click.Path):
     def convert(self, value, param, ctx):
-        if str(value).startswith("s3://"):
+        if str(value).startswith(("s3://", "s3+http://", "s3+https://")):
             try:
                 storage.path(value)
             except ValueError as e:
@@ -226,7 +226,7 @@ def setup_logging(verbosity):
 
 
 def check_overwrite_dir(path, force, *, allow_s3=False):
-    if str(path).startswith("s3://") and not allow_s3:
+    if str(path).startswith(("s3://", "s3+http://", "s3+https://")) and not allow_s3:
         raise click.UsageError("Final VCZ output must be a local path")
     path = storage.path(path)
     if path.exists():

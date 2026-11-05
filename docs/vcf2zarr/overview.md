@@ -154,22 +154,34 @@ vcf2zarr encode s3://my-bucket/work/sample.icf sample.vcz --batch-size 64
 vcf2zarr convert sample.vcf.gz sample.vcz --temp-icf-dir s3://my-bucket/tmp
 ```
 
-S3 VCF data is read by htslib using signed HTTP URLs with range requests;
-only small adjacent `.tbi`/`.csi` indexes are downloaded to a temporary local
-directory. Indexed multi-contig input and local input have the same partition
-semantics. The cyvcf2/htslib build must support HTTP. URLs are freshly signed
-for each opened partition, valid for up to 24 hours (or the remaining credential
-lifetime, if shorter). Very long individual partition reads require smaller
-partitions or longer-lived credentials. Native HTTP/authentication errors
-propagate rather than being replaced by empty results.
+VCF/BCF data uses HTSlib's native S3 protocol and ranged reads, without presigned
+URLs. The cyvcf2/HTSlib build must include its S3 and HTTP plugins; unsupported
+protocols and authentication failures propagate without a fallback download.
+BCF indexes also use native S3. VCF indexes (TBI or CSI) are copied to a small,
+unique temporary local directory and removed when the reader closes: cyvcf2's
+tabix API otherwise caches remote indexes in the working directory. This also
+isolates concurrent inputs with identically named indexes. Index statistics
+and ICF data use `s3fs`. Indexed input retains the local partition semantics.
 
-Credentials come from the standard AWS credential chain (environment, profiles,
-or IAM roles). `AWS_ENDPOINT_URL_S3` or `AWS_ENDPOINT_URL` selects an
-S3-compatible endpoint. Every distributed worker needs the same credentials
-and endpoint configuration. Credentials and signed URLs are not written to
-ICF or conversion metadata. Buckets must already exist. Use a dedicated,
-otherwise-empty prefix for each ICF run; a prefix containing existing data is
-rejected.
+Configure credentials for **both** readers. HTSlib supports environment variables
+such as `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` and
+`AWS_DEFAULT_REGION`, and shared credentials files/profiles (depending on its
+version/build). Do not assume it implements botocore's complete credential
+provider chain or automatic IAM-role refresh. Long-running jobs using temporary
+credentials need an externally refreshed shared credentials file supported by
+the installed HTSlib, or credentials valid for the entire job; environment
+credentials inherited by a running worker do not refresh themselves.
+`s3fs` uses its standard AWS credential provider chain separately.
+
+For S3-compatible endpoints, `AWS_ENDPOINT_URL_S3` or `AWS_ENDPOINT_URL` configures
+`s3fs`; configure native reads separately with `HTS_S3_HOST=host:port` and, when
+needed, `HTS_S3_ADDRESS_STYLE=path`. Native `s3://` defaults to HTTPS;
+`s3+http://bucket/key` explicitly selects HTTP for local services, and
+`s3+https://bucket/key` explicitly selects HTTPS. Every distributed worker needs
+the same credentials and endpoint configuration. Credentials and signed URLs
+are not written to ICF or conversion metadata. Buckets must already exist. Use a
+dedicated, otherwise-empty prefix for each ICF run; a prefix containing existing
+data is rejected.
 
 `--icf-path` retains intermediate data; `--temp-icf-dir` chooses a local parent
 directory or S3 parent prefix for temporary ICF. The latter creates a unique

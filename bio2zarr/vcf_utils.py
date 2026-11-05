@@ -2,6 +2,7 @@ import contextlib
 import gzip
 import logging
 import pathlib
+import shutil
 import struct
 import tempfile
 from collections.abc import Sequence
@@ -440,24 +441,35 @@ class VcfFile(contextlib.AbstractContextManager):
             else:
                 raise ValueError("Only .tbi or .csi indexes are supported.")
 
-        input_path = vcf_path
-        native_index_path = self.index_path
-        if isinstance(vcf_path, storage.S3Path):
-            input_path = vcf_path.url()
-        if isinstance(native_index_path, storage.S3Path):
-            self._temporary_index = tempfile.TemporaryDirectory(
-                prefix="bio2zarr-vcf-index-"
-            )
-            local_index = pathlib.Path(self._temporary_index.name) / (
-                "index" + native_index_path.suffix
-            )
-            with native_index_path.open("rb") as src, local_index.open("wb") as dst:
-                dst.write(src.read())
-            native_index_path = local_index
-        if isinstance(vcf_path, storage.S3Path) and native_index_path is not None:
-            input_path = f"{input_path}##idx##{native_index_path}"
+        self.sequence_names = None
+        self.index = None
+        if self.index_type == VcfIndexType.CSI:
+            self.index = read_csi(self.index_path)
+            self.file_type = VcfFileType.BCF
+            if len(self.index.aux) > 0:
+                self.file_type = VcfFileType.VCF
+                self.sequence_names = self.index.parse_vcf_aux()
+        elif self.index_type == VcfIndexType.TABIX:
+            self.index = read_tabix(self.index_path)
+            self.sequence_names = self.index.sequence_names
+
         try:
-            self.vcf = cyvcf2.VCF(str(input_path))
+            self.vcf = cyvcf2.VCF(str(vcf_path))
+            native_index_path = self.index_path
+            if (
+                isinstance(native_index_path, storage.S3Path)
+                and self.file_type == VcfFileType.VCF
+            ):
+                # cyvcf2's tabix loader always saves remote indexes in cwd.
+                self._temporary_index = tempfile.TemporaryDirectory(
+                    prefix="bio2zarr-vcf-index-"
+                )
+                # The .tbi suffix selects cyvcf2's tabix loader even for CSI VCF
+                # indexes; HTSlib detects the actual format from its contents.
+                local_index = pathlib.Path(self._temporary_index.name) / "index.tbi"
+                with native_index_path.open("rb") as src, local_index.open("wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                native_index_path = local_index
             if native_index_path is not None:
                 self.vcf.set_index(str(native_index_path))
         except BaseException:
@@ -465,23 +477,9 @@ class VcfFile(contextlib.AbstractContextManager):
             raise
 
         logger.debug(f"Loaded {vcf_path} with index {self.index_path}")
-        self.sequence_names = None
-
-        self.index = None
-        if self.index_type == VcfIndexType.CSI:
-            # Determine the file-type based on the "aux" field.
-            self.index = read_csi(self.index_path)
-            self.file_type = VcfFileType.BCF
-            if len(self.index.aux) > 0:
-                self.file_type = VcfFileType.VCF
-                self.sequence_names = self.index.parse_vcf_aux()
-            else:
-                self.sequence_names = self.vcf.seqnames
-        elif self.index_type == VcfIndexType.TABIX:
-            self.index = read_tabix(self.index_path)
-            self.file_type = VcfFileType.VCF
-            self.sequence_names = self.index.sequence_names
-        else:
+        if self.file_type == VcfFileType.BCF:
+            self.sequence_names = self.vcf.seqnames
+        if self.index is None:
             assert self.index is None
             var = next(self.vcf, None)
             if var is None:
@@ -492,7 +490,7 @@ class VcfFile(contextlib.AbstractContextManager):
                 self.sequence_names = [var.CHROM]
                 self.vcf.close()
                 # There doesn't seem to be a way to reset the iterator
-                self.vcf = cyvcf2.VCF(str(input_path))
+                self.vcf = cyvcf2.VCF(str(vcf_path))
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.vcf is not None:
@@ -525,12 +523,7 @@ class VcfFile(contextlib.AbstractContextManager):
                 yield var
         else:
             start = 1 if region.start is None else region.start
-            # cyvcf2 dispatches on a filename suffix, which a signed BCF URL
-            # lacks. Use its native BCF iterator when the parsed index is BCF.
-            query = (
-                self.vcf._bcf_region if self.file_type == VcfFileType.BCF else self.vcf
-            )
-            for var in query(str(region)):
+            for var in self.vcf(str(region)):
                 # Need to filter because of indels overlapping the region
                 if var.POS >= start:
                     yield var

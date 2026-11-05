@@ -2273,7 +2273,7 @@ def convert(
 
 @contextlib.contextmanager
 def temp_icf_path(prefix=None, dir=None):
-    if dir is not None and str(dir).startswith("s3://"):
+    if dir is not None and isinstance(storage.path(dir), storage.S3Path):
         tmp = storage.path(dir) / f"{prefix or 'bio2zarr'}-{uuid.uuid4().hex}"
         try:
             yield tmp

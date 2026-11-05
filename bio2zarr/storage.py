@@ -14,13 +14,22 @@ class S3Path:
 
     def __post_init__(self):
         uri = self.uri.rstrip("/")
-        parts = uri.removeprefix("s3://").split("/", 1)
-        if not uri.startswith("s3://") or len(parts) != 2 or not all(parts):
+        scheme, _, key = uri.partition("://")
+        parts = key.split("/", 1)
+        if (
+            scheme not in ("s3", "s3+http", "s3+https")
+            or len(parts) != 2
+            or not all(parts)
+        ):
             raise ValueError("S3 paths must include a bucket and an object key/prefix")
         object.__setattr__(self, "uri", uri)
 
     def __str__(self):
         return self.uri
+
+    @property
+    def object_path(self):
+        return "s3://" + self.uri.split("://", 1)[1]
 
     def __truediv__(self, name):
         return S3Path(f"{self.uri}/{name}")
@@ -46,36 +55,32 @@ class S3Path:
         )
 
     def exists(self):
-        return self.fs.exists(self.uri)
+        return self.fs.exists(self.object_path)
 
     def is_dir(self):
-        return self.fs.isdir(self.uri)
+        return self.fs.isdir(self.object_path)
 
     def open(self, mode="r", **kwargs):
-        return self.fs.open(self.uri, mode, **kwargs)
+        return self.fs.open(self.object_path, mode, **kwargs)
 
     def mkdir(self, parents=False, exist_ok=False):
         # S3 directories are prefixes, not objects. Never create a bucket here.
-        bucket = self.uri.removeprefix("s3://").split("/")[0]
+        bucket = self.uri.split("://", 1)[1].split("/")[0]
         if not self.fs.exists(bucket):
             raise FileNotFoundError(f"S3 bucket does not exist: {bucket}")
 
     def unlink(self):
-        self.fs.rm_file(self.uri)
+        self.fs.rm_file(self.object_path)
 
     @property
     def size(self):
-        return self.fs.size(self.uri)
-
-    def url(self):
-        # URLs are refreshed for every opened partition, never written to metadata.
-        return self.fs.url(self.uri, expires=86400)
+        return self.fs.size(self.object_path)
 
 
 def path(value):
     if isinstance(value, S3Path):
         return value
-    if str(value).startswith("s3://"):
+    if str(value).startswith(("s3://", "s3+http://", "s3+https://")):
         return S3Path(str(value))
     if "://" in str(value):
         raise ValueError(f"Unsupported storage protocol: {str(value).split('://')[0]}")
@@ -86,7 +91,7 @@ def remove_tree(value):
     value = path(value)
     if isinstance(value, S3Path):
         # Match only descendants: a similarly named neighbouring prefix is not ours.
-        objects = value.fs.find(str(value) + "/")
+        objects = value.fs.find(value.object_path + "/")
         if objects:
             value.fs.rm(objects)
     else:

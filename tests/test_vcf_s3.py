@@ -18,6 +18,7 @@ pytestmark = pytest.mark.skipif(
     sys.platform == "win32", reason="VCF support requires cyvcf2"
 )
 pysam = pytest.importorskip("pysam")
+DATA = pathlib.Path(__file__).parent / "data" / "vcf"
 
 
 def serve_s3(connection, requests):
@@ -27,7 +28,15 @@ def serve_s3(connection, requests):
     app = server._server.app
 
     def record_requests(environ, start_response):
-        requests.put((environ.get("PATH_INFO"), environ.get("HTTP_RANGE")))
+        requests.put(
+            (
+                environ.get("PATH_INFO"),
+                environ.get("HTTP_RANGE"),
+                environ.get("QUERY_STRING"),
+                environ.get("HTTP_AUTHORIZATION"),
+                environ.get("HTTP_USER_AGENT"),
+            )
+        )
         return app(environ, start_response)
 
     server._server.app = record_requests
@@ -37,7 +46,7 @@ def serve_s3(connection, requests):
 
 
 @pytest.fixture
-def s3(monkeypatch):
+def s3(monkeypatch, tmp_path):
     # Native htslib holds the GIL during HTTP reads: the server must be external.
     ctx = multiprocessing.get_context("spawn")
     parent, child = ctx.Pipe()
@@ -50,12 +59,18 @@ def s3(monkeypatch):
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
     monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
     monkeypatch.setenv("AWS_ENDPOINT_URL", endpoint)
+    monkeypatch.setenv("HTS_S3_HOST", endpoint.removeprefix("http://"))
+    monkeypatch.setenv("HTS_S3_ADDRESS_STYLE", "path")
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
     monkeypatch.delenv("AWS_ENDPOINT_URL_S3", raising=False)
     monkeypatch.delenv("AWS_SESSION_TOKEN", raising=False)
     client = boto3.client("s3", endpoint_url=endpoint)
     client.create_bucket(Bucket="bio2zarr-test")
     try:
         yield client, requests
+        assert not list(cwd.iterdir()), "HTSlib cached an index in cwd"
     finally:
         parent.send(None)
         process.join(10)
@@ -69,13 +84,22 @@ def s3(monkeypatch):
 
 def upload(s3, filename):
     client, _ = s3
-    path = pathlib.Path("tests/data/vcf") / filename
+    path = DATA / filename
     client.upload_file(str(path), "bio2zarr-test", f"input/{filename}")
     for suffix in [".tbi", ".csi"]:
         index = pathlib.Path(str(path) + suffix)
         if index.exists():
             client.upload_file(str(index), "bio2zarr-test", f"input/{filename}{suffix}")
-    return f"s3://bio2zarr-test/input/{filename}"
+    return f"s3+http://bio2zarr-test/input/{filename}"
+
+
+def drain_requests(request_queue):
+    requests = []
+    while True:
+        try:
+            requests.append(request_queue.get_nowait())
+        except queue.Empty:
+            return requests
 
 
 @pytest.mark.parametrize(
@@ -84,17 +108,72 @@ def upload(s3, filename):
 )
 def test_s3_input(s3, filename):
     uri = upload(s3, filename)
-    expected = vcf_mod.convert([f"tests/data/vcf/{filename}"], infer_shape=True)
+    expected = vcf_mod.convert([DATA / filename], infer_shape=True)
     actual = vcf_mod.convert([uri], infer_shape=True)
     assert_zarr_equal(expected, actual)
     _, request_queue = s3
-    requests = []
-    while True:
-        try:
-            requests.append(request_queue.get_nowait())
-        except queue.Empty:
-            break
-    assert any(name == f"/bio2zarr-test/input/{filename}" for name, _ in requests)
+    requests = drain_requests(request_queue)
+    assert any(name == f"/bio2zarr-test/input/{filename}" for name, *_ in requests)
+    assert all(
+        "Signature" not in query and "X-Amz" not in query
+        for _, _, query, _, _ in requests
+    )
+    assert any(
+        name == f"/bio2zarr-test/input/{filename}" and auth
+        for name, _, _, auth, _ in requests
+    )
+
+
+@pytest.mark.parametrize(
+    ("filename", "index_suffix"),
+    [
+        ("sample.vcf.gz", ".tbi"),
+        ("sample_extra_contig.vcf.gz", ".csi"),
+        ("sample.bcf", ".csi"),
+    ],
+)
+def test_s3_custom_index_isolation(s3, filename, index_suffix):
+    client, request_queue = s3
+    uri = upload(s3, filename)
+    index = pathlib.Path(str(DATA / filename) + index_suffix)
+    for prefix in ["one", "two"]:
+        client.upload_file(
+            str(index), "bio2zarr-test", f"{prefix}/shared{index_suffix}"
+        )
+    client.delete_object(Bucket="bio2zarr-test", Key=f"input/{filename}{index_suffix}")
+    with (
+        vcf_utils.VcfFile(
+            uri, index_path=f"s3+http://bio2zarr-test/one/shared{index_suffix}"
+        ) as first,
+        vcf_utils.VcfFile(
+            uri, index_path=f"s3+http://bio2zarr-test/two/shared{index_suffix}"
+        ) as second,
+    ):
+        expected = [(v.CHROM, v.POS) for v in first.vcf]
+        assert expected == [(v.CHROM, v.POS) for v in second.vcf]
+        region = vcf_utils.Region(expected[0][0], expected[0][1], expected[0][1])
+        assert first.count_variants(region) == second.count_variants(region) == 1
+        if filename.endswith(".bcf"):
+            assert first._temporary_index is second._temporary_index is None
+        else:
+            assert first._temporary_index.name != second._temporary_index.name
+            temp_paths = [first._temporary_index.name, second._temporary_index.name]
+            assert all(pathlib.Path(p, "index.tbi").exists() for p in temp_paths)
+    if not filename.endswith(".bcf"):
+        assert all(not pathlib.Path(p).exists() for p in temp_paths)
+    requests = drain_requests(request_queue)
+    if filename.endswith(".bcf"):
+        # BCF index reads use HTSlib, not the s3fs statistics reader alone.
+        assert any(
+            name == f"/bio2zarr-test/one/shared{index_suffix}"
+            and auth
+            and "htslib" in agent.lower()
+            for name, _, _, auth, agent in requests
+        )
+    assert all(
+        "Signature" not in query and "X-Amz" not in query
+        for _, _, query, _, _ in requests
+    )
 
 
 def test_s3_variant_range_read(s3, tmp_path):
@@ -111,22 +190,21 @@ def test_s3_variant_range_read(s3, tmp_path):
     compressed = str(source) + ".gz"
     pysam.tabix_compress(str(source), compressed)
     pysam.tabix_index(compressed, preset="vcf")
+    assert pathlib.Path(compressed).stat().st_size > 65536
     client, request_queue = s3
     for suffix in ["", ".tbi"]:
         client.upload_file(
             compressed + suffix, "bio2zarr-test", "input/large.vcf.gz" + suffix
         )
-    with vcf_utils.VcfFile("s3://bio2zarr-test/input/large.vcf.gz") as file:
+    with vcf_utils.VcfFile("s3+http://bio2zarr-test/input/large.vcf.gz") as file:
         assert file.count_variants(vcf_utils.Region("1", 9999001, 9999001)) == 1
-    requests = []
-    while True:
-        try:
-            requests.append(request_queue.get_nowait())
-        except queue.Empty:
-            break
+    requests = drain_requests(request_queue)
     assert any(
-        name == "/bio2zarr-test/input/large.vcf.gz" and byte_range
-        for name, byte_range in requests
+        name == "/bio2zarr-test/input/large.vcf.gz"
+        and byte_range
+        and int(byte_range.removeprefix("bytes=").split("-")[0]) > 65536
+        and "htslib" in agent.lower()
+        for name, byte_range, _, _, agent in requests
     )
 
 
@@ -144,7 +222,7 @@ def test_s3_icf_lifecycle(s3, tmp_path):
     icf = vcf_mod.IntermediateColumnarFormat(icf_path)
     assert icf.num_records == 9
     assert vcf_mod.inspect(icf_path) == icf.summary_table()
-    expected = vcf_mod.convert(["tests/data/vcf/sample.vcf.gz"])
+    expected = vcf_mod.convert([DATA / "sample.vcf.gz"])
     out = tmp_path / "vcz"
     summary = vcf_mod.encode_init(icf_path, out, 3, batch_size=2, variants_chunk_size=3)
     for j in range(summary.num_partitions):
@@ -164,9 +242,9 @@ def test_temporary_s3_icf_cleanup(s3):
     client, _ = s3
     neighbour = "temp/not-our-run"
     client.put_object(Bucket="bio2zarr-test", Key=neighbour, Body=b"keep")
-    expected = vcf_mod.convert(["tests/data/vcf/sample.vcf.gz"])
+    expected = vcf_mod.convert([DATA / "sample.vcf.gz"])
     actual = vcf_mod.convert(
-        ["tests/data/vcf/sample.vcf.gz"],
+        [DATA / "sample.vcf.gz"],
         temp_icf_dir="s3://bio2zarr-test/temp",
     )
     assert_zarr_equal(expected, actual)
@@ -197,6 +275,20 @@ def test_s3_index_errors(s3):
             list(file.variants())
 
 
+def test_s3_native_error_propagates(s3, monkeypatch):
+    import cyvcf2  # noqa: PLC0415
+
+    uri = upload(s3, "sample.vcf.gz")
+
+    def unsupported(path):
+        assert path == uri
+        raise OSError("native S3 protocol unsupported")
+
+    monkeypatch.setattr(cyvcf2, "VCF", unsupported)
+    with pytest.raises(OSError, match="native S3 protocol unsupported"):
+        vcf_utils.VcfFile(uri)
+
+
 def test_s3_cli(s3, tmp_path):
     uri = upload(s3, "sample.vcf.gz")
     result = click.testing.CliRunner().invoke(
@@ -207,14 +299,13 @@ def test_s3_cli(s3, tmp_path):
     assert result.exit_code == 0
 
 
-def test_s3_worker_processes(s3):
-    uri = upload(s3, "sample.vcf.gz")
+@pytest.mark.parametrize("filename", ["sample.vcf.gz", "sample.bcf"])
+def test_s3_worker_processes(s3, filename):
+    uri = upload(s3, filename)
     actual = vcf_mod.convert(
         [uri], max_ploidy=2, worker_processes=2, variants_chunk_size=3
     )
-    expected = vcf_mod.convert(
-        ["tests/data/vcf/sample.vcf.gz"], max_ploidy=2, variants_chunk_size=3
-    )
+    expected = vcf_mod.convert([DATA / filename], max_ploidy=2, variants_chunk_size=3)
     assert_zarr_equal(expected, actual)
 
 

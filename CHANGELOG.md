@@ -7,7 +7,8 @@
   dimension-scan metadata. Allele counts include REF; supplied bounds can be
   combined with shape inference and are checked without truncation.
   Preserve variable-width fields and reject insufficient bounds. Add S3
-  VCF/BCF input with indexes, S3 ICF read/write (including distributed stages),
+  native HTSlib S3 VCF/BCF input with indexes (no presigned URLs), S3 ICF
+  read/write (including distributed stages),
   and configurable automatically cleaned-up temporary ICF storage.
 - Preserve missing local-allele AD/PL rows when batching VCF conversion.
 
