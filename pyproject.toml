@@ -20,7 +20,8 @@ dependencies = [
   "coloredlogs",
   "click",
   # Using pandas for reading plink files, but will be useful more generally
-  "pandas"
+  "pandas",
+  "universal-pathlib>=0.3",
 ]
 requires-python = ">=3.11"
 classifiers = [

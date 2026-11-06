@@ -304,7 +304,7 @@ def scan_vcfs(
     )
     # An easy mistake to make is to pass the same file twice. Check this early on.
     for path, count in collections.Counter(paths).items():
-        if not path.exists():  # NEEDS TEST
+        if not vcf_utils.input_path(path).exists():  # NEEDS TEST
             raise FileNotFoundError(path)
         if count > 1:
             raise ValueError(f"Duplicate path provided: {path}")
@@ -841,7 +841,7 @@ class IcfPartitionWriter(contextlib.AbstractContextManager):
             field_path = get_vcf_field_path(out_path, vcf_field)
             field_partition_path = field_path / f"p{partition_index}"
             # Should be robust to running explode_partition twice.
-            field_partition_path.mkdir(exist_ok=True)
+            storage.mkdir(field_partition_path, exist_ok=True)
             transformer = VcfValueTransformer.factory(vcf_field, num_samples)
             self.field_writers[vcf_field.full_name] = IcfFieldWriter(
                 vcf_field,
@@ -1356,7 +1356,7 @@ def scan_vcf_dimensions(
     if max_alleles is not None:
         validate_positive_int("max_alleles", max_alleles)
     validate_positive_int("max_batch_bytes", max_batch_bytes)
-    paths = [storage.path(p) for p in vcfs]
+    paths = list(vcfs)
     if not paths:
         raise ValueError("At least one VCF path is required")
     metadata, header = scan_vcfs(
@@ -1798,7 +1798,7 @@ class IntermediateColumnarFormatWriter:
             raise ValueError(f"ICF path already exists: {self.path}")
         if compressor is None:
             compressor = ICF_DEFAULT_COMPRESSOR
-        vcfs = [storage.path(vcf) for vcf in vcfs]
+        vcfs = list(vcfs)
         target_num_partitions = max(target_num_partitions, len(vcfs))
 
         # TODO move scan_vcfs into this class
@@ -1839,11 +1839,11 @@ class IntermediateColumnarFormatWriter:
     def mkdirs(self):
         num_dirs = len(self.metadata.fields)
         logger.info(f"Creating {num_dirs} field directories")
-        self.path.mkdir()
-        self.wip_path.mkdir()
+        storage.mkdir(self.path)
+        storage.mkdir(self.wip_path)
         for field in self.metadata.fields:
             field_path = get_vcf_field_path(self.path, field)
-            field_path.mkdir(parents=True)
+            storage.mkdir(field_path, parents=True)
 
     def load_partition_summaries(self):
         summaries = []
@@ -2167,7 +2167,7 @@ def convert(
         vcz.local_zarr_path(vcz_path)
     if not isinstance(infer_shape, bool):
         raise ValueError("infer_shape must be a boolean")
-    vcfs = [storage.path(p) for p in vcfs]
+    vcfs = list(vcfs)
     if not vcfs:
         raise ValueError("At least one VCF path is required")
     if len(set(vcfs)) != len(vcfs):
@@ -2200,7 +2200,7 @@ def convert(
         else:
             metadata, header = dimension_metadata
             actual = {p.vcf_path for p in metadata.partitions}
-            expected = {str(storage.path(p)) for p in vcfs}
+            expected = {str(p) for p in vcfs}
             if actual and actual != expected:
                 raise ValueError("dimension_metadata does not match input VCF paths")
         with tempfile.TemporaryDirectory(prefix="bio2zarr-vcf-rows-") as tmp:

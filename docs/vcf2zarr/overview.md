@@ -161,7 +161,9 @@ BCF indexes also use native S3. VCF indexes (TBI or CSI) are copied to a small,
 unique temporary local directory and removed when the reader closes: cyvcf2's
 tabix API otherwise caches remote indexes in the working directory. This also
 isolates concurrent inputs with identically named indexes. Index statistics
-and ICF data use `s3fs`. Indexed input retains the local partition semantics.
+and ICF data use `universal_pathlib` (`UPath`) backed by `s3fs`, keeping the
+same pathlib-style operations as local files. Indexed input retains the local
+partition semantics.
 
 Configure credentials for **both** readers. HTSlib supports environment variables
 such as `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` and

@@ -1,6 +1,7 @@
 import contextlib
 import gzip
 import logging
+import os
 import pathlib
 import shutil
 import struct
@@ -20,6 +21,21 @@ logger = logging.getLogger(__name__)
 CSI_EXTENSION = ".csi"
 TABIX_EXTENSION = ".tbi"
 TABIX_LINEAR_INDEX_INTERVAL_SIZE = 1 << 14  # 16kb interval size
+
+
+def input_path(value):
+    uri = str(value)
+    if uri.startswith(("s3+http://", "s3+https://")):
+        scheme, key = uri.split("://", 1)
+        endpoint = os.environ.get("AWS_ENDPOINT_URL_S3") or os.environ.get(
+            "AWS_ENDPOINT_URL"
+        )
+        host = (endpoint or os.environ.get("HTS_S3_HOST", "s3.amazonaws.com")).split(
+            "://", 1
+        )[-1]
+        result = storage.path(f"s3://{key}")
+        return type(result)(result, endpoint_url=f"{scheme.split('+', 1)[1]}://{host}")
+    return storage.path(value)
 
 
 def ceildiv(a: int, b: int) -> int:
@@ -409,7 +425,9 @@ class VcfFile(contextlib.AbstractContextManager):
         self.index_type = None
         self._temporary_index = None
 
-        vcf_path = storage.path(vcf_path)
+        input_uri = str(vcf_path)
+        index_uri = str(index_path) if index_path is not None else None
+        vcf_path = input_path(vcf_path)
         if not vcf_path.exists():
             raise FileNotFoundError(vcf_path)
         if index_path is None:
@@ -423,8 +441,10 @@ class VcfFile(contextlib.AbstractContextManager):
                 if not index_path.exists():
                     # No supported index found
                     index_path = None
+            if index_path is not None:
+                index_uri = input_uri + index_path.suffix
         else:
-            index_path = storage.path(index_path)
+            index_path = input_path(index_path)
             if not index_path.exists():
                 raise FileNotFoundError(
                     f"Specified index path {index_path} does not exist"
@@ -454,10 +474,10 @@ class VcfFile(contextlib.AbstractContextManager):
             self.sequence_names = self.index.sequence_names
 
         try:
-            self.vcf = cyvcf2.VCF(str(vcf_path))
-            native_index_path = self.index_path
+            self.vcf = cyvcf2.VCF(input_uri)
+            native_index_path = index_uri
             if (
-                isinstance(native_index_path, storage.S3Path)
+                isinstance(self.index_path, storage.S3Path)
                 and self.file_type == VcfFileType.VCF
             ):
                 # cyvcf2's tabix loader always saves remote indexes in cwd.
@@ -467,7 +487,7 @@ class VcfFile(contextlib.AbstractContextManager):
                 # The .tbi suffix selects cyvcf2's tabix loader even for CSI VCF
                 # indexes; HTSlib detects the actual format from its contents.
                 local_index = pathlib.Path(self._temporary_index.name) / "index.tbi"
-                with native_index_path.open("rb") as src, local_index.open("wb") as dst:
+                with self.index_path.open("rb") as src, local_index.open("wb") as dst:
                     shutil.copyfileobj(src, dst)
                 native_index_path = local_index
             if native_index_path is not None:
@@ -490,7 +510,7 @@ class VcfFile(contextlib.AbstractContextManager):
                 self.sequence_names = [var.CHROM]
                 self.vcf.close()
                 # There doesn't seem to be a way to reset the iterator
-                self.vcf = cyvcf2.VCF(str(vcf_path))
+                self.vcf = cyvcf2.VCF(input_uri)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.vcf is not None:

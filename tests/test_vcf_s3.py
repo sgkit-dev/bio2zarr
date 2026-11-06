@@ -9,6 +9,7 @@ import boto3
 import click.testing
 import pytest
 from moto.server import ThreadedMotoServer
+from upath import UPath
 
 from bio2zarr import cli, storage, vcf_utils
 from bio2zarr import vcf as vcf_mod
@@ -314,3 +315,31 @@ def test_s3_prefix_validation():
         storage.path("s3://bucket")
     with pytest.raises(ValueError, match="Unsupported storage protocol"):
         storage.path("gs://bucket/input")
+
+
+@pytest.mark.parametrize("scheme", ["s3", "s3+http", "s3+https"])
+def test_universal_pathlib(scheme, monkeypatch):
+    monkeypatch.delenv("AWS_ENDPOINT_URL", raising=False)
+    monkeypatch.delenv("AWS_ENDPOINT_URL_S3", raising=False)
+    monkeypatch.delenv("HTS_S3_HOST", raising=False)
+    uri = f"{scheme}://bucket/input.vcf.gz"
+    path = vcf_utils.input_path(uri)
+    assert isinstance(path, UPath)
+    assert storage.path(path) is path
+    assert str(path) == "s3://bucket/input.vcf.gz"
+    index = path.with_suffix(".gz.tbi")
+    assert str(index) == "s3://bucket/input.vcf.gz.tbi"
+    assert index.storage_options == path.storage_options
+    if scheme != "s3":
+        transport = scheme.split("+")[1]
+        assert path.storage_options["endpoint_url"] == f"{transport}://s3.amazonaws.com"
+    assert isinstance(storage.path("local.vcf.gz"), pathlib.Path)
+
+
+def test_mkdir_does_not_create_bucket(s3):
+    client, _ = s3
+    with pytest.raises(FileNotFoundError, match="S3 bucket does not exist"):
+        storage.mkdir(storage.path("s3://absent-bucket/intermediate"))
+    assert [bucket["Name"] for bucket in client.list_buckets()["Buckets"]] == [
+        "bio2zarr-test"
+    ]

@@ -29,7 +29,7 @@ class StoragePath(click.Path):
     def convert(self, value, param, ctx):
         if str(value).startswith(("s3://", "s3+http://", "s3+https://")):
             try:
-                storage.path(value)
+                vcf_utils.input_path(value)
             except ValueError as e:
                 self.fail(str(e), param, ctx)
             return str(value)
