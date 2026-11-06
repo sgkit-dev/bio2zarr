@@ -7,7 +7,8 @@ By default the ``bio2zarr`` PyPI package does not come with dependencies
 needed to convert VCF, BGEN or tskit files, so optional dependencies
 need to be specified:
 ```bash
-python3 -m pip install bio2zarr #Base package with only plink support
+python3 -m pip install bio2zarr #Base package with PLINK 1 support
+python3 -m pip install bio2zarr[plink2] #Install with PLINK 2 support (pgenlib)
 python3 -m pip install bio2zarr[vcf] #Install with VCF support
 python3 -m pip install bio2zarr[tskit] #Install with tskit support
 python3 -m pip install 'bio2zarr[bgen]' #Install with BGEN support
