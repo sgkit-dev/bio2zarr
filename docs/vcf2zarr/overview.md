@@ -93,6 +93,55 @@ across cores on a single machine (via the ``--worker-processes`` argument)
 or distributed across a cluster by the three-part ``init``, ``partition``
 and ``finalise`` commands.
 
+## Batched conversion without ICF
+
+`convert` uses row batches sized to the output variant chunks by default
+(normally 1000 rows). With a known maximum
+ploidy, it can avoid writing ICF entirely:
+
+```bash
+vcf2zarr convert sample.vcf.gz sample.vcz --max-ploidy 2
+vcf2zarr convert sample.vcf.gz sample.vcz --infer-shape
+vcf2zarr convert sample.vcf.gz sample.vcz --infer-shape --max-ploidy 2 --max-alleles 4
+```
+
+Maximum ploidy alone does not bound allele counts, variable-width INFO/FORMAT
+fields, or integer values. The no-ICF path therefore makes a streaming metadata
+pass to discover these dimensions and dtypes, keeping only summaries, then
+reads records again and converts all fields from shared row batches. With
+`--max-ploidy`, metadata discovery does not decode GT; the bound is checked
+during conversion. `--infer-shape` discovers all array dimensions and dtypes,
+including GT width when it is not supplied. It may accompany either or both
+maximum bounds, inferring the remaining dimensions. Neither path writes
+genotype or other field ICF data.
+
+`--max-alleles` includes REF: 2 is biallelic, and 1 permits only monomorphic
+records. The supplied bound sizes `alleles` and `alt_alleles`; with known or
+inferred ploidy it also determines the combinatorial width of Number=G fields.
+Too many actual alleles, or field values exceeding these widths, raise errors
+rather than truncating data. `--max-alleles` alone selects no-ICF conversion
+with ploidy inferred during the metadata pass. Other variable-width fields
+and numeric dtypes are still discovered: even supplying both maximum bounds
+does **not** make this a single-pass conversion.
+
+`--batch-size` limits rows; `--max-batch-bytes` limits approximate batch payload
+(default 64 MiB per worker, including string contents). Batches also stop at
+output variant-chunk boundaries, so narrow rows normally write each chunk once.
+Decoder objects, Zarr codec/chunk buffers and
+Python overhead add to this payload; this is not a process RSS limit. A single
+row exceeding the budget raises an error rather than being truncated. Larger
+rows require an explicitly increased budget. Ploidy, allele-count, field-width
+and integer-dtype overflows raise errors.
+
+The existing `--ploidy` option pads the conventional ICF-based conversion.
+It may also pad `--infer-shape` / `--max-alleles` conversion, but is mutually
+exclusive with `--max-ploidy`. Local alleles, missing/fill
+sentinels, phasing, zip output and Zarr 2/3 remain available. For explicit
+ICF workflows, `encode --batch-size N` batches source fields one column at a
+time (rather than retaining a decompressed ICF chunk for every field).
+`dencode-init --batch-size N` records this choice for subsequent workers;
+the existing distributed lifecycle is unchanged.
+
 ## Local alleles
 
 As discussed in our [preprint](
@@ -149,4 +198,3 @@ see [issue 302](https://github.com/sgkit-dev/bio2zarr/issues/302) for details.
 Document process of copying VCF Zarr datasets to an object store like S3.
 See [Issue 234](https://github.com/sgkit-dev/bio2zarr/issues/234)
 :::
-

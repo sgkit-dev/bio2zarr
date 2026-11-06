@@ -243,8 +243,7 @@ class ZarrArraySpec:
                     f"Max number of values {max_number} exceeds max alt alleles "
                     f"{max_alt_alleles} for {vcf_field.full_name}"
                 )
-            if max_alt_alleles > 0:
-                dimensions.append("alt_alleles")
+            dimensions.append("alt_alleles")
         elif vcf_field.vcf_number == "G":
             max_genotypes = schema.dimensions["genotypes"].size
             if max_number > max_genotypes:
@@ -504,6 +503,17 @@ localisable_fields = [
 ]
 
 
+def sanitise_local_field(value, shape, dtype):
+    if value is None:
+        return np.full(shape, constants.INT_MISSING, dtype=dtype)
+    value = sanitise_int_array(value, 2, dtype)
+    if value.shape[1] > shape[1]:
+        raise ValueError("Local allele source exceeds schema width")
+    result = np.full(shape, constants.INT_FILL, dtype=dtype)
+    result[:, : value.shape[1]] = value
+    return result
+
+
 @dataclasses.dataclass
 class VcfZarrPartition:
     start: int
@@ -566,6 +576,12 @@ class ZarrWriteResult:
     root: zarr.Group | None = None
 
 
+def local_zarr_path(path):
+    if "://" in str(path):
+        raise ValueError("Final VCZ output must be a local path")
+    return pathlib.Path(path)
+
+
 @contextlib.contextmanager
 def open_zarr(zarr_path, mode="r"):
     """Context manager that resolves zarr_path to a working directory path.
@@ -577,6 +593,8 @@ def open_zarr(zarr_path, mode="r"):
     - zarr_path ends with .zip: strips suffix, root is a ZipStore-backed group
     - otherwise: uses path directly, root is a directory-backed group
     """
+    if zarr_path is not None:
+        zarr_path = local_zarr_path(zarr_path)
     if zarr_path is None:
         with tempfile.TemporaryDirectory(prefix="bio2zarr_") as tmp:
             result = ZarrWriteResult(dir=pathlib.Path(tmp) / "zarr")
@@ -662,7 +680,7 @@ def encode(
 class VcfZarrWriter:
     def __init__(self, source_type, path, zarr_format=None):
         self.source_type = source_type
-        self.path = pathlib.Path(path)
+        self.path = local_zarr_path(path)
         self.zarr_format = zarr_format
         self.wip_path = self.path / "wip"
         self.arrays_path = self.wip_path / "arrays"
@@ -1040,7 +1058,12 @@ class VcfZarrWriter:
                 la_array, partition.start, partition.stop
             ):
                 raw_value = next(source)
-                value = descriptor.sanitise(raw_value, 2, raw_value.dtype)
+                dim = "alleles" if descriptor.array_name == "call_LAD" else "genotypes"
+                value = sanitise_local_field(
+                    raw_value,
+                    (self.source.num_samples, self.schema.dimensions[dim].size),
+                    buff.buff.dtype,
+                )
                 j = buff.next_buffer_row()
                 buff.buff[j] = descriptor.convert(value, la)
             self.finalise_partition_array(partition_index, buff)

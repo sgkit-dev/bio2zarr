@@ -11,6 +11,7 @@ import shutil
 import sys
 import tempfile
 from functools import partial
+from itertools import islice
 from typing import Any
 
 import numcodecs
@@ -127,6 +128,8 @@ ICF_METADATA_FORMAT_VERSION = "0.4"
 ICF_DEFAULT_COMPRESSOR = numcodecs.Blosc(
     cname="zstd", clevel=7, shuffle=numcodecs.Blosc.NOSHUFFLE
 )
+DEFAULT_BATCH_SIZE = vcz.DEFAULT_VARIANT_CHUNK_SIZE
+DEFAULT_MAX_BATCH_BYTES = 64 * 1024**2
 
 
 @dataclasses.dataclass
@@ -293,6 +296,9 @@ def scan_vcfs(
     target_num_partitions,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
 ):
+    paths = [pathlib.Path(path) for path in paths]
+    if not paths:
+        raise ValueError("At least one VCF path is required")
     logger.info(
         f"Scanning {len(paths)} VCFs attempting to split into {target_num_partitions}"
         f" partitions."
@@ -1111,16 +1117,25 @@ class IntermediateColumnarFormat(vcz.Source):
         samples_chunk_size=None,
         local_alleles=None,
         ploidy=None,
+        max_alleles=None,
     ):
         if local_alleles is None:
             local_alleles = False
 
-        max_alleles = max(self.fields["ALT"].vcf_field.summary.max_number + 1, 2)
+        observed_alleles = self.fields["ALT"].vcf_field.summary.max_number + 1
+        if max_alleles is None:
+            max_alleles = max(observed_alleles, 2)
+        else:
+            validate_positive_int("max_alleles", max_alleles)
+            if observed_alleles > max_alleles:
+                raise ValueError(
+                    f"Allele count {observed_alleles} exceeds max_alleles={max_alleles}"
+                )
 
         # Add ploidy and genotypes dimensions only when needed
         max_genotypes = 0
         has_g_field = False
-        for field in self.metadata.format_fields:
+        for field in [*self.metadata.info_fields, *self.metadata.format_fields]:
             if field.vcf_number == "G":
                 has_g_field = True
                 max_genotypes = max(max_genotypes, field.summary.max_number)
@@ -1145,6 +1160,8 @@ class IntermediateColumnarFormat(vcz.Source):
                 # there is no GT field, but there is at least one Number=G field,
                 # so need to define genotypes dimension
                 genotypes_size = max_genotypes
+                if ploidy is not None:
+                    genotypes_size = math.comb(max_alleles + ploidy - 1, ploidy)
 
         dimensions = vcz.standard_dimensions(
             variants_size=self.num_records,
@@ -1156,6 +1173,8 @@ class IntermediateColumnarFormat(vcz.Source):
             ploidy_size=ploidy,
             genotypes_size=genotypes_size,
         )
+        if max_alleles == 1:
+            dimensions["alt_alleles"] = vcz.VcfZarrDimension.unchunked(0)
 
         schema_instance = vcz.VcfZarrSchema(
             format_version=vcz.ZARR_SCHEMA_FORMAT_VERSION,
@@ -1272,6 +1291,427 @@ class IntermediateColumnarFormat(vcz.Source):
 
         schema_instance.fields = array_specs
         return schema_instance
+
+
+def variant_values(variant, metadata, *, genotypes=True):
+    """Extract the same native values for ICF and row conversion."""
+    values = {
+        "CHROM": variant.CHROM,
+        "POS": variant.POS,
+        "QUAL": variant.QUAL,
+        "ID": variant.ID,
+        "FILTERS": variant.FILTERS,
+        "REF": variant.REF,
+        "ALT": variant.ALT,
+        "rlen": variant.end - variant.start,
+    }
+    for field in metadata.info_fields:
+        values[field.full_name] = variant.INFO.get(field.name, None)
+    for field in metadata.format_fields:
+        if field.name == "GT":
+            if not genotypes:
+                continue
+            value = None
+            if "GT" in variant.FORMAT and variant.genotype is not None:
+                value = variant.genotype.array()
+        else:
+            value = variant.format(field.name)
+        values[field.full_name] = value
+    return values
+
+
+def value_nbytes(value):
+    if value is None:
+        return sys.getsizeof(None)
+    size = sys.getsizeof(value)
+    if isinstance(value, np.ndarray) and value.dtype.kind in ("T", "O", "U"):
+        size += sum(sys.getsizeof(v) for v in value.flat)
+    return size
+
+
+def validate_positive_int(name, value):
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise ValueError(f"{name} must be a positive integer")
+
+
+def scan_vcf_dimensions(
+    vcfs,
+    *,
+    max_ploidy=None,
+    max_alleles=None,
+    worker_processes=core.DEFAULT_WORKER_PROCESSES,
+    show_progress=False,
+    max_batch_bytes=DEFAULT_MAX_BATCH_BYTES,
+):
+    """Discover a reusable (metadata, header) pair without writing ICF data.
+
+    With max_ploidy, skip GT decoding and check the supplied bound while writing.
+    Otherwise infer GT width in this same pass. Other fields, including variable
+    Number fields, are inspected one row at a time in both modes. max_alleles
+    bounds the allele count including REF and is checked during discovery.
+    Returned summaries describe observed widths, not padded output widths.
+    Repeat any desired bounds when passing this result to convert.
+    """
+    if max_ploidy is not None:
+        validate_positive_int("max_ploidy", max_ploidy)
+    if max_alleles is not None:
+        validate_positive_int("max_alleles", max_alleles)
+    validate_positive_int("max_batch_bytes", max_batch_bytes)
+    paths = list(vcfs)
+    if not paths:
+        raise ValueError("At least one VCF path is required")
+    metadata, header = scan_vcfs(
+        paths, show_progress, max(1, worker_processes * 4), worker_processes
+    )
+    check_field_clobbering(metadata)
+    transformers = {
+        f.full_name: VcfValueTransformer.factory(f, metadata.num_samples)
+        for f in metadata.fields
+    }
+    expected_records = metadata.num_records
+    total = 0
+    for partition in metadata.partitions:
+        count = 0
+        last_position = None
+        with vcf_utils.VcfFile(partition.vcf_path) as file:
+            for variant in file.variants(partition.region):
+                if max_alleles is not None and len(variant.ALT) + 1 > max_alleles:
+                    raise ValueError(
+                        f"Allele count {len(variant.ALT) + 1} at "
+                        f"{variant.CHROM}:{variant.POS} exceeds "
+                        f"max_alleles={max_alleles} (including REF)"
+                    )
+                values = variant_values(variant, metadata, genotypes=max_ploidy is None)
+                row_bytes = 0
+                for name, value in values.items():
+                    transformed = transformers[name].transform_and_update_bounds(value)
+                    row_bytes += value_nbytes(transformed)
+                    if row_bytes > max_batch_bytes:
+                        raise ValueError(
+                            f"VCF row at {variant.CHROM}:{variant.POS} exceeds "
+                            f"max_batch_bytes={max_batch_bytes}"
+                        )
+                count += 1
+                last_position = variant.POS
+        partition.num_records = count
+        partition.region.end = last_position
+        total += count
+    if np.isfinite(expected_records) and total != expected_records:
+        raise ValueError(
+            f"VCF record count does not match index: {total} != {expected_records}"
+        )
+    metadata.num_records = total
+    check_overlapping_partitions(metadata.partitions)
+    gt = next((f for f in metadata.format_fields if f.name == "GT"), None)
+    if gt is not None and max_ploidy is not None:
+        gt.summary.max_number = max_ploidy + 1
+        gt.summary.min_value = 0
+        alt = next(f for f in metadata.fields if f.name == "ALT")
+        gt.summary.max_value = max(1, alt.summary.max_number)
+    metadata.format_version = ICF_METADATA_FORMAT_VERSION
+    metadata.compressor = ICF_DEFAULT_COMPRESSOR.get_config()
+    return metadata, header
+
+
+class DirectVcfSource(IntermediateColumnarFormat):
+    """Indexed VCF rows with a small, reopenable schema-discovery manifest."""
+
+    def __init__(self, path):
+        self._path = pathlib.Path(path)
+        with self.path.open() as f:
+            manifest = json.load(f)
+        self.metadata = IcfMetadata.fromdict(manifest["metadata"])
+        self.vcf_header = manifest["header"]
+        self.compressor = ICF_DEFAULT_COMPRESSOR
+        self.partition_record_index = np.cumsum(
+            [0, *(p.num_records for p in self.metadata.partitions)]
+        )
+        self.fields = {
+            f.full_name: IntermediateColumnarFormatField(self, f)
+            for f in self.metadata.fields
+        }
+        self.gt_field = next(
+            (f for f in self.metadata.format_fields if f.name == "GT"), None
+        )
+
+    def iter_rows(self, start, stop):
+        transformers = {
+            name: VcfValueTransformer.factory(field.vcf_field, self.num_samples)
+            for name, field in self.fields.items()
+        }
+        for j, partition in enumerate(self.metadata.partitions):
+            offset = self.partition_record_index[j]
+            end = self.partition_record_index[j + 1]
+            if stop <= offset:
+                break
+            if start >= end:
+                continue
+            with vcf_utils.VcfFile(partition.vcf_path) as file:
+                variants = islice(
+                    file.variants(partition.region),
+                    max(0, start - offset),
+                    min(partition.num_records, stop - offset),
+                )
+                for variant in variants:
+                    values = variant_values(variant, self.metadata)
+                    yield {
+                        name: None
+                        if value is None
+                        else transformers[name].transform(value)
+                        for name, value in values.items()
+                    }
+
+
+class VcfRowConverter:
+    """Convert one transformed VCF row using the ICF missing/fill conventions."""
+
+    def __init__(self, source, schema):
+        self.source = source
+        self.schema = schema
+        self.contigs = {c.id: j for j, c in enumerate(source.contigs)}
+        self.filters = {f.id: j for j, f in enumerate(source.filters)}
+        self.specs = schema.field_map()
+        self.sanitisers = {
+            spec.name: source.fields[spec.source].sanitiser_factory(
+                tuple(spec.get_shape(schema)[1:]), spec.dtype
+            )
+            for spec in schema.fields
+            if spec.source is not None
+        }
+
+    def field(self, name, value):
+        spec = self.specs[name]
+        shape = tuple(spec.get_shape(self.schema)[1:])
+        # Sanitisation must not silently discard surplus values in scalar fields.
+        if value is not None:
+            actual = value.shape
+            if spec.source.startswith("FORMAT/"):
+                allowed = shape if len(shape) == 2 else (*shape, 1)
+            else:
+                allowed = shape or (1,)
+            if len(actual) > len(allowed) or any(
+                a > b for a, b in zip(actual, allowed)
+            ):
+                raise ValueError(
+                    f"{spec.source} value shape {actual} exceeds schema {allowed}"
+                )
+        result = self.sanitisers[name](value)
+        dtype = np.dtype(spec.dtype)
+        if dtype.kind == "i":
+            limits = np.iinfo(dtype)
+            if np.any(np.asarray(result) < limits.min) or np.any(
+                np.asarray(result) > limits.max
+            ):
+                raise ValueError(f"{spec.source} values exceed schema dtype {dtype}")
+        return result
+
+    def convert(self, row):
+        result = {
+            spec.name: self.field(spec.name, row[spec.source])
+            for spec in self.schema.fields
+            if spec.source is not None
+        }
+        if "variant_contig" in self.specs:
+            result["variant_contig"] = self.contigs[row["CHROM"][0]]
+        if "variant_filter" in self.specs:
+            filters = np.zeros(len(self.filters), dtype=bool)
+            if row["FILTERS"] is not None:
+                for name in row["FILTERS"]:
+                    if name not in self.filters:
+                        raise ValueError(
+                            f"Filter '{name}' was not defined in the header."
+                        )
+                    filters[self.filters[name]] = True
+            result["variant_filter"] = filters
+        if "variant_id" in self.specs:
+            missing = row["ID"] is None
+            result["variant_id"] = constants.STR_MISSING if missing else row["ID"][0]
+            if "variant_id_mask" in self.specs:
+                result["variant_id_mask"] = missing
+        alleles_size = self.schema.dimensions["alleles"].size
+        if len(row["ALT"]) + 1 > alleles_size:
+            raise ValueError("Number of alleles exceeds discovered schema bound")
+        alleles = np.full(alleles_size, constants.STR_FILL, dtype=STRING_DTYPE_NAME)
+        alleles[0] = row["REF"][0]
+        alleles[1 : 1 + len(row["ALT"])] = row["ALT"]
+        result["variant_allele"] = alleles
+        result["variant_length"] = row["rlen"][0]
+        if "call_genotype" in self.specs:
+            spec = self.specs["call_genotype"]
+            shape = tuple(spec.get_shape(self.schema)[1:])
+            raw = row["FORMAT/GT"]
+            if raw is not None and raw.shape[1] - 1 > shape[1]:
+                raise ValueError(
+                    f"Genotype ploidy {raw.shape[1] - 1} exceeds max ploidy {shape[1]}"
+                )
+            gt = sanitise_value_int_2d(shape, None if raw is None else raw[:, :-1])
+            phased = sanitise_value_bool_1d(
+                shape[:-1], None if raw is None else raw[:, -1]
+            )
+            if shape[1] == 1:
+                phased[:] = True
+            limits = np.iinfo(spec.dtype)
+            if np.any(gt < limits.min) or np.any(gt > limits.max):
+                raise ValueError("Genotype allele index exceeds schema dtype")
+            if np.any(gt >= alleles_size):
+                raise ValueError("Genotype allele index exceeds allele-count bound")
+            result["call_genotype"] = gt
+            result["call_genotype_phased"] = phased
+            result["call_genotype_mask"] = gt < 0
+            if "call_LA" in self.specs and self.specs["call_LA"].source is None:
+                la = vcz.compute_la_field(gt)
+                result["call_LA"] = la
+                for descriptor in vcz.localisable_fields:
+                    if descriptor.array_name in self.specs:
+                        raw_value = row[descriptor.vcf_field]
+                        dtype = self.source.fields[
+                            descriptor.vcf_field
+                        ].vcf_field.smallest_dtype()
+                        dim = (
+                            "alleles"
+                            if descriptor.array_name == "call_LAD"
+                            else "genotypes"
+                        )
+                        value = vcz.sanitise_local_field(
+                            raw_value,
+                            (self.source.num_samples, self.schema.dimensions[dim].size),
+                            dtype,
+                        )
+                        result[descriptor.array_name] = descriptor.convert(value, la)
+        if set(result) != set(self.specs):
+            raise ValueError(
+                f"Unsupported row schema fields: {set(self.specs) - set(result)}"
+            )
+        return result
+
+
+class BatchedVcfZarrWriter(vcz.VcfZarrWriter):
+    """Write shared row batches through the standard partition lifecycle."""
+
+    def __init__(
+        self,
+        source_type,
+        path,
+        zarr_format=None,
+        *,
+        batch_size=DEFAULT_BATCH_SIZE,
+        max_batch_bytes=DEFAULT_MAX_BATCH_BYTES,
+    ):
+        super().__init__(source_type, path, zarr_format)
+        validate_positive_int("batch_size", batch_size)
+        validate_positive_int("max_batch_bytes", max_batch_bytes)
+        self.batch_size = batch_size
+        self.max_batch_bytes = max_batch_bytes
+
+    def get_max_encoding_memory(self):
+        # Row lists, stacked arrays and a Zarr codec/chunk working buffer.
+        chunk = max(f.chunk_nbytes(self.schema) for f in self.schema.fields)
+        return max(
+            super().get_max_encoding_memory(),
+            3 * self.max_batch_bytes + 2 * chunk,
+        )
+
+    def encode_partition_fields(self, partition_index):
+        if not isinstance(self.source, DirectVcfSource):
+            # Reading all pickled columns together retains a full ICF chunk
+            # per field. Keep column-oriented input reads serial instead.
+            return super().encode_partition_fields(partition_index)
+        partition = self.metadata.partitions[partition_index]
+        converter = VcfRowConverter(self.source, self.schema)
+        row_bytes = sum(
+            math.prod(spec.get_shape(self.schema)[1:]) * np.dtype(spec.dtype).itemsize
+            for spec in self.schema.fields
+        )
+        if row_bytes > self.max_batch_bytes:
+            raise ValueError(
+                f"One output row requires {row_bytes} bytes, exceeding "
+                f"max_batch_bytes={self.max_batch_bytes}"
+            )
+        arrays = {
+            spec.name: self.open_partition_array(partition_index, spec.name)
+            for spec in self.schema.fields
+        }
+        rows = self.source.iter_rows(partition.start, partition.stop)
+        start = partition.start
+        batch = []
+        buffered = 0
+        chunk_size = self.schema.dimensions["variants"].chunk_size
+        with contextlib.closing(rows):
+            for row in rows:
+                values = converter.convert(row)
+                size = sum(value_nbytes(v) for v in values.values())
+                if size > self.max_batch_bytes:
+                    raise ValueError(
+                        f"Output row {start + len(batch)} exceeds "
+                        f"max_batch_bytes={self.max_batch_bytes}"
+                    )
+                if batch and buffered + size > self.max_batch_bytes:
+                    self.write_batch(arrays, start, batch)
+                    start += len(batch)
+                    batch = []
+                    buffered = 0
+                batch.append(values)
+                buffered += size
+                if (
+                    len(batch) == self.batch_size
+                    or (start + len(batch)) % chunk_size == 0
+                ):
+                    self.write_batch(arrays, start, batch)
+                    start += len(batch)
+                    batch = []
+                    buffered = 0
+            if batch:
+                self.write_batch(arrays, start, batch)
+                start += len(batch)
+        if start != partition.stop:
+            raise ValueError("VCF record count changed since schema discovery")
+
+    def encode_array_partition(self, array_spec, partition_index):
+        partition = self.metadata.partitions[partition_index]
+        array = self.open_partition_array(partition_index, array_spec.name)
+        converter = VcfRowConverter(self.source, self.schema)
+        field = self.source.fields[array_spec.source]
+        rows = (
+            {array_spec.name: converter.field(array_spec.name, value)}
+            for value in field.iter_values(partition.start, partition.stop)
+        )
+        batch = []
+        size = 0
+        start = partition.start
+        for row in rows:
+            row_size = value_nbytes(row[array_spec.name])
+            if row_size > self.max_batch_bytes:
+                raise ValueError(
+                    f"{array_spec.source} row exceeds max_batch_bytes="
+                    f"{self.max_batch_bytes}"
+                )
+            if batch and size + row_size > self.max_batch_bytes:
+                self.write_batch({array_spec.name: array}, start, batch)
+                start += len(batch)
+                batch = []
+                size = 0
+            batch.append(row)
+            size += row_size
+            if (
+                len(batch) == self.batch_size
+                or (start + len(batch)) % array.chunks[0] == 0
+            ):
+                self.write_batch({array_spec.name: array}, start, batch)
+                start += len(batch)
+                batch = []
+                size = 0
+        if batch:
+            self.write_batch({array_spec.name: array}, start, batch)
+            start += len(batch)
+        if start != partition.stop:
+            raise ValueError("ICF record count does not match partition")
+
+    @staticmethod
+    def write_batch(arrays, start, batch):
+        for name, array in arrays.items():
+            values = np.asarray([row[name] for row in batch], dtype=array.dtype)
+            array[start : start + len(batch)] = values
+            core.update_progress(values.nbytes)
 
 
 @dataclasses.dataclass
@@ -1441,15 +1881,6 @@ class IntermediateColumnarFormatWriter:
         logger.info(
             f"Start p{partition_index} {partition.vcf_path}__{partition.region}"
         )
-        info_fields = self.metadata.info_fields
-        format_fields = []
-        has_gt = False
-        for field in self.metadata.format_fields:
-            if field.name == "GT":
-                has_gt = True
-            else:
-                format_fields.append(field)
-
         last_position = None
         with IcfPartitionWriter(
             self.metadata,
@@ -1461,24 +1892,8 @@ class IntermediateColumnarFormatWriter:
                 for variant in vcf.variants(partition.region):
                     num_records += 1
                     last_position = variant.POS
-                    tcw.append("CHROM", variant.CHROM)
-                    tcw.append("POS", variant.POS)
-                    tcw.append("QUAL", variant.QUAL)
-                    tcw.append("ID", variant.ID)
-                    tcw.append("FILTERS", variant.FILTERS)
-                    tcw.append("REF", variant.REF)
-                    tcw.append("ALT", variant.ALT)
-                    tcw.append("rlen", variant.end - variant.start)
-                    for field in info_fields:
-                        tcw.append(field.full_name, variant.INFO.get(field.name, None))
-                    if has_gt:
-                        val = None
-                        if "GT" in variant.FORMAT and variant.genotype is not None:
-                            val = variant.genotype.array()
-                        tcw.append("FORMAT/GT", val)
-                    for field in format_fields:
-                        val = variant.format(field.name)
-                        tcw.append(field.full_name, val)
+                    for name, value in variant_values(variant, self.metadata).items():
+                        tcw.append(name, value)
 
                     # Note: an issue with updating the progress per variant here like
                     # this is that we get a significant pause at the end of the counter
@@ -1668,6 +2083,13 @@ def convert(
     show_progress=False,
     icf_path=None,
     zarr_format=None,
+    max_ploidy=None,
+    max_alleles=None,
+    infer_shape=False,
+    dimension_metadata=None,
+    batch_size=None,
+    max_batch_bytes=DEFAULT_MAX_BATCH_BYTES,
+    temp_icf_dir=None,
 ):
     """
     Convert VCF file(s) to VCF Zarr format.
@@ -1707,14 +2129,119 @@ def convert(
     zarr_format : int, optional
         Zarr format version of output (default: 2, or value of
         BIO2ZARR_DEFAULT_ZARR_FORMAT env var)
+    max_ploidy : int, optional
+        Positive maximum genotype ploidy. Selects no-ICF conversion: a metadata
+        pass discovers other widths/dtypes without decoding GT, followed by row
+        conversion that checks this bound. Mutually exclusive with ploidy.
+    max_alleles : int, optional
+        Positive allele-count bound including REF (2 means biallelic). Selects
+        no-ICF conversion; infer ploidy unless max_ploidy is supplied. Sizes
+        alleles and alt_alleles, and Number=G with the inferred/supplied ploidy.
+        Other field dimensions and dtypes are still discovered in a metadata pass.
+    infer_shape : bool
+        Select no-ICF conversion, discovering array dimensions and dtypes in a
+        metadata pass. May accompany max_ploidy and max_alleles; supplied bounds
+        are checked, and GT discovery is skipped when max_ploidy is supplied.
+    dimension_metadata : tuple, optional
+        Reuse a (metadata, header) result from scan_vcf_dimensions. Requires
+        max_ploidy, max_alleles or infer_shape and matching input VCF paths.
+    batch_size : int
+        Maximum rows per shared conversion batch. By default, use the output
+        variant chunk size to avoid repeatedly recompressing partial chunks.
+        Batches also end at output variant-chunk boundaries.
+    max_batch_bytes : int
+        Approximate bound on transformed/output batch payload per worker,
+        including string contents. A single oversized row is rejected.
+    temp_icf_dir : str or Path, optional
+        Local parent directory for automatically cleaned-up ICF.
+        Mutually exclusive with icf_path and no-ICF mode.
 
     Returns
     -------
     zarr.Group
         The root group of the Zarr store containing the converted data.
     """
+    if batch_size is not None:
+        validate_positive_int("batch_size", batch_size)
+    validate_positive_int("max_batch_bytes", max_batch_bytes)
+    if vcz_path is not None:
+        vcz.local_zarr_path(vcz_path)
+    if not isinstance(infer_shape, bool):
+        raise ValueError("infer_shape must be a boolean")
+    vcfs = list(vcfs)
+    if not vcfs:
+        raise ValueError("At least one VCF path is required")
+    if len(set(vcfs)) != len(vcfs):
+        raise ValueError("Duplicate path provided")
+    direct = max_ploidy is not None or max_alleles is not None or infer_shape
+    if max_ploidy is not None:
+        validate_positive_int("max_ploidy", max_ploidy)
+    if max_alleles is not None:
+        validate_positive_int("max_alleles", max_alleles)
+    if max_ploidy is not None and ploidy is not None:
+        raise ValueError("max_ploidy is mutually exclusive with ploidy")
+    if icf_path is not None and temp_icf_dir is not None:
+        raise ValueError("icf_path and temp_icf_dir are mutually exclusive")
+    if direct and (icf_path is not None or temp_icf_dir is not None):
+        raise ValueError("No-ICF conversion cannot specify ICF storage")
+    if dimension_metadata is not None and not direct:
+        raise ValueError(
+            "dimension_metadata requires max_ploidy, max_alleles or infer_shape"
+        )
+    if direct:
+        if dimension_metadata is None:
+            metadata, header = scan_vcf_dimensions(
+                vcfs,
+                max_ploidy=max_ploidy,
+                max_alleles=max_alleles,
+                worker_processes=worker_processes,
+                show_progress=show_progress,
+                max_batch_bytes=max_batch_bytes,
+            )
+        else:
+            metadata, header = dimension_metadata
+            actual = {p.vcf_path for p in metadata.partitions}
+            expected = {str(p) for p in vcfs}
+            if actual and actual != expected:
+                raise ValueError("dimension_metadata does not match input VCF paths")
+        with tempfile.TemporaryDirectory(prefix="bio2zarr-vcf-rows-") as tmp:
+            manifest = pathlib.Path(tmp) / "manifest.json"
+            with manifest.open("w") as f:
+                json.dump({"metadata": metadata.asdict(), "header": header}, f)
+            source = DirectVcfSource(manifest)
+            schema = source.generate_schema(
+                variants_chunk_size=variants_chunk_size,
+                samples_chunk_size=samples_chunk_size,
+                local_alleles=local_alleles,
+                ploidy=max_ploidy if max_ploidy is not None else ploidy,
+                max_alleles=max_alleles,
+            )
+            with vcz.open_zarr(vcz_path, mode=mode) as zr:
+                writer = BatchedVcfZarrWriter(
+                    DirectVcfSource,
+                    zr.dir,
+                    zarr_format,
+                    batch_size=(
+                        schema.dimensions["variants"].chunk_size
+                        if batch_size is None
+                        else batch_size
+                    ),
+                    max_batch_bytes=max_batch_bytes,
+                )
+                writer.init(
+                    source,
+                    schema=schema,
+                    target_num_partitions=max(1, worker_processes * 4),
+                )
+                writer.encode_all_partitions(
+                    worker_processes=worker_processes,
+                    show_progress=show_progress,
+                )
+                writer.finalise(show_progress)
+                writer.create_index()
+            return zr.root
     if icf_path is None:
-        cm = temp_icf_path(prefix="vcf2zarr")
+        cm = temp_icf_path(prefix="vcf2zarr", dir=temp_icf_dir)
     else:
         cm = contextlib.nullcontext(icf_path)
 
@@ -1736,12 +2263,18 @@ def convert(
             show_progress=show_progress,
             local_alleles=local_alleles,
             ploidy=ploidy,
+            batch_size=(
+                variants_chunk_size or DEFAULT_BATCH_SIZE
+                if batch_size is None
+                else batch_size
+            ),
+            max_batch_bytes=max_batch_bytes,
         )
 
 
 @contextlib.contextmanager
-def temp_icf_path(prefix=None):
-    with tempfile.TemporaryDirectory(prefix=prefix) as tmp:
+def temp_icf_path(prefix=None, dir=None):
+    with tempfile.TemporaryDirectory(prefix=prefix, dir=dir) as tmp:
         yield pathlib.Path(tmp) / "icf"
 
 
@@ -1759,6 +2292,8 @@ def encode(
     show_progress=False,
     mode="r",
     zarr_format=None,
+    batch_size=None,
+    max_batch_bytes=DEFAULT_MAX_BATCH_BYTES,
 ):
     with vcz.open_zarr(zarr_path, mode=mode) as zr:
         # Rough heuristic to split work up enough to keep utilisation high
@@ -1774,10 +2309,10 @@ def encode(
             ploidy=ploidy,
             max_variant_chunks=max_variant_chunks,
             zarr_format=zarr_format,
+            batch_size=batch_size,
+            max_batch_bytes=max_batch_bytes,
         )
-        vzw = vcz.VcfZarrWriter(
-            IntermediateColumnarFormat, zr.dir, zarr_format=zarr_format
-        )
+        vzw = icf_zarr_writer(zr.dir, zarr_format=zarr_format)
         vzw.encode_all_partitions(
             worker_processes=worker_processes,
             show_progress=show_progress,
@@ -1803,7 +2338,14 @@ def encode_init(
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     show_progress=False,
     zarr_format=None,
+    batch_size=None,
+    max_batch_bytes=DEFAULT_MAX_BATCH_BYTES,
 ):
+    if batch_size is None and max_batch_bytes != DEFAULT_MAX_BATCH_BYTES:
+        batch_size = DEFAULT_BATCH_SIZE
+    if batch_size is not None:
+        validate_positive_int("batch_size", batch_size)
+        validate_positive_int("max_batch_bytes", max_batch_bytes)
     icf_store = IntermediateColumnarFormat(icf_path)
     if schema_path is None:
         schema_instance = icf_store.generate_schema(
@@ -1820,18 +2362,41 @@ def encode_init(
             )  # NEEDS TEST
         with open(schema_path) as f:
             schema_instance = vcz.VcfZarrSchema.fromjson(f.read())
-    zarr_path = pathlib.Path(zarr_path)
-    vzw = vcz.VcfZarrWriter("icf", zarr_path, zarr_format=zarr_format)
-    return vzw.init(
+    zarr_path = vcz.local_zarr_path(zarr_path)
+    writer_type = vcz.VcfZarrWriter if batch_size is None else BatchedVcfZarrWriter
+    kwargs = (
+        {}
+        if batch_size is None
+        else dict(batch_size=batch_size, max_batch_bytes=max_batch_bytes)
+    )
+    vzw = writer_type(
+        IntermediateColumnarFormat, zarr_path, zarr_format=zarr_format, **kwargs
+    )
+    summary = vzw.init(
         icf_store,
         target_num_partitions=target_num_partitions,
         schema=schema_instance,
         max_variant_chunks=max_variant_chunks,
     )
+    if batch_size is not None:
+        with (vzw.wip_path / "row-options.json").open("w") as f:
+            json.dump(kwargs, f)
+    return summary
+
+
+def icf_zarr_writer(zarr_path, zarr_format=None):
+    options_path = pathlib.Path(zarr_path) / "wip" / "row-options.json"
+    if options_path.exists():
+        with options_path.open() as f:
+            options = json.load(f)
+        return BatchedVcfZarrWriter(
+            IntermediateColumnarFormat, zarr_path, zarr_format, **options
+        )
+    return vcz.VcfZarrWriter(IntermediateColumnarFormat, zarr_path, zarr_format)
 
 
 def encode_partition(zarr_path, partition):
-    writer_instance = vcz.VcfZarrWriter(IntermediateColumnarFormat, zarr_path)
+    writer_instance = icf_zarr_writer(zarr_path)
     writer_instance.encode_partition(partition)
 
 
