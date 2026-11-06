@@ -9,7 +9,7 @@ import coloredlogs
 import numcodecs
 import tabulate
 
-from . import bgen, core, plink, provenance, storage, vcf_utils, zarr_utils
+from . import bgen, core, plink, provenance, vcf_utils, zarr_utils
 from . import tskit as tskit_mod
 from . import vcf as vcf_mod
 
@@ -25,28 +25,17 @@ class NaturalOrderGroup(click.Group):
         return self.commands.keys()
 
 
-class StoragePath(click.Path):
-    def convert(self, value, param, ctx):
-        if str(value).startswith(("s3://", "s3+http://", "s3+https://")):
-            try:
-                vcf_utils.input_path(value)
-            except ValueError as e:
-                self.fail(str(e), param, ctx)
-            return str(value)
-        return super().convert(value, param, ctx)
-
-
 # Common arguments/options
 vcfs = click.argument(
-    "vcfs", nargs=-1, required=True, type=StoragePath(exists=True, dir_okay=False)
+    "vcfs", nargs=-1, required=True, type=click.Path(exists=True, dir_okay=False)
 )
 
 new_icf_path = click.argument(
-    "icf_path", type=StoragePath(file_okay=False, dir_okay=True)
+    "icf_path", type=click.Path(file_okay=False, dir_okay=True)
 )
 
 icf_path = click.argument(
-    "icf_path", type=StoragePath(exists=True, file_okay=False, dir_okay=True)
+    "icf_path", type=click.Path(exists=True, file_okay=False, dir_okay=True)
 )
 
 new_zarr_path = click.argument("zarr_path", type=click.Path())
@@ -225,10 +214,8 @@ def setup_logging(verbosity):
     coloredlogs.install(level=level)
 
 
-def check_overwrite_dir(path, force, *, allow_s3=False):
-    if str(path).startswith(("s3://", "s3+http://", "s3+https://")) and not allow_s3:
-        raise click.UsageError("Final VCZ output must be a local path")
-    path = storage.path(path)
+def check_overwrite_dir(path, force):
+    path = pathlib.Path(path)
     if path.exists():
         if not force:
             click.confirm(
@@ -238,9 +225,6 @@ def check_overwrite_dir(path, force, *, allow_s3=False):
         # These trees can be mondo-big and on slow file systems, so it's entirely
         # feasible that the delete would fail or be killed. This makes it less likely
         # that partially deleted paths are mistaken for good paths.
-        if isinstance(path, storage.S3Path):
-            storage.remove_tree(path)
-            return
         tmp_delete_path = path.with_suffix(f"{path.suffix}.{os.getpid()}.DELETING")
         logger.info(f"Deleting {path} (renamed to {tmp_delete_path} while in progress)")
         os.rename(path, tmp_delete_path)
@@ -297,7 +281,7 @@ def explode(
     Convert VCF(s) to intermediate columnar format
     """
     setup_logging(verbose)
-    check_overwrite_dir(icf_path, force, allow_s3=True)
+    check_overwrite_dir(icf_path, force)
     vcf_mod.explode(
         icf_path,
         vcfs,
@@ -336,7 +320,7 @@ def dexplode_init(
     over some number of paritions.
     """
     setup_logging(verbose)
-    check_overwrite_dir(icf_path, force, allow_s3=True)
+    check_overwrite_dir(icf_path, force)
     check_partitions(num_partitions)
     work_summary = vcf_mod.explode_init(
         icf_path,
@@ -381,7 +365,7 @@ def dexplode_finalise(icf_path, verbose):
 
 
 @click.command
-@click.argument("path", type=StoragePath(exists=True))
+@click.argument("path", type=click.Path(exists=True))
 @verbose
 def inspect(path, verbose):
     """
@@ -594,15 +578,15 @@ def dencode_finalise(zarr_path, verbose, progress):
 )
 @click.option(
     "--icf-path",
-    type=StoragePath(),
+    type=click.Path(file_okay=False, dir_okay=True),
     default=None,
-    help="Retain intermediate data at a local directory or S3 prefix.",
+    help="Retain intermediate data at a local directory.",
 )
 @click.option(
     "--temp-icf-dir",
-    type=StoragePath(),
+    type=click.Path(file_okay=False, dir_okay=True),
     default=None,
-    help="Parent local directory or S3 prefix for automatically removed temporary ICF.",
+    help="Parent local directory for automatically removed temporary ICF.",
 )
 def convert_vcf(
     vcfs,
@@ -647,6 +631,10 @@ def convert_vcf(
         options["icf_path"] = icf_path
     if temp_icf_dir is not None:
         options["temp_icf_dir"] = temp_icf_dir
+    try:
+        vcf_mod.vcz.local_zarr_path(zarr_path)
+    except ValueError as e:
+        raise click.UsageError(str(e)) from e
     check_overwrite_dir(zarr_path, force)
     vcf_mod.convert(
         vcfs,

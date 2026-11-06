@@ -3,9 +3,7 @@ import gzip
 import logging
 import os
 import pathlib
-import shutil
 import struct
-import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
@@ -14,28 +12,13 @@ from typing import IO, Any
 import humanfriendly
 import numpy as np
 
-from bio2zarr import core, storage
+from bio2zarr import core
 
 logger = logging.getLogger(__name__)
 
 CSI_EXTENSION = ".csi"
 TABIX_EXTENSION = ".tbi"
 TABIX_LINEAR_INDEX_INTERVAL_SIZE = 1 << 14  # 16kb interval size
-
-
-def input_path(value):
-    uri = str(value)
-    if uri.startswith(("s3+http://", "s3+https://")):
-        scheme, key = uri.split("://", 1)
-        endpoint = os.environ.get("AWS_ENDPOINT_URL_S3") or os.environ.get(
-            "AWS_ENDPOINT_URL"
-        )
-        host = (endpoint or os.environ.get("HTS_S3_HOST", "s3.amazonaws.com")).split(
-            "://", 1
-        )[-1]
-        result = storage.path(f"s3://{key}")
-        return type(result)(result, endpoint_url=f"{scheme.split('+', 1)[1]}://{host}")
-    return storage.path(value)
 
 
 def ceildiv(a: int, b: int) -> int:
@@ -233,7 +216,7 @@ def read_csi(
     ValueError
         If the file is not a CSI file.
     """
-    with storage.path(file).open("rb") as raw, gzip.GzipFile(fileobj=raw) as f:
+    with gzip.open(file) as f:
         magic = read_bytes_as_value(f, "4s")
         if magic != b"CSI\x01":
             raise ValueError("File not in CSI format.")
@@ -352,7 +335,7 @@ def read_tabix(
     ValueError
         If the file is not a tabix file.
     """
-    with storage.path(file).open("rb") as raw, gzip.GzipFile(fileobj=raw) as f:
+    with gzip.open(file) as f:
         magic = read_bytes_as_value(f, "4s")
         if magic != b"TBI\x01":
             raise ValueError("File not in Tabix format.")
@@ -423,11 +406,8 @@ class VcfFile(contextlib.AbstractContextManager):
         self.vcf = None
         self.file_type = None
         self.index_type = None
-        self._temporary_index = None
 
-        input_uri = str(vcf_path)
-        index_uri = str(index_path) if index_path is not None else None
-        vcf_path = input_path(vcf_path)
+        vcf_path = pathlib.Path(vcf_path)
         if not vcf_path.exists():
             raise FileNotFoundError(vcf_path)
         if index_path is None:
@@ -441,10 +421,8 @@ class VcfFile(contextlib.AbstractContextManager):
                 if not index_path.exists():
                     # No supported index found
                     index_path = None
-            if index_path is not None:
-                index_uri = input_uri + index_path.suffix
         else:
-            index_path = input_path(index_path)
+            index_path = pathlib.Path(index_path)
             if not index_path.exists():
                 raise FileNotFoundError(
                     f"Specified index path {index_path} does not exist"
@@ -461,45 +439,28 @@ class VcfFile(contextlib.AbstractContextManager):
             else:
                 raise ValueError("Only .tbi or .csi indexes are supported.")
 
+        self.vcf = cyvcf2.VCF(vcf_path)
+        if self.index_path is not None:
+            self.vcf.set_index(str(self.index_path))
+
+        logger.debug(f"Loaded {vcf_path} with index {self.index_path}")
         self.sequence_names = None
+
         self.index = None
         if self.index_type == VcfIndexType.CSI:
             self.index = read_csi(self.index_path)
+            # Determine the file-type based on the "aux" field.
             self.file_type = VcfFileType.BCF
             if len(self.index.aux) > 0:
                 self.file_type = VcfFileType.VCF
                 self.sequence_names = self.index.parse_vcf_aux()
+            else:
+                self.sequence_names = self.vcf.seqnames
         elif self.index_type == VcfIndexType.TABIX:
             self.index = read_tabix(self.index_path)
+            self.file_type = VcfFileType.VCF
             self.sequence_names = self.index.sequence_names
-
-        try:
-            self.vcf = cyvcf2.VCF(input_uri)
-            native_index_path = index_uri
-            if (
-                isinstance(self.index_path, storage.S3Path)
-                and self.file_type == VcfFileType.VCF
-            ):
-                # cyvcf2's tabix loader always saves remote indexes in cwd.
-                self._temporary_index = tempfile.TemporaryDirectory(
-                    prefix="bio2zarr-vcf-index-"
-                )
-                # The .tbi suffix selects cyvcf2's tabix loader even for CSI VCF
-                # indexes; HTSlib detects the actual format from its contents.
-                local_index = pathlib.Path(self._temporary_index.name) / "index.tbi"
-                with self.index_path.open("rb") as src, local_index.open("wb") as dst:
-                    shutil.copyfileobj(src, dst)
-                native_index_path = local_index
-            if native_index_path is not None:
-                self.vcf.set_index(str(native_index_path))
-        except BaseException:
-            self.__exit__(None, None, None)
-            raise
-
-        logger.debug(f"Loaded {vcf_path} with index {self.index_path}")
-        if self.file_type == VcfFileType.BCF:
-            self.sequence_names = self.vcf.seqnames
-        if self.index is None:
+        else:
             assert self.index is None
             var = next(self.vcf, None)
             if var is None:
@@ -510,15 +471,12 @@ class VcfFile(contextlib.AbstractContextManager):
                 self.sequence_names = [var.CHROM]
                 self.vcf.close()
                 # There doesn't seem to be a way to reset the iterator
-                self.vcf = cyvcf2.VCF(input_uri)
+                self.vcf = cyvcf2.VCF(vcf_path)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.vcf is not None:
             self.vcf.close()
             self.vcf = None
-        if self._temporary_index is not None:
-            self._temporary_index.cleanup()
-            self._temporary_index = None
         return False
 
     def contig_record_counts(self):
@@ -593,7 +551,7 @@ class VcfFile(contextlib.AbstractContextManager):
             return []
 
         # Calculate the desired part file boundaries
-        file_length = storage.file_size(self.vcf_path)
+        file_length = os.stat(self.vcf_path).st_size
         if num_parts is not None:
             target_part_size_bytes = file_length // num_parts
         elif target_part_size_bytes is not None:

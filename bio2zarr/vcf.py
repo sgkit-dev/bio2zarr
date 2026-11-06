@@ -7,9 +7,9 @@ import math
 import pathlib
 import pickle
 import re
+import shutil
 import sys
 import tempfile
-import uuid
 from functools import partial
 from itertools import islice
 from typing import Any
@@ -19,7 +19,7 @@ import numpy as np
 
 from bio2zarr.zarr_utils import STRING_DTYPE_NAME
 
-from . import constants, core, provenance, storage, vcf_utils, vcz, zarr_utils
+from . import constants, core, provenance, vcf_utils, vcz, zarr_utils
 
 logger = logging.getLogger(__name__)
 
@@ -296,6 +296,7 @@ def scan_vcfs(
     target_num_partitions,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
 ):
+    paths = [pathlib.Path(path) for path in paths]
     if not paths:
         raise ValueError("At least one VCF path is required")
     logger.info(
@@ -304,7 +305,7 @@ def scan_vcfs(
     )
     # An easy mistake to make is to pass the same file twice. Check this early on.
     for path, count in collections.Counter(paths).items():
-        if not vcf_utils.input_path(path).exists():  # NEEDS TEST
+        if not path.exists():  # NEEDS TEST
             raise FileNotFoundError(path)
         if count > 1:
             raise ValueError(f"Duplicate path provided: {path}")
@@ -653,7 +654,7 @@ class IntermediateColumnarFormatField:
     def chunk_record_index(self, partition_id):
         if partition_id not in self._chunk_record_index:
             index_path = self.partition_path(partition_id) / "chunk_index"
-            with index_path.open("rb") as f:
+            with open(index_path, "rb") as f:
                 a = pickle.load(f)
             assert len(a) > 1
             assert a[0] == 0
@@ -661,7 +662,7 @@ class IntermediateColumnarFormatField:
         return self._chunk_record_index[partition_id]
 
     def read_chunk(self, path):
-        with path.open("rb") as f:
+        with open(path, "rb") as f:
             pkl = self.compressor.decode(f.read())
         return pickle.loads(pkl)
 
@@ -798,7 +799,7 @@ class IcfFieldWriter:
         logger.debug(f"Start write: {path}")
         pkl = pickle.dumps(self.buff)
         compressed = self.compressor.encode(pkl)
-        with path.open("wb") as f:
+        with open(path, "wb") as f:
             f.write(compressed)
 
         # Update the summary
@@ -813,7 +814,7 @@ class IcfFieldWriter:
         )
         if len(self.buff) > 0:
             self.write_chunk()
-        with (self.path / "chunk_index").open("wb") as f:
+        with open(self.path / "chunk_index", "wb") as f:
             a = np.array(self.chunk_index, dtype=int)
             pickle.dump(a, f)
 
@@ -841,7 +842,7 @@ class IcfPartitionWriter(contextlib.AbstractContextManager):
             field_path = get_vcf_field_path(out_path, vcf_field)
             field_partition_path = field_path / f"p{partition_index}"
             # Should be robust to running explode_partition twice.
-            storage.mkdir(field_partition_path, exist_ok=True)
+            field_partition_path.mkdir(exist_ok=True)
             transformer = VcfValueTransformer.factory(vcf_field, num_samples)
             self.field_writers[vcf_field.full_name] = IcfFieldWriter(
                 vcf_field,
@@ -926,12 +927,12 @@ def convert_local_allele_field_types(fields, schema_instance):
 
 class IntermediateColumnarFormat(vcz.Source):
     def __init__(self, path):
-        self._path = storage.path(path)
+        self._path = pathlib.Path(path)
         # TODO raise a more informative error here telling people this
         # directory is either a WIP or the wrong format.
-        with (self.path / "metadata.json").open() as f:
+        with open(self.path / "metadata.json") as f:
             self.metadata = IcfMetadata.fromdict(json.load(f))
-        with (self.path / "header.txt").open() as f:
+        with open(self.path / "header.txt") as f:
             self.vcf_header = f.read()
         self.compressor = numcodecs.get_codec(self.metadata.compressor)
         self.fields = {}
@@ -1776,7 +1777,7 @@ class IcfWriteSummary(core.JsonDataclass):
 
 class IntermediateColumnarFormatWriter:
     def __init__(self, path):
-        self.path = storage.path(path)
+        self.path = pathlib.Path(path)
         self.wip_path = self.path / "wip"
         self.metadata = None
 
@@ -1798,7 +1799,7 @@ class IntermediateColumnarFormatWriter:
             raise ValueError(f"ICF path already exists: {self.path}")
         if compressor is None:
             compressor = ICF_DEFAULT_COMPRESSOR
-        vcfs = list(vcfs)
+        vcfs = [pathlib.Path(vcf) for vcf in vcfs]
         target_num_partitions = max(target_num_partitions, len(vcfs))
 
         # TODO move scan_vcfs into this class
@@ -1824,11 +1825,11 @@ class IntermediateColumnarFormatWriter:
         # https://github.com/pystatgen/vcf-zarr-spec/issues/15
         # May be useful to keep lying around still though?
         logger.info("Writing VCF header")
-        with (self.path / "header.txt").open("w") as f:
+        with open(self.path / "header.txt", "w") as f:
             f.write(header)
 
         logger.info("Writing WIP metadata")
-        with (self.wip_path / "metadata.json").open("w") as f:
+        with open(self.wip_path / "metadata.json", "w") as f:
             json.dump(self.metadata.asdict(), f, indent=4)
         return IcfWriteSummary(
             num_partitions=self.num_partitions,
@@ -1839,18 +1840,18 @@ class IntermediateColumnarFormatWriter:
     def mkdirs(self):
         num_dirs = len(self.metadata.fields)
         logger.info(f"Creating {num_dirs} field directories")
-        storage.mkdir(self.path)
-        storage.mkdir(self.wip_path)
+        self.path.mkdir()
+        self.wip_path.mkdir()
         for field in self.metadata.fields:
             field_path = get_vcf_field_path(self.path, field)
-            storage.mkdir(field_path, parents=True)
+            field_path.mkdir(parents=True)
 
     def load_partition_summaries(self):
         summaries = []
         not_found = []
         for j in range(self.num_partitions):
             try:
-                with (self.wip_path / f"p{j}.json").open() as f:
+                with open(self.wip_path / f"p{j}.json") as f:
                     summaries.append(IcfPartitionMetadata.fromdict(json.load(f)))
             except FileNotFoundError:
                 not_found.append(j)
@@ -1863,7 +1864,7 @@ class IntermediateColumnarFormatWriter:
 
     def load_metadata(self):
         if self.metadata is None:
-            with (self.wip_path / "metadata.json").open() as f:
+            with open(self.wip_path / "metadata.json") as f:
                 self.metadata = IcfMetadata.fromdict(json.load(f))
 
     def process_partition(self, partition_index):
@@ -1909,7 +1910,7 @@ class IntermediateColumnarFormatWriter:
             last_position=last_position,
             field_summaries=tcw.field_summaries,
         )
-        with summary_path.open("w") as f:
+        with open(summary_path, "w") as f:
             f.write(partition_metadata.asjson())
         logger.info(
             f"Finish p{partition_index} {partition.vcf_path}__{partition.region} "
@@ -1974,11 +1975,11 @@ class IntermediateColumnarFormatWriter:
                 field.summary.update(summary.field_summaries[field.full_name])
 
         logger.info("Finalising metadata")
-        with (self.path / "metadata.json").open("w") as f:
+        with open(self.path / "metadata.json", "w") as f:
             f.write(self.metadata.asjson())
 
         logger.debug("Removing WIP directory")
-        storage.remove_tree(self.wip_path)
+        shutil.rmtree(self.wip_path)
 
 
 def explode(
@@ -2037,7 +2038,7 @@ def explode_finalise(icf_path):
 
 
 def inspect(path):
-    path = storage.path(path)
+    path = pathlib.Path(path)
     if not path.exists():
         raise ValueError(f"Path not found: {path}")
     if path.is_dir() and (path / "metadata.json").exists():
@@ -2152,7 +2153,7 @@ def convert(
         Approximate bound on transformed/output batch payload per worker,
         including string contents. A single oversized row is rejected.
     temp_icf_dir : str or Path, optional
-        Local parent directory or S3 prefix for automatically cleaned-up ICF.
+        Local parent directory for automatically cleaned-up ICF.
         Mutually exclusive with icf_path and no-ICF mode.
 
     Returns
@@ -2273,15 +2274,8 @@ def convert(
 
 @contextlib.contextmanager
 def temp_icf_path(prefix=None, dir=None):
-    if dir is not None and isinstance(storage.path(dir), storage.S3Path):
-        tmp = storage.path(dir) / f"{prefix or 'bio2zarr'}-{uuid.uuid4().hex}"
-        try:
-            yield tmp
-        finally:
-            storage.remove_tree(tmp)
-    else:
-        with tempfile.TemporaryDirectory(prefix=prefix, dir=dir) as tmp:
-            yield pathlib.Path(tmp) / "icf"
+    with tempfile.TemporaryDirectory(prefix=prefix, dir=dir) as tmp:
+        yield pathlib.Path(tmp) / "icf"
 
 
 def encode(

@@ -6,10 +6,8 @@
   / `--max-alleles` bounds or combined `--infer-shape` discovery, and reusable
   dimension-scan metadata. Allele counts include REF; supplied bounds can be
   combined with shape inference and are checked without truncation.
-  Preserve variable-width fields and reject insufficient bounds. Add S3
-  native HTSlib S3 VCF/BCF input with indexes (no presigned URLs), S3 ICF
-  read/write (including distributed stages),
-  and configurable automatically cleaned-up temporary ICF storage.
+  Preserve variable-width fields and reject insufficient bounds. Add
+  configurable automatically cleaned-up temporary ICF storage.
 - Preserve missing local-allele AD/PL rows when batching VCF conversion.
 
 - Add `bgen2zarr convert` and `bio2zarr.bgen.convert` using the `bgen-limix`

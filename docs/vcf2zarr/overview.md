@@ -142,57 +142,6 @@ time (rather than retaining a decompressed ICF chunk for every field).
 `dencode-init --batch-size N` records this choice for subsequent workers;
 the existing distributed lifecycle is unchanged.
 
-## S3 input and intermediate storage
-
-Install `bio2zarr[vcf,s3]` to use `s3://bucket/key` VCF/BCF input and
-`s3://bucket/prefix` ICF storage:
-
-```bash
-vcf2zarr convert s3://my-bucket/input/sample.vcf.gz sample.vcz --max-ploidy 2
-vcf2zarr explode s3://my-bucket/input/sample.vcf.gz s3://my-bucket/work/sample.icf
-vcf2zarr encode s3://my-bucket/work/sample.icf sample.vcz --batch-size 64
-vcf2zarr convert sample.vcf.gz sample.vcz --temp-icf-dir s3://my-bucket/tmp
-```
-
-VCF/BCF data uses HTSlib's native S3 protocol and ranged reads, without presigned
-URLs. The cyvcf2/HTSlib build must include its S3 and HTTP plugins; unsupported
-protocols and authentication failures propagate without a fallback download.
-BCF indexes also use native S3. VCF indexes (TBI or CSI) are copied to a small,
-unique temporary local directory and removed when the reader closes: cyvcf2's
-tabix API otherwise caches remote indexes in the working directory. This also
-isolates concurrent inputs with identically named indexes. Index statistics
-and ICF data use `universal_pathlib` (`UPath`) backed by `s3fs`, keeping the
-same pathlib-style operations as local files. Indexed input retains the local
-partition semantics.
-
-Configure credentials for **both** readers. HTSlib supports environment variables
-such as `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` and
-`AWS_DEFAULT_REGION`, and shared credentials files/profiles (depending on its
-version/build). Do not assume it implements botocore's complete credential
-provider chain or automatic IAM-role refresh. Long-running jobs using temporary
-credentials need an externally refreshed shared credentials file supported by
-the installed HTSlib, or credentials valid for the entire job; environment
-credentials inherited by a running worker do not refresh themselves.
-`s3fs` uses its standard AWS credential provider chain separately.
-
-For S3-compatible endpoints, `AWS_ENDPOINT_URL_S3` or `AWS_ENDPOINT_URL` configures
-`s3fs`; configure native reads separately with `HTS_S3_HOST=host:port` and, when
-needed, `HTS_S3_ADDRESS_STYLE=path`. Native `s3://` defaults to HTTPS;
-`s3+http://bucket/key` explicitly selects HTTP for local services, and
-`s3+https://bucket/key` explicitly selects HTTPS. Every distributed worker needs
-the same credentials and endpoint configuration. Credentials and signed URLs
-are not written to ICF or conversion metadata. Buckets must already exist. Use a
-dedicated, otherwise-empty prefix for each ICF run; a prefix containing existing
-data is rejected.
-
-`--icf-path` retains intermediate data; `--temp-icf-dir` chooses a local parent
-directory or S3 parent prefix for temporary ICF. The latter creates a unique
-run prefix and removes only that prefix on success or failure. These options
-are mutually exclusive, and neither may be used with no-ICF conversion.
-`explode`, `inspect`, `mkschema`, `encode` and all distributed ICF commands
-accept S3 ICF prefixes. Final VCZ output remains local (directory or zip);
-S3 VCZ output is not supported by this converter.
-
 ## Local alleles
 
 As discussed in our [preprint](

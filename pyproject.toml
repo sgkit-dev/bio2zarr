@@ -20,8 +20,7 @@ dependencies = [
   "coloredlogs",
   "click",
   # Using pandas for reading plink files, but will be useful more generally
-  "pandas",
-  "universal-pathlib>=0.3",
+  "pandas"
 ]
 requires-python = ">=3.11"
 classifiers = [
@@ -56,13 +55,11 @@ zipzarr = "bio2zarr.cli:zipzarr"
 [project.optional-dependencies]
 tskit = ["tskit>=1"]
 vcf = ["cyvcf2"]
-s3 = ["s3fs"]
 bgen = ["bgen-limix>=4.15.0,<5"]
 all = [
   "tskit>=1",
   "cyvcf2",
   "bgen-limix>=4.15.0,<5",
-  "s3fs",
 ]
 
 [dependency-groups]
@@ -82,8 +79,6 @@ test = [
   "cyvcf2 ; sys_platform != 'win32'",
   "xarray<2025.03.1",
   "dask[array]",
-  "s3fs",
-  "moto[server]>=5",
 ]
 
 docs = [
