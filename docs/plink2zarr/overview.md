@@ -19,6 +19,8 @@ PGEN conversion is supported on Linux and macOS; upstream pgenlib does not
 currently provide Windows wheels.
 
 Supply the shared prefix, not a filename. `.pvar.zst` is also supported.
+PGEN input must be local: pgenlib does not yet support reading from S3.
+Remote PGEN input is explicitly rejected rather than downloaded automatically.
 The genotype file selects the format automatically; use `--input-format bed`
 or `--input-format pgen` when both formats share a prefix.
 

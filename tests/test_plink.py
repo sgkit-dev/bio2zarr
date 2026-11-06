@@ -32,6 +32,16 @@ class TestReadBim:
         nt.assert_array_equal(df["allele_2"].values, ["GG", "C"])
 
 
+@pytest.mark.parametrize("input_format", ["auto", "pgen"])
+def test_pgen_s3_input_rejected_before_access(tmp_path, input_format):
+    out = tmp_path / "output.vcz"
+    with mock.patch.object(plink, "read_psam") as read_psam:
+        with pytest.raises(ValueError, match="pgenlib does not support S3"):
+            plink.convert("s3://bucket/cohort", out, input_format=input_format)
+    read_psam.assert_not_called()
+    assert not out.exists()
+
+
 class TestReadFam:
     def test_example(self):
         path = "tests/data/plink/example.fam"

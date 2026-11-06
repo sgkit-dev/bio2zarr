@@ -380,6 +380,8 @@ def convert(
     """
     if input_format not in ("auto", "bed", "pgen"):
         raise ValueError("input_format must be 'auto', 'bed', or 'pgen'")
+    if input_format in ("auto", "pgen"):
+        _check_pgen_input(prefix)
     if input_format == "auto":
         has_pgen = pathlib.Path(str(prefix) + ".pgen").exists()
         has_bed = pathlib.Path(str(prefix) + ".bed").exists()
@@ -427,6 +429,14 @@ PAR_INTERVALS = {
 }
 
 
+def _check_pgen_input(prefix):
+    # TODO support S3 input when pgenlib adds native remote reads.
+    if str(prefix).startswith("s3://"):
+        raise ValueError(
+            "PGEN input must be local; pgenlib does not support S3 reads yet"
+        )
+
+
 def read_psam(path):
     with open(path) as f:
         for line in f:
@@ -468,6 +478,7 @@ class PgenFormat(PlinkFormat):
         if not isinstance(dosages, bool):
             raise ValueError("dosages must be a boolean")
         self.dosages = dosages
+        _check_pgen_input(prefix)
         self.prefix = str(prefix)
         self.pgen_path = self.prefix + ".pgen"
         self.pvar_path = self.prefix + ".pvar"
