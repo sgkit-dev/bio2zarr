@@ -1419,6 +1419,22 @@ class DirectVcfField(VcfSourceField):
             yield self.values[index]
 
 
+@dataclasses.dataclass(frozen=True)
+class DirectVcfFieldValidation:
+    name: str
+    is_genotype: bool
+    max_number: int
+    integer_limits: tuple[int, int] | None
+
+
+@dataclasses.dataclass(frozen=True)
+class DirectVcfValidation:
+    allele_count: int
+    ploidy: int | None
+    local_allele_max: int | None
+    fields: tuple[DirectVcfFieldValidation, ...]
+
+
 class DirectVcfSource(VcfSource):
     """A bounded chunk of real transformed VCF columns."""
 
@@ -1456,6 +1472,7 @@ class DirectVcfSource(VcfSource):
             name: VcfValueTransformer.factory(field.vcf_field, self.num_samples)
             for name, field in self.fields.items()
         }
+        validation = self.validation_plan(schema)
         chunk_size = schema.dimensions["variants"].chunk_size
         columns = {name: [] for name in self.fields}
         buffered_bytes = self.metadata_nbytes
@@ -1473,7 +1490,7 @@ class DirectVcfSource(VcfSource):
                             variant, self.metadata
                         ).items()
                     }
-                    self.validate_row(row, schema)
+                    self.validate_row(row, validation)
                     buffered_bytes += sum(value_nbytes(v) + 16 for v in row.values())
                     if (
                         3 * buffered_bytes + encoding_memory
@@ -1512,12 +1529,38 @@ class DirectVcfSource(VcfSource):
                 metadata_nbytes=self.metadata_nbytes,
             )
 
-    def validate_row(self, row, schema):
-        if len(row["ALT"]) + 1 > schema.dimensions["alleles"].size:
+    def validation_plan(self, schema):
+        local = schema.field_map().get("call_LA")
+        ploidy = schema.dimensions.get("ploidy")
+        fields = []
+        for field in self.metadata.fields:
+            limits = None
+            if field.vcf_type == "Integer":
+                info = np.iinfo(field.smallest_dtype())
+                limits = (info.min, info.max)
+            fields.append(
+                DirectVcfFieldValidation(
+                    field.full_name,
+                    field.name == "GT",
+                    field.max_number,
+                    limits,
+                )
+            )
+        return DirectVcfValidation(
+            allele_count=schema.dimensions["alleles"].size,
+            ploidy=None if ploidy is None else ploidy.size,
+            local_allele_max=None if local is None else np.iinfo(local.dtype).max,
+            fields=tuple(fields),
+        )
+
+    def validate_row(self, row, validation):
+        if len(row["ALT"]) + 1 > validation.allele_count:
             raise ValueError("Number of alleles exceeds discovered schema width")
         gt = row.get("FORMAT/GT")
         if gt is not None:
-            ploidy = schema.dimensions["ploidy"].size
+            ploidy = validation.ploidy
+            if ploidy is None:
+                raise ValueError("Genotype field requires a ploidy dimension")
             if gt.shape[1] - 1 > ploidy:
                 raise ValueError(
                     f"Genotype ploidy {gt.shape[1] - 1} exceeds ploidy {ploidy}"
@@ -1525,19 +1568,21 @@ class DirectVcfSource(VcfSource):
             alleles = gt[:, :-1]
             if np.any(alleles >= len(row["ALT"]) + 1) or np.any(alleles < -2):
                 raise ValueError("Genotype allele index is outside REF+ALT")
-            local = schema.field_map().get("call_LA")
-            if local is not None and np.any(alleles > np.iinfo(local.dtype).max):
+            if validation.local_allele_max is not None and np.any(
+                alleles > validation.local_allele_max
+            ):
                 raise ValueError("Genotype allele index exceeds local allele dtype")
-        for name, value in row.items():
+        for field in validation.fields:
+            name = field.name
+            value = row[name]
             if value is None:
                 continue
-            field = self.fields[name].vcf_field
-            if field.name != "GT" and value.shape[-1] > field.max_number:
+            if not field.is_genotype and value.shape[-1] > field.max_number:
                 raise ValueError(f"{name} exceeds discovered field width")
-            if field.vcf_type == "Integer":
-                limits = np.iinfo(field.smallest_dtype())
+            if field.integer_limits is not None:
+                minimum, maximum = field.integer_limits
                 present = value[value >= constants.MIN_INT_VALUE]
-                if np.any(present < limits.min) or np.any(present > limits.max):
+                if np.any(present < minimum) or np.any(present > maximum):
                     raise ValueError(f"{name} exceeds discovered integer dtype")
 
 

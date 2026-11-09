@@ -242,6 +242,26 @@ class TestSmallExample:
         assert max(admitted_bytes) <= budget // 2
         assert max(admitted_rows) == 2
 
+    def test_row_validation_plan_built_once(self):
+        metadata, header = vcf_mod.discover_vcf_shape([self.data_path])
+        source = vcf_mod.DirectVcfSource(metadata, header, self.data_path)
+        schema = source.generate_schema(variants_chunk_size=1)
+        field_map = vcz.VcfZarrSchema.field_map
+        dtype = vcf_mod.VcfField.smallest_dtype
+        with (
+            mock.patch.object(
+                vcz.VcfZarrSchema, "field_map", autospec=True, side_effect=field_map
+            ) as schema_lookup,
+            mock.patch.object(
+                vcf_mod.VcfField, "smallest_dtype", autospec=True, side_effect=dtype
+            ) as dtype_lookup,
+        ):
+            chunks = list(source.iter_chunks(schema, 0))
+        assert sum(chunk.num_rows for chunk in chunks) == 9
+        assert schema_lookup.call_count == 1
+        integer_fields = sum(field.vcf_type == "Integer" for field in metadata.fields)
+        assert dtype_lookup.call_count == integer_fields
+
     @pytest.mark.parametrize("value", ["1,200", "1,2,3"])
     def test_changed_input_overflow(self, tmp_path, value):
         path = tmp_path / "changed.vcf"
@@ -289,6 +309,17 @@ class TestSmallExample:
         )
         with pytest.raises(ValueError, match="Genotype (allele index|ploidy)"):
             vcf_mod.convert([path], infer_shape=True, ploidy=2)
+
+    def test_local_allele_dtype_overflow(self, tmp_path):
+        path = tmp_path / "wide-local.vcf"
+        path.write_text(
+            "##fileformat=VCFv4.3\n##contig=<ID=1>\n"
+            '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts\n"
+            f"1\t1\t.\tA\t{','.join(['C'] * 128)}\t.\t.\t.\tGT\t0/128\n"
+        )
+        with pytest.raises(ValueError, match="exceeds local allele dtype"):
+            vcf_mod.convert([path], infer_shape=True, ploidy=2, local_alleles=True)
 
     def test_chunk_reader_closes_on_error(self):
         opened = []
