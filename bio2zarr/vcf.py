@@ -1120,7 +1120,7 @@ class IntermediateColumnarFormat(vcz.Source):
         # Add ploidy and genotypes dimensions only when needed
         max_genotypes = 0
         has_g_field = False
-        for field in self.metadata.format_fields:
+        for field in [*self.metadata.info_fields, *self.metadata.format_fields]:
             if field.vcf_number == "G":
                 has_g_field = True
                 max_genotypes = max(max_genotypes, field.summary.max_number)
