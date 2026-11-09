@@ -179,29 +179,6 @@ ploidy = click.option(
     ),
 )
 
-batch_size = click.option(
-    "--batch-size",
-    type=click.IntRange(min=1),
-    default=None,
-    help="Shared row batch size (convert default: output variant chunk size).",
-)
-
-max_batch_bytes = click.option(
-    "--max-batch-bytes",
-    type=click.IntRange(min=1),
-    default=None,
-    help="Approximate row-batch payload limit per worker in bytes (default: 67108864).",
-)
-
-
-def row_options(batch_size, max_batch_bytes):
-    options = {}
-    if batch_size is not None:
-        options["batch_size"] = batch_size
-    if max_batch_bytes is not None:
-        options["max_batch_bytes"] = max_batch_bytes
-    return options
-
 
 def setup_logging(verbosity):
     level = "WARNING"
@@ -415,8 +392,6 @@ def mkschema(icf_path, variants_chunk_size, samples_chunk_size, local_alleles, p
 @progress
 @worker_processes
 @zarr_format
-@batch_size
-@max_batch_bytes
 def encode(
     icf_path,
     zarr_path,
@@ -430,8 +405,6 @@ def encode(
     progress,
     worker_processes,
     zarr_format,
-    batch_size,
-    max_batch_bytes,
 ):
     """
     Convert intermediate columnar format to VCF Zarr.
@@ -449,7 +422,6 @@ def encode(
         max_memory=max_memory,
         show_progress=progress,
         zarr_format=zarr_format,
-        **row_options(batch_size, max_batch_bytes),
     )
 
 
@@ -466,8 +438,6 @@ def encode(
 @progress
 @verbose
 @zarr_format
-@batch_size
-@max_batch_bytes
 def dencode_init(
     icf_path,
     zarr_path,
@@ -481,8 +451,6 @@ def dencode_init(
     progress,
     verbose,
     zarr_format,
-    batch_size,
-    max_batch_bytes,
 ):
     """
     Initialise conversion of intermediate format to VCF Zarr. This will
@@ -510,7 +478,6 @@ def dencode_init(
         max_variant_chunks=max_variant_chunks,
         show_progress=progress,
         zarr_format=zarr_format,
-        **row_options(batch_size, max_batch_bytes),
     )
     show_work_summary(work_summary, json)
 
@@ -557,36 +524,10 @@ def dencode_finalise(zarr_path, verbose, progress):
 @local_alleles
 @ploidy
 @zarr_format
-@batch_size
-@max_batch_bytes
-@click.option(
-    "--max-ploidy",
-    type=click.IntRange(min=1),
-    default=None,
-    help="Skip ICF; discover other dimensions, then check this GT ploidy bound.",
-)
-@click.option(
-    "--max-alleles",
-    type=click.IntRange(min=1),
-    default=None,
-    help="Skip ICF; bound alleles including REF (2=biallelic); infer other dimensions.",
-)
 @click.option(
     "--infer-shape",
     is_flag=True,
-    help="Skip ICF; infer remaining dimensions and dtypes in a metadata pass.",
-)
-@click.option(
-    "--icf-path",
-    type=click.Path(file_okay=False, dir_okay=True),
-    default=None,
-    help="Retain intermediate data at a local directory.",
-)
-@click.option(
-    "--temp-icf-dir",
-    type=click.Path(file_okay=False, dir_okay=True),
-    default=None,
-    help="Parent local directory for automatically removed temporary ICF.",
+    help="Read input twice to infer dimensions and dtypes without ICF storage.",
 )
 def convert_vcf(
     vcfs,
@@ -600,41 +541,12 @@ def convert_vcf(
     local_alleles,
     ploidy,
     zarr_format,
-    batch_size,
-    max_batch_bytes,
-    max_ploidy,
-    max_alleles,
     infer_shape,
-    icf_path,
-    temp_icf_dir,
 ):
     """
-    Convert input VCF(s) to VCF Zarr using shared row batches.
+    Convert input VCF(s) to VCF Zarr.
     """
     setup_logging(verbose)
-    if max_ploidy is not None and ploidy is not None:
-        raise click.UsageError("--max-ploidy is mutually exclusive with --ploidy")
-    if (max_ploidy is not None or max_alleles is not None or infer_shape) and (
-        icf_path is not None or temp_icf_dir is not None
-    ):
-        raise click.UsageError("No-ICF conversion cannot specify ICF storage")
-    if icf_path is not None and temp_icf_dir is not None:
-        raise click.UsageError("--icf-path and --temp-icf-dir are mutually exclusive")
-    options = row_options(batch_size, max_batch_bytes)
-    if max_ploidy is not None:
-        options["max_ploidy"] = max_ploidy
-    if max_alleles is not None:
-        options["max_alleles"] = max_alleles
-    if infer_shape:
-        options["infer_shape"] = True
-    if icf_path is not None:
-        options["icf_path"] = icf_path
-    if temp_icf_dir is not None:
-        options["temp_icf_dir"] = temp_icf_dir
-    try:
-        vcf_mod.vcz.local_zarr_path(zarr_path)
-    except ValueError as e:
-        raise click.UsageError(str(e)) from e
     check_overwrite_dir(zarr_path, force)
     vcf_mod.convert(
         vcfs,
@@ -646,7 +558,7 @@ def convert_vcf(
         local_alleles=local_alleles,
         ploidy=ploidy,
         zarr_format=zarr_format,
-        **options,
+        infer_shape=infer_shape,
     )
 
 

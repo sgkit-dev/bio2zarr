@@ -448,8 +448,8 @@ class VcfFile(contextlib.AbstractContextManager):
 
         self.index = None
         if self.index_type == VcfIndexType.CSI:
-            self.index = read_csi(self.index_path)
             # Determine the file-type based on the "aux" field.
+            self.index = read_csi(self.index_path)
             self.file_type = VcfFileType.BCF
             if len(self.index.aux) > 0:
                 self.file_type = VcfFileType.VCF
