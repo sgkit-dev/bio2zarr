@@ -490,18 +490,24 @@ def compute_lpl_field(pl, la):
 class LocalisableFieldDescriptor:
     array_name: str
     vcf_field: str
-    sanitise: callable
     convert: callable
 
 
 localisable_fields = [
-    LocalisableFieldDescriptor(
-        "call_LAD", "FORMAT/AD", sanitise_int_array, compute_lad_field
-    ),
-    LocalisableFieldDescriptor(
-        "call_LPL", "FORMAT/PL", sanitise_int_array, compute_lpl_field
-    ),
+    LocalisableFieldDescriptor("call_LAD", "FORMAT/AD", compute_lad_field),
+    LocalisableFieldDescriptor("call_LPL", "FORMAT/PL", compute_lpl_field),
 ]
+
+
+def sanitise_local_field(value, shape, dtype):
+    if value is None:
+        return np.full(shape, constants.INT_MISSING, dtype=dtype)
+    value = sanitise_int_array(value, 2, dtype)
+    if value.shape[1] > shape[1]:
+        raise ValueError("Local allele source exceeds schema width")
+    result = np.full(shape, constants.INT_FILL, dtype=dtype)
+    result[:, : value.shape[1]] = value
+    return result
 
 
 @dataclasses.dataclass
@@ -1040,7 +1046,12 @@ class VcfZarrWriter:
                 la_array, partition.start, partition.stop
             ):
                 raw_value = next(source)
-                value = descriptor.sanitise(raw_value, 2, raw_value.dtype)
+                dim = "alleles" if descriptor.array_name == "call_LAD" else "genotypes"
+                value = sanitise_local_field(
+                    raw_value,
+                    (self.source.num_samples, self.schema.dimensions[dim].size),
+                    buff.buff.dtype,
+                )
                 j = buff.next_buffer_row()
                 buff.buff[j] = descriptor.convert(value, la)
             self.finalise_partition_array(partition_index, buff)
