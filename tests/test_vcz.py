@@ -536,6 +536,7 @@ class TestVcfZarrWriterExample:
     )
 
     @pytest.mark.parametrize("zarr_format", [2, 3])
+    @pytest.mark.parametrize("infer_shape", [False, True])
     @pytest.mark.parametrize(
         ("field", "number", "full", "short", "expected"),
         [
@@ -570,7 +571,7 @@ class TestVcfZarrWriterExample:
         ],
     )
     def test_local_allele_missing_and_short_fields(
-        self, tmp_path, zarr_format, field, number, full, short, expected
+        self, tmp_path, zarr_format, infer_shape, field, number, full, short, expected
     ):
         path = tmp_path / "local.vcf"
         with open(path, "w") as out:
@@ -616,6 +617,7 @@ class TestVcfZarrWriterExample:
             variants_chunk_size=2,
             samples_chunk_size=2,
             zarr_format=zarr_format,
+            infer_shape=infer_shape,
         )
         assert root.metadata.zarr_format == zarr_format
         nt.assert_array_equal(

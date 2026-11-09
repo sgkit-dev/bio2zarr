@@ -93,6 +93,27 @@ across cores on a single machine (via the ``--worker-processes`` argument)
 or distributed across a cluster by the three-part ``init``, ``partition``
 and ``finalise`` commands.
 
+## Conversion without ICF
+
+Use `--infer-shape` when intermediate storage is unavailable:
+
+```bash
+vcf2zarr convert sample.vcf.gz sample.vcz --infer-shape
+vcf2zarr convert sample.vcf.gz sample.vcz --infer-shape --ploidy 2
+```
+
+This reads the input twice: first to discover dimensions and dtypes, then to
+write Zarr without storing ICF columns. Input files must remain unchanged
+between passes. `--ploidy` pads genotypes to the supplied size, skips genotype
+discovery, and rejects genotypes exceeding that size.
+
+Discovery and encoding use `--worker-processes`, but reading the second pass
+is sequential. Unindexed files are scanned serially per file. For large indexed
+inputs, the default ICF workflow may be faster. Oversized chunks, invalid allele
+indices, and values exceeding discovered widths or dtypes raise errors rather
+than being truncated. If a chunk exceeds the memory budget, reduce
+`--variants-chunk-size` or use the default ICF workflow.
+
 ## Local alleles
 
 As discussed in our [preprint](
@@ -149,4 +170,3 @@ see [issue 302](https://github.com/sgkit-dev/bio2zarr/issues/302) for details.
 Document process of copying VCF Zarr datasets to an object store like S3.
 See [Issue 234](https://github.com/sgkit-dev/bio2zarr/issues/234)
 :::
-

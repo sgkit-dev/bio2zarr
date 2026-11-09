@@ -72,6 +72,7 @@ DEFAULT_CONVERT_ARGS = dict(
     local_alleles=False,
     ploidy=None,
     zarr_format=None,
+    infer_shape=False,
 )
 
 DEFAULT_TSKIT_CONVERT_ARGS = dict(
@@ -649,6 +650,18 @@ class TestWithMocks:
             **args,
         )
 
+    @mock.patch("bio2zarr.vcf.convert")
+    def test_convert_infer_shape(self, mocked):
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.vcf2zarr_main,
+            ["convert", self.vcf_path, "zarr_path", "--infer-shape", "--ploidy", "2"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        args = dict(DEFAULT_CONVERT_ARGS, infer_shape=True, ploidy=2)
+        mocked.assert_called_once_with((self.vcf_path,), "zarr_path", **args)
+
     @pytest.mark.parametrize("response", ["n", "N", "No"])
     @mock.patch("bio2zarr.vcf.convert")
     def test_vcf_convert_overwrite_zarr_confirm_no(self, mocked, tmp_path, response):
@@ -1053,12 +1066,14 @@ class TestVcfEndToEnd:
         # Arbitrary check
         assert "variant_position" in result.stdout
 
-    def test_convert(self, tmp_path):
+    @pytest.mark.parametrize("infer_shape", [False, True])
+    def test_convert(self, tmp_path, infer_shape):
         zarr_path = tmp_path / "zarr"
         runner = ct.CliRunner()
+        flag = "--infer-shape" if infer_shape else ""
         result = runner.invoke(
             cli.vcf2zarr_main,
-            f"convert {self.vcf_path} {zarr_path}",
+            f"convert {self.vcf_path} {zarr_path} {flag}",
             catch_exceptions=False,
         )
         assert result.exit_code == 0

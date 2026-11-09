@@ -524,6 +524,11 @@ def dencode_finalise(zarr_path, verbose, progress):
 @local_alleles
 @ploidy
 @zarr_format
+@click.option(
+    "--infer-shape",
+    is_flag=True,
+    help="Read input twice to infer dimensions and dtypes without ICF storage.",
+)
 def convert_vcf(
     vcfs,
     zarr_path,
@@ -536,9 +541,10 @@ def convert_vcf(
     local_alleles,
     ploidy,
     zarr_format,
+    infer_shape,
 ):
     """
-    Convert input VCF(s) directly to VCF Zarr (not recommended for large files).
+    Convert input VCF(s) to VCF Zarr.
     """
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)
@@ -552,6 +558,7 @@ def convert_vcf(
         local_alleles=local_alleles,
         ploidy=ploidy,
         zarr_format=zarr_format,
+        infer_shape=infer_shape,
     )
 
 
