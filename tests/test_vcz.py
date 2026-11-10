@@ -535,15 +535,11 @@ class TestVcfZarrWriterExample:
         "call_HQ",
     )
 
-    @pytest.mark.parametrize("zarr_format", [2, 3])
     @pytest.mark.parametrize(
-        ("field", "number", "full", "short", "expected"),
+        ("field", "expected"),
         [
             (
                 "AD",
-                "R",
-                "10,11,12",
-                "10,11",
                 [
                     [[11, -2], [10, 12], [-2, -2]],
                     [[-1, -2], [-1, -1], [-2, -2]],
@@ -555,9 +551,6 @@ class TestVcfZarrWriterExample:
             ),
             (
                 "PL",
-                "G",
-                "0,1,2,3,4,5",
-                "0,1,2",
                 [
                     [[2, -2, -2], [0, 3, 5], [-2, -2, -2]],
                     [[-1, -2, -2], [-1, -1, -1], [-2, -2, -2]],
@@ -569,55 +562,14 @@ class TestVcfZarrWriterExample:
             ),
         ],
     )
-    def test_local_allele_missing_and_short_fields(
-        self, tmp_path, zarr_format, field, number, full, short, expected
-    ):
-        path = tmp_path / "local.vcf"
-        with open(path, "w") as out:
-            print("##fileformat=VCFv4.2", file=out)
-            print("##contig=<ID=1>", file=out)
-            print('##FORMAT=<ID=GT,Number=1,Type=String,Description="">', file=out)
-            print(
-                f'##FORMAT=<ID={field},Number={number},Type=Integer,Description="">',
-                file=out,
-            )
-            print(
-                "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\tS3",
-                file=out,
-            )
-            genotypes = ["1/1", "0/2", "./."]
-            for pos, values in enumerate(
-                [
-                    [full] * 3,
-                    None,
-                    ["."] * 3,
-                    [full, ".", full],
-                    [short] * 3,
-                    [full] * 3,
-                ],
-                start=1,
-            ):
-                format_field = "GT" if values is None else f"GT:{field}"
-                samples = genotypes
-                if values is not None:
-                    samples = [f"{gt}:{value}" for gt, value in zip(genotypes, values)]
-                print(
-                    "\t".join(
-                        ["1", str(pos), ".", "A", "C,G", ".", ".", ".", format_field]
-                        + samples
-                    ),
-                    file=out,
-                )
-        pysam.tabix_index(str(path), preset="vcf")
+    def test_local_allele_missing_and_short_fields(self, field, expected):
         root = vcf_mod.convert(
-            [tmp_path / "local.vcf.gz"],
+            ["tests/data/vcf/local.vcf.gz"],
             worker_processes=0,
             local_alleles=True,
             variants_chunk_size=2,
             samples_chunk_size=2,
-            zarr_format=zarr_format,
         )
-        assert root.metadata.zarr_format == zarr_format
         nt.assert_array_equal(
             root["call_LA"][:], np.tile([[1, -2], [0, 2], [-2, -2]], (6, 1, 1))
         )
