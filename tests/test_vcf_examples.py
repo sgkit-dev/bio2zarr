@@ -1,4 +1,5 @@
 import collections
+import dataclasses
 import pathlib
 import re
 import shutil
@@ -11,13 +12,16 @@ import pytest
 import xarray.testing as xt
 import zarr
 
-from bio2zarr import constants, provenance, vcz, vcz_verification
+from bio2zarr import constants, core, provenance, vcz, vcz_verification
 from bio2zarr import vcf as vcf_mod
-from tests.utils import load_dataset
+from tests.utils import assert_zarr_equal, load_dataset
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32", reason="VCF support requires cyvcf2"
 )
+
+if sys.platform != "win32":
+    import pysam
 
 
 def assert_dataset_equal(ds1, ds2, drop_vars=None):
@@ -34,6 +38,308 @@ class TestSmallExample:
     def ds(self):
         root = vcf_mod.convert([self.data_path])
         return load_dataset(root)
+
+    @pytest.mark.parametrize("zarr_format", [2, 3])
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "sample.vcf.gz",
+            "sample.bcf",
+            "mixed_ploidy.vcf.gz",
+            "triploid.vcf.gz",
+            "field_type_combos.vcf.gz",
+            "sample_no_genotypes.vcf.gz",
+            "sample_no_genotypes_with_gt_header.vcf.gz",
+            "sample_all_missing_gts.vcf.gz",
+            "empty.vcf",
+            "empty.vcf.gz",
+        ],
+    )
+    def test_exact_encoding(self, tmp_path, filename, zarr_format):
+        path = f"tests/data/vcf/{filename}"
+        icf = vcf_mod.explode(tmp_path / "icf", [path])
+        expected = vcf_mod.encode(
+            icf.path,
+            variants_chunk_size=3,
+            samples_chunk_size=2,
+            zarr_format=zarr_format,
+        )
+        actual = vcf_mod.convert(
+            [path],
+            infer_shape=True,
+            variants_chunk_size=3,
+            samples_chunk_size=2,
+            zarr_format=zarr_format,
+        )
+        assert_zarr_equal(expected, actual)
+
+    @pytest.mark.parametrize("ploidy", [2, 4])
+    def test_ploidy_padding(self, ploidy):
+        expected = vcf_mod.convert(
+            [self.data_path], infer_shape=False, ploidy=ploidy, variants_chunk_size=3
+        )
+        actual = vcf_mod.convert(
+            [self.data_path],
+            infer_shape=True,
+            ploidy=ploidy,
+            variants_chunk_size=3,
+            worker_processes=2,
+        )
+        assert_zarr_equal(expected, actual)
+
+    def test_actual_parse_work(self):
+        records = 0
+        scan_records = 0
+        original_variants = vcf_mod.vcf_utils.VcfFile.variants
+        original_scan = vcf_mod.scan_vcf
+
+        def variants(file, region):
+            nonlocal records
+            for variant in original_variants(file, region):
+                records += 1
+                yield variant
+
+        def scan(*args):
+            nonlocal scan_records
+            before = records
+            result = original_scan(*args)
+            scan_records += records - before
+            return result
+
+        with (
+            mock.patch.object(vcf_mod.vcf_utils.VcfFile, "variants", variants),
+            mock.patch.object(vcf_mod, "scan_vcf", scan),
+        ):
+            vcf_mod.convert([self.data_path], infer_shape=True, variants_chunk_size=1)
+        assert records - scan_records == 18
+
+    @pytest.fixture
+    def boundary_inputs(self, tmp_path):
+        paths = []
+        for index in (1, 2):
+            source = f"tests/data/vcf/chunk_boundaries_{index}.vcf"
+            path = str(tmp_path / f"part{index}.vcf.gz")
+            pysam.tabix_compress(source, path)
+            pysam.tabix_index(path, preset="vcf")
+            paths.append(path)
+        metadata, header = vcf_mod.discover_vcf_shape(paths)
+        metadata.partitions = [
+            vcf_mod.VcfPartition(
+                vcf_path=path,
+                region=vcf_mod.vcf_utils.Region("1", position, position),
+                num_records=count,
+            )
+            for path, positions in zip(
+                paths,
+                [
+                    [(1, 2), (2, 0), (3, 1), (4, 0), (5, 1), (6, 0), (7, 1)],
+                    [(9, 1), (10, 0), (11, 2), (12, 0), (13, 1), (14, 0), (15, 1)],
+                ],
+            )
+            for position, count in positions
+        ]
+        return paths, metadata, header
+
+    @pytest.mark.parametrize("chunk_size", [3, 4, 16])
+    @pytest.mark.parametrize("workers", [0, 2])
+    def test_region_chunk_ownership(self, boundary_inputs, chunk_size, workers):
+        paths, metadata, header = boundary_inputs
+        expected = vcf_mod.convert(paths, variants_chunk_size=chunk_size)
+        parsed = 0
+        original = vcf_mod.vcf_utils.VcfFile.variants
+
+        def variants(file, region):
+            nonlocal parsed
+            for variant in original(file, region):
+                parsed += 1
+                yield variant
+
+        with (
+            mock.patch.object(
+                vcf_mod, "discover_vcf_shape", return_value=(metadata, header)
+            ),
+            mock.patch.object(vcf_mod.vcf_utils.VcfFile, "variants", variants),
+        ):
+            actual = vcf_mod.convert(
+                paths,
+                infer_shape=True,
+                variants_chunk_size=chunk_size,
+                worker_processes=workers,
+            )
+        assert_zarr_equal(expected, actual)
+        if workers == 0:
+            expected_parsed = metadata.num_records
+            offset = 0
+            for partition in metadata.partitions:
+                end = offset + partition.num_records
+                first_chunk = ((offset + chunk_size - 1) // chunk_size) * chunk_size
+                if first_chunk < end:
+                    expected_parsed += (
+                        min(
+                            ((end + chunk_size - 1) // chunk_size) * chunk_size,
+                            metadata.num_records,
+                        )
+                        - end
+                    )
+                offset = end
+            assert parsed == expected_parsed
+
+    @pytest.mark.parametrize("delta", [-1, 1])
+    def test_changed_record_count(self, boundary_inputs, delta):
+        paths, metadata, header = boundary_inputs
+        metadata.partitions[0] = dataclasses.replace(
+            metadata.partitions[0],
+            num_records=metadata.partitions[0].num_records + delta,
+        )
+        with (
+            mock.patch.object(
+                vcf_mod, "discover_vcf_shape", return_value=(metadata, header)
+            ),
+            pytest.raises(ValueError, match="record count changed"),
+        ):
+            vcf_mod.convert(paths, infer_shape=True, variants_chunk_size=3)
+
+    def test_discovery_does_not_fake_icf(self):
+        metadata, _ = vcf_mod.discover_vcf_shape([self.data_path], ploidy=2)
+        gt = next(field for field in metadata.fields if field.full_name == "FORMAT/GT")
+        assert gt.summary == vcf_mod.VcfFieldSummary()
+        assert metadata.format_version is None
+        assert metadata.compressor is None
+
+    def test_infer_shape_without_icf(self):
+        with mock.patch.object(vcf_mod, "explode", side_effect=AssertionError("ICF")):
+            root = vcf_mod.convert([self.data_path], infer_shape=True)
+        assert root["variant_position"].shape == (9,)
+
+    def test_infer_shape_rejects_icf_path(self, tmp_path):
+        with pytest.raises(ValueError, match="cannot specify icf_path"):
+            vcf_mod.convert(
+                [self.data_path], infer_shape=True, icf_path=tmp_path / "icf"
+            )
+
+    def test_encoding_memory_limit(self, tmp_path):
+        metadata, header = vcf_mod.discover_vcf_shape([self.data_path])
+        source = vcf_mod.DirectVcfSource(metadata, header, self.data_path)
+        reader = vcf_mod.DirectVcfReader(metadata, header, self.data_path)
+        schema = source.generate_schema(variants_chunk_size=1)
+        writer = vcz.VcfZarrWriter(vcf_mod.DirectVcfSource, tmp_path / "estimate")
+        writer.metadata = vcz.VcfZarrWriterMetadata(
+            format_version=vcz.VZW_METADATA_FORMAT_VERSION,
+            source_path=self.data_path,
+            schema=schema,
+            partitions=[],
+            provenance={},
+        )
+        estimate = reader.chunk_memory(schema) + 3 * writer.get_max_encoding_memory()
+        with pytest.raises(ValueError, match="Insufficient memory"):
+            vcf_mod.encode_direct_vcf(
+                reader,
+                writer,
+                worker_processes=4,
+                show_progress=False,
+                max_memory=estimate - 1,
+            )
+        with mock.patch.object(core, "ParallelWorkManager") as manager:
+            vcf_mod.encode_direct_vcf(
+                reader,
+                writer,
+                worker_processes=4,
+                show_progress=False,
+                max_memory=estimate,
+            )
+        assert manager.call_args.args[0] == 1
+        assert reader.chunk_memory(schema) > 0
+
+    @pytest.mark.parametrize("alleles", [127, 128, 255, 256])
+    def test_supplied_ploidy_safe_dtype(self, tmp_path, alleles):
+        path = tmp_path / "wide.vcf"
+        path.write_text(
+            "##fileformat=VCFv4.3\n##contig=<ID=1>\n"
+            '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts\n"
+            f"1\t1\t.\tA\t{','.join(['C'] * alleles)}\t.\t.\t.\tGT\t0/{alleles}\n"
+        )
+        root = vcf_mod.convert([path], infer_shape=True, ploidy=2)
+        assert root["call_genotype"].dtype == np.dtype("i1" if alleles <= 127 else "i2")
+        nt.assert_array_equal(root["call_genotype"][:], [[[0, alleles]]])
+
+    @pytest.mark.parametrize("workers", [0, 2])
+    def test_invalid_genotype_ploidy(self, tmp_path, workers):
+        path = tmp_path / "invalid.vcf"
+        path.write_text(
+            "##fileformat=VCFv4.3\n##contig=<ID=1>\n"
+            '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts\n"
+            "1\t1\t.\tA\tC\t.\t.\t.\tGT\t0/0/1\n"
+        )
+        with pytest.raises(ValueError, match="Genotype ploidy"):
+            vcf_mod.convert(
+                [path], infer_shape=True, ploidy=2, worker_processes=workers
+            )
+
+    def test_chunk_reader_closes_on_error(self):
+        opened = []
+        original_enter = vcf_mod.vcf_utils.VcfFile.__enter__
+
+        def enter(file):
+            opened.append(file)
+            return original_enter(file)
+
+        with (
+            mock.patch.object(vcf_mod.vcf_utils.VcfFile, "__enter__", enter),
+            mock.patch.object(
+                vcz.VcfZarrWriter,
+                "encode_partition",
+                side_effect=ValueError("encoding failed"),
+            ),
+            pytest.raises(ValueError, match="encoding failed"),
+        ):
+            vcf_mod.convert([self.data_path], infer_shape=True, variants_chunk_size=1)
+        assert all(file.vcf is None for file in opened)
+
+    def test_chunk_retry(self):
+        original = vcf_mod.encode_vcf_partition
+
+        def retry(*args):
+            original(*args)
+            original(*args)
+
+        expected = vcf_mod.convert(
+            [self.data_path], infer_shape=False, variants_chunk_size=3
+        )
+        with mock.patch.object(vcf_mod, "encode_vcf_partition", retry):
+            actual = vcf_mod.convert(
+                [self.data_path], infer_shape=True, variants_chunk_size=3
+            )
+        assert_zarr_equal(expected, actual)
+
+    def test_spawned_worker_failure(self, tmp_path):
+        original_discover = vcf_mod.discover_vcf_shape
+        opened = []
+        original_enter = vcf_mod.vcf_utils.VcfFile.__enter__
+
+        def discover(*args, **kwargs):
+            metadata, header = original_discover(*args, **kwargs)
+            metadata.filters = [f for f in metadata.filters if f.id == "PASS"]
+            return metadata, header
+
+        def enter(file):
+            opened.append(file)
+            return original_enter(file)
+
+        with (
+            mock.patch.object(vcf_mod, "discover_vcf_shape", discover),
+            mock.patch.object(vcf_mod.vcf_utils.VcfFile, "__enter__", enter),
+            pytest.raises(ValueError, match="Filter 'q10' was not defined"),
+        ):
+            vcf_mod.convert(
+                [self.data_path],
+                tmp_path / "failed.vcz",
+                infer_shape=True,
+                variants_chunk_size=1,
+                worker_processes=2,
+            )
+        assert not opened
 
     def test_filters(self, ds):
         nt.assert_array_equal(ds["filter_id"], ["PASS", "s50", "q10"])
@@ -281,12 +587,16 @@ class TestSmallExample:
             if field_name != "sample_id" and not field_name.startswith("call_"):
                 xt.assert_equal(ds[field_name], ds2[field_name])
 
-    def test_set_ploidy_fails(self):
+    @pytest.mark.parametrize("infer_shape", [False, True])
+    def test_set_ploidy_fails(self, infer_shape):
         path = "tests/data/vcf/sample.vcf.gz"
-        with pytest.raises(
-            ValueError, match="Ploidy was set to 1, but max ploidy in data was 2"
-        ):
-            vcf_mod.convert([path], ploidy=1)
+        message = (
+            "Genotype ploidy 2 exceeds ploidy 1"
+            if infer_shape
+            else "Ploidy was set to 1, but max ploidy in data was 2"
+        )
+        with pytest.raises(ValueError, match=message):
+            vcf_mod.convert([path], ploidy=1, infer_shape=infer_shape)
 
     @pytest.mark.skipif(
         True,
@@ -609,6 +919,39 @@ class TestWithGtHeaderNoGenotypes:
         assert ds.call_genotype.shape == (26, 0, 1)
         assert ds.call_genotype_mask.shape == (26, 0, 1)
         assert ds.call_genotype_phased.shape == (26, 0)
+
+
+class TestNumberGWithoutGenotypes:
+    @pytest.fixture(scope="class")
+    def ds(self):
+        datasets = {}
+        for name in ("info", "missing_info", "format"):
+            path = f"tests/data/vcf/{name}_number_g_no_gt.vcf"
+            kwargs = {"ploidy": 4} if name == "format" else {}
+            datasets[name] = load_dataset(
+                vcf_mod.convert([path], worker_processes=0, **kwargs)
+            )
+        return datasets
+
+    def test_info_number_g(self, ds):
+        ds = ds["info"]
+        assert ds.variant_IG.dims == ("variants", "genotypes")
+        assert ds.variant_IG.shape == (1, 4)
+        assert "ploidy" not in ds.sizes
+        nt.assert_array_equal(ds.variant_IG.values[0, [0, 2]], [1.5, 3.5])
+        assert ds.variant_IG.values[0, 3] == 4.5
+        assert np.isnan(ds.variant_IG.values[0, 1])
+
+    def test_info_number_g_without_observed_values(self, ds):
+        ds = ds["missing_info"]
+        assert ds.variant_IG.dims == ("variants",)
+        assert np.isnan(ds.variant_IG.values[0])
+
+    def test_format_number_g_with_explicit_ploidy(self, ds):
+        ds = ds["format"]
+        assert ds.call_PL.dims == ("variants", "samples", "genotypes")
+        assert ds.call_PL.shape == (1, 1, 3)
+        assert "ploidy" not in ds.sizes
 
 
 class TestWithGtHeaderNoGenotypesWithPloidy:

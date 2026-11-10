@@ -2,7 +2,7 @@ import numpy as np
 import numpy.testing as nt
 import pytest
 
-from bio2zarr import vcz
+from bio2zarr import constants, vcz
 
 
 class TestComputeLA:
@@ -33,6 +33,38 @@ class TestComputeLA:
 
 
 class TestComputeLAD:
+    @pytest.mark.parametrize("dtype", ["i1", "i2", "i4", "i8"])
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (None, [[-1, -1], [-1, -2], [-2, -2]]),
+            (
+                [[constants.VCF_INT_MISSING]] * 3,
+                [[-1, -2], [-2, -2], [-2, -2]],
+            ),
+            (
+                [[10, constants.VCF_INT_FILL], [11, 12], [13, 14]],
+                [[10, -2], [-2, -2], [-2, -2]],
+            ),
+        ],
+    )
+    def test_sanitise_missing_and_short_fields(self, value, expected, dtype):
+        if value is not None:
+            value = np.array(value, dtype=np.int32)
+            original = value.copy()
+        ad = vcz.sanitise_local_field(value, (3, 3), dtype)
+        assert ad.dtype == np.dtype(dtype)
+        result = vcz.compute_lad_field(ad, np.array([[0, 2], [2, -2], [-2, -2]]))
+        nt.assert_array_equal(result, expected)
+        if value is not None:
+            nt.assert_array_equal(value, original)
+
+    def test_sanitise_excess_width(self):
+        with pytest.raises(
+            ValueError, match="Local allele source exceeds schema width"
+        ):
+            vcz.sanitise_local_field(np.array([[10, 11, 12]]), (1, 2), "i1")
+
     @pytest.mark.parametrize(
         ("ad", "la", "expected"),
         [
@@ -83,6 +115,32 @@ class TestComputeLAD:
 
 
 class TestComputeLPL:
+    @pytest.mark.parametrize("dtype", ["i1", "i2", "i4", "i8"])
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (None, [[-1, -1, -1], [-1, -2, -2], [-2, -2, -2]]),
+            (
+                [[constants.VCF_INT_MISSING]] * 3,
+                [[-1, -2, -2], [-2, -2, -2], [-2, -2, -2]],
+            ),
+            (
+                [[0, 1, 2], [3, 4, 5], [6, 7, 8]],
+                [[0, -2, -2], [-2, -2, -2], [-2, -2, -2]],
+            ),
+        ],
+    )
+    def test_sanitise_missing_and_short_fields(self, value, expected, dtype):
+        if value is not None:
+            value = np.array(value, dtype=np.int32)
+            original = value.copy()
+        pl = vcz.sanitise_local_field(value, (3, 6), dtype)
+        assert pl.dtype == np.dtype(dtype)
+        result = vcz.compute_lpl_field(pl, np.array([[0, 2], [2, -2], [-2, -2]]))
+        nt.assert_array_equal(result, expected)
+        if value is not None:
+            nt.assert_array_equal(value, original)
+
     @pytest.mark.parametrize(
         ("pl", "la", "expected"),
         [

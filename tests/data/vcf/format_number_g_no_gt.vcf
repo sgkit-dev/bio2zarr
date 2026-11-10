@@ -1,0 +1,5 @@
+##fileformat=VCFv4.3
+##contig=<ID=1>
+##FORMAT=<ID=PL,Number=G,Type=Integer,Description="Likelihood">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	sample
+1	1	.	A	C	.	PASS	.	PL	1,2,3

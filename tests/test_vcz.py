@@ -535,6 +535,49 @@ class TestVcfZarrWriterExample:
         "call_HQ",
     )
 
+    @pytest.mark.parametrize("infer_shape", [False, True])
+    @pytest.mark.parametrize(
+        ("field", "expected"),
+        [
+            (
+                "AD",
+                [
+                    [[11, -2], [10, 12], [-2, -2]],
+                    [[-1, -2], [-1, -1], [-2, -2]],
+                    [[-2, -2], [-1, -2], [-2, -2]],
+                    [[11, -2], [-1, -2], [-2, -2]],
+                    [[11, -2], [10, -2], [-2, -2]],
+                    [[11, -2], [10, 12], [-2, -2]],
+                ],
+            ),
+            (
+                "PL",
+                [
+                    [[2, -2, -2], [0, 3, 5], [-2, -2, -2]],
+                    [[-1, -2, -2], [-1, -1, -1], [-2, -2, -2]],
+                    [[-2, -2, -2], [-1, -2, -2], [-2, -2, -2]],
+                    [[2, -2, -2], [-1, -2, -2], [-2, -2, -2]],
+                    [[2, -2, -2], [0, -2, -2], [-2, -2, -2]],
+                    [[2, -2, -2], [0, 3, 5], [-2, -2, -2]],
+                ],
+            ),
+        ],
+    )
+    def test_local_allele_missing_and_short_fields(self, infer_shape, field, expected):
+        root = vcf_mod.convert(
+            ["tests/data/vcf/local.vcf.gz"],
+            worker_processes=0,
+            local_alleles=True,
+            variants_chunk_size=2,
+            samples_chunk_size=2,
+            infer_shape=infer_shape,
+        )
+        nt.assert_array_equal(
+            root["call_LA"][:], np.tile([[1, -2], [0, 2], [-2, -2]], (6, 1, 1))
+        )
+        nt.assert_array_equal(root[f"call_L{field}"][:], expected)
+        assert f"call_{field}" not in root
+
     def test_init_paths(self, icf_path, tmp_path):
         zarr_path = tmp_path / "x.zarr"
         assert not zarr_path.exists()

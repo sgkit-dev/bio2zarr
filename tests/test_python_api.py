@@ -18,22 +18,25 @@ IS_WINDOWS = sys.platform == "win32"
 class TestVcfConvert:
     vcf_path = "tests/data/vcf/sample.vcf.gz"
 
-    def test_memory(self):
-        root = vcf.convert([self.vcf_path])
+    @pytest.mark.parametrize("infer_shape", [False, True])
+    def test_memory(self, infer_shape):
+        root = vcf.convert([self.vcf_path], infer_shape=infer_shape)
         assert isinstance(root.store, zarr.storage.MemoryStore)
         for name in EXPECTED_VCF_ARRAYS:
             assert name in root
 
-    def test_directory(self, tmp_path):
+    @pytest.mark.parametrize("infer_shape", [False, True])
+    def test_directory(self, tmp_path, infer_shape):
         zarr_path = tmp_path / "sample.vcz"
-        root = vcf.convert([self.vcf_path], zarr_path)
+        root = vcf.convert([self.vcf_path], zarr_path, infer_shape=infer_shape)
         assert zarr_path.exists()
         for name in EXPECTED_VCF_ARRAYS:
             assert name in root
 
-    def test_zip(self, tmp_path):
+    @pytest.mark.parametrize("infer_shape", [False, True])
+    def test_zip(self, tmp_path, infer_shape):
         zip_path = tmp_path / "sample.vcz.zip"
-        root = vcf.convert([self.vcf_path], zip_path)
+        root = vcf.convert([self.vcf_path], zip_path, infer_shape=infer_shape)
         assert zip_path.exists()
         assert isinstance(root.store, zarr.storage.ZipStore)
         for name in EXPECTED_VCF_ARRAYS:
