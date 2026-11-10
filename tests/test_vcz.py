@@ -563,9 +563,7 @@ class TestVcfZarrWriterExample:
             ),
         ],
     )
-    def test_local_allele_missing_and_short_fields(
-        self, infer_shape, field, expected
-    ):
+    def test_local_allele_missing_and_short_fields(self, infer_shape, field, expected):
         root = vcf_mod.convert(
             ["tests/data/vcf/local.vcf.gz"],
             worker_processes=0,
