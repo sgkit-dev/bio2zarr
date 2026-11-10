@@ -490,12 +490,13 @@ def compute_lpl_field(pl, la):
 class LocalisableFieldDescriptor:
     array_name: str
     vcf_field: str
+    dimension: str
     convert: callable
 
 
 localisable_fields = [
-    LocalisableFieldDescriptor("call_LAD", "FORMAT/AD", compute_lad_field),
-    LocalisableFieldDescriptor("call_LPL", "FORMAT/PL", compute_lpl_field),
+    LocalisableFieldDescriptor("call_LAD", "FORMAT/AD", "alleles", compute_lad_field),
+    LocalisableFieldDescriptor("call_LPL", "FORMAT/PL", "genotypes", compute_lpl_field),
 ]
 
 
@@ -1046,10 +1047,12 @@ class VcfZarrWriter:
                 la_array, partition.start, partition.stop
             ):
                 raw_value = next(source)
-                dim = "alleles" if descriptor.array_name == "call_LAD" else "genotypes"
                 value = sanitise_local_field(
                     raw_value,
-                    (self.source.num_samples, self.schema.dimensions[dim].size),
+                    (
+                        self.source.num_samples,
+                        self.schema.dimensions[descriptor.dimension].size,
+                    ),
                     buff.buff.dtype,
                 )
                 j = buff.next_buffer_row()
