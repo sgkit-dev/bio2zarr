@@ -1,0 +1,5 @@
+##fileformat=VCFv4.3
+##contig=<ID=1>
+##INFO=<ID=IG,Number=G,Type=Float,Description="Genotype values">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+1	1	.	A	C	.	PASS	IG=.

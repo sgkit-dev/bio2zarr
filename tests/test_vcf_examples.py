@@ -920,18 +920,21 @@ class TestWithGtHeaderNoGenotypes:
         assert ds.call_genotype_mask.shape == (26, 0, 1)
         assert ds.call_genotype_phased.shape == (26, 0)
 
-    def test_info_number_g(self, tmp_path):
-        path = tmp_path / "info-number-g.vcf"
-        path.write_text(
-            "##fileformat=VCFv4.3\n"
-            "##contig=<ID=1>\n"
-            '##INFO=<ID=IG,Number=G,Type=Float,Description="Genotype values">\n'
-            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
-            "1\t1\t.\tA\tC\t.\tPASS\tIG=1.5,.,3.5,4.5\n"
-        )
 
-        ds = load_dataset(vcf_mod.convert([path], worker_processes=0))
+class TestNumberGWithoutGenotypes:
+    @pytest.fixture(scope="class")
+    def ds(self):
+        datasets = {}
+        for name in ("info", "missing_info", "format"):
+            path = f"tests/data/vcf/{name}_number_g_no_gt.vcf"
+            kwargs = {"ploidy": 4} if name == "format" else {}
+            datasets[name] = load_dataset(
+                vcf_mod.convert([path], worker_processes=0, **kwargs)
+            )
+        return datasets
 
+    def test_info_number_g(self, ds):
+        ds = ds["info"]
         assert ds.variant_IG.dims == ("variants", "genotypes")
         assert ds.variant_IG.shape == (1, 4)
         assert "ploidy" not in ds.sizes
@@ -939,33 +942,13 @@ class TestWithGtHeaderNoGenotypes:
         assert ds.variant_IG.values[0, 3] == 4.5
         assert np.isnan(ds.variant_IG.values[0, 1])
 
-    def test_info_number_g_without_observed_values(self, tmp_path):
-        path = tmp_path / "missing-info-number-g.vcf"
-        path.write_text(
-            "##fileformat=VCFv4.3\n"
-            "##contig=<ID=1>\n"
-            '##INFO=<ID=IG,Number=G,Type=Float,Description="Genotype values">\n'
-            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
-            "1\t1\t.\tA\tC\t.\tPASS\tIG=.\n"
-        )
-
-        ds = load_dataset(vcf_mod.convert([path], worker_processes=0))
-
+    def test_info_number_g_without_observed_values(self, ds):
+        ds = ds["missing_info"]
         assert ds.variant_IG.dims == ("variants",)
         assert np.isnan(ds.variant_IG.values[0])
 
-    def test_format_number_g_with_explicit_ploidy(self, tmp_path):
-        path = tmp_path / "format-number-g.vcf"
-        path.write_text(
-            "##fileformat=VCFv4.3\n"
-            "##contig=<ID=1>\n"
-            '##FORMAT=<ID=PL,Number=G,Type=Integer,Description="Likelihood">\n'
-            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample\n"
-            "1\t1\t.\tA\tC\t.\tPASS\t.\tPL\t1,2,3\n"
-        )
-
-        ds = load_dataset(vcf_mod.convert([path], ploidy=4, worker_processes=0))
-
+    def test_format_number_g_with_explicit_ploidy(self, ds):
+        ds = ds["format"]
         assert ds.call_PL.dims == ("variants", "samples", "genotypes")
         assert ds.call_PL.shape == (1, 1, 3)
         assert "ploidy" not in ds.sizes
