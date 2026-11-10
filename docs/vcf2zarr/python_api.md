@@ -24,12 +24,12 @@ root = v2z.convert([vcf_path], infer_shape=True)
 root = v2z.convert([vcf_path], infer_shape=True, ploidy=2)
 ```
 
-The first pass discovers array dimensions and dtypes; the second reads input
-sequentially and encodes bounded chunks. Input files must remain unchanged
+The first pass discovers array dimensions and dtypes; the second reads and
+encodes one chunk at a time per worker. Input files must remain unchanged
 between passes. Supplying `ploidy` skips genotype discovery, pads genotypes,
-and rejects larger ploidies. Invalid allele indices and field overflows raise
-`ValueError`. Oversized chunks require a smaller `variants_chunk_size` or the
-default ICF conversion. `infer_shape` cannot be combined with `icf_path`.
+and rejects larger ploidies. Memory scales with source and encoding buffers
+per worker; estimates exclude native decoder overhead and variable-length
+string contents. `infer_shape` cannot be combined with `icf_path`.
 
 ## API reference
 

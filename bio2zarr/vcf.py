@@ -1,6 +1,7 @@
 import collections
 import contextlib
 import dataclasses
+import functools
 import json
 import logging
 import math
@@ -10,7 +11,6 @@ import re
 import shutil
 import sys
 import tempfile
-from functools import lru_cache, partial
 from typing import Any
 
 import numcodecs
@@ -127,7 +127,6 @@ ICF_METADATA_FORMAT_VERSION = "0.4"
 ICF_DEFAULT_COMPRESSOR = numcodecs.Blosc(
     cname="zstd", clevel=7, shuffle=numcodecs.Blosc.NOSHUFFLE
 )
-DIRECT_VCF_MEMORY_BUDGET = 256 * 1024**2
 
 
 @dataclasses.dataclass
@@ -294,7 +293,6 @@ def scan_vcfs(
     target_num_partitions,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
 ):
-    paths = [pathlib.Path(path) for path in paths]
     logger.info(
         f"Scanning {len(paths)} VCFs attempting to split into {target_num_partitions}"
         f" partitions."
@@ -622,29 +620,29 @@ class VcfSourceField:
         assert len(shape) <= 2
         if self.vcf_field.vcf_type == "Flag":
             assert len(shape) == 0
-            return partial(sanitise_value_bool, shape)
+            return functools.partial(sanitise_value_bool, shape)
         elif self.vcf_field.vcf_type == "Float":
             if len(shape) == 0:
-                return partial(sanitise_value_float_scalar, dtype, shape)
+                return functools.partial(sanitise_value_float_scalar, dtype, shape)
             elif len(shape) == 1:
-                return partial(sanitise_value_float_1d, dtype, shape)
+                return functools.partial(sanitise_value_float_1d, dtype, shape)
             else:
-                return partial(sanitise_value_float_2d, dtype, shape)
+                return functools.partial(sanitise_value_float_2d, dtype, shape)
         elif self.vcf_field.vcf_type == "Integer":
             if len(shape) == 0:
-                return partial(sanitise_value_int_scalar, shape)
+                return functools.partial(sanitise_value_int_scalar, shape)
             elif len(shape) == 1:
-                return partial(sanitise_value_int_1d, shape)
+                return functools.partial(sanitise_value_int_1d, shape)
             else:
-                return partial(sanitise_value_int_2d, shape)
+                return functools.partial(sanitise_value_int_2d, shape)
         else:
             assert self.vcf_field.vcf_type in ("String", "Character")
             if len(shape) == 0:
-                return partial(sanitise_value_string_scalar, shape)
+                return functools.partial(sanitise_value_string_scalar, shape)
             elif len(shape) == 1:
-                return partial(sanitise_value_string_1d, shape)
+                return functools.partial(sanitise_value_string_1d, shape)
             else:
-                return partial(sanitise_value_string_2d, shape)
+                return functools.partial(sanitise_value_string_2d, shape)
 
 
 class IntermediateColumnarFormatField(VcfSourceField):
@@ -1071,6 +1069,8 @@ class VcfSource(vcz.Source):
         samples_chunk_size=None,
         local_alleles=None,
         ploidy=None,
+        *,
+        genotypes_discovered=True,
     ):
         if local_alleles is None:
             local_alleles = False
@@ -1088,7 +1088,11 @@ class VcfSource(vcz.Source):
 
         genotypes_size = None
         if self.gt_field is not None:
-            max_ploidy = max(self.gt_field.summary.max_number - 1, 1)
+            max_ploidy = (
+                max(self.gt_field.summary.max_number - 1, 1)
+                if genotypes_discovered
+                else 1
+            )
             if ploidy is None:
                 ploidy = max_ploidy
             elif ploidy < max_ploidy:
@@ -1211,7 +1215,11 @@ class VcfSource(vcz.Source):
             array_specs.append(
                 vcz.ZarrArraySpec(
                     name="call_genotype",
-                    dtype=self.gt_field.smallest_dtype(),
+                    dtype=(
+                        self.gt_field.smallest_dtype()
+                        if genotypes_discovered
+                        else core.min_int_dtype(constants.INT_FILL, max_alleles - 1)
+                    ),
                     dimensions=["variants", "samples", "ploidy"],
                     description="",
                     compressor=dict(zarr_utils.DEFAULT_COMPRESSOR_GENOTYPES_CONFIG),
@@ -1311,17 +1319,6 @@ def variant_values(variant, metadata, *, genotypes=True):
     return values
 
 
-def value_nbytes(value):
-    if value is None:
-        return sys.getsizeof(None)
-    size = sys.getsizeof(value)
-    if isinstance(value, np.ndarray) and value.dtype.kind in ("T", "O", "U"):
-        size += sum(sys.getsizeof(v) for v in value.flat)
-    elif isinstance(value, (list, tuple)):
-        size += sum(value_nbytes(v) for v in value)
-    return size
-
-
 def summarise_vcf_variants(variants, metadata, ploidy):
     """Reduce one owned input region without retaining its rows."""
     fields = [
@@ -1336,17 +1333,8 @@ def summarise_vcf_variants(variants, metadata, ploidy):
     last_position = None
     for variant in variants:
         values = variant_values(variant, metadata, genotypes=ploidy is None)
-        row_bytes = sum(value_nbytes(value) for value in values.values())
-        if 3 * row_bytes > DIRECT_VCF_MEMORY_BUDGET // 2:
-            raise ValueError(
-                "VCF row exceeds the no-ICF memory budget; use ICF conversion"
-            )
         for name, value in values.items():
-            transformed = transformers[name].transform_and_update_bounds(value)
-            if 3 * value_nbytes(transformed) > DIRECT_VCF_MEMORY_BUDGET // 2:
-                raise ValueError(
-                    "VCF field exceeds the no-ICF memory budget; use ICF conversion"
-                )
+            transformers[name].transform_and_update_bounds(value)
         count += 1
         last_position = variant.POS
         core.update_progress(1)
@@ -1367,7 +1355,10 @@ def discover_vcf_partition(metadata, partition_index, ploidy):
 
 def discover_vcf_shape(vcfs, *, ploidy=None, worker_processes=0, show_progress=False):
     metadata, header = scan_vcfs(
-        vcfs, show_progress, max(1, worker_processes * 4), worker_processes
+        [pathlib.Path(path) for path in vcfs],
+        show_progress,
+        max(1, worker_processes * 4),
+        worker_processes,
     )
     check_field_clobbering(metadata)
     expected_records = metadata.num_records
@@ -1395,14 +1386,6 @@ def discover_vcf_shape(vcfs, *, ploidy=None, worker_processes=0, show_progress=F
         )
     metadata.num_records = total
     check_overlapping_partitions(metadata.partitions)
-    gt = next((f for f in metadata.format_fields if f.name == "GT"), None)
-    if gt is not None and ploidy is not None:
-        gt.summary.max_number = ploidy + 1
-        gt.summary.min_value = 0
-        alt = next(f for f in metadata.fields if f.name == "ALT")
-        gt.summary.max_value = max(1, alt.summary.max_number)
-    metadata.format_version = ICF_METADATA_FORMAT_VERSION
-    metadata.compressor = ICF_DEFAULT_COMPRESSOR.get_config()
     return metadata, header
 
 
@@ -1419,28 +1402,10 @@ class DirectVcfField(VcfSourceField):
             yield self.values[index]
 
 
-@dataclasses.dataclass(frozen=True)
-class DirectVcfFieldValidation:
-    name: str
-    is_genotype: bool
-    max_number: int
-    integer_limits: tuple[int, int] | None
-
-
-@dataclasses.dataclass(frozen=True)
-class DirectVcfValidation:
-    allele_count: int
-    ploidy: int | None
-    local_allele_max: int | None
-    fields: tuple[DirectVcfFieldValidation, ...]
-
-
 class DirectVcfSource(VcfSource):
     """A bounded chunk of real transformed VCF columns."""
 
-    def __init__(
-        self, metadata, header, path, *, start=0, columns=None, metadata_nbytes=None
-    ):
+    def __init__(self, metadata, header, path, *, start=0, columns=None):
         self.metadata = metadata
         self.vcf_header = header
         self._path = path
@@ -1451,161 +1416,143 @@ class DirectVcfSource(VcfSource):
         }
         self.start = start
         self.num_rows = len(self.fields["POS"].values)
-        self.metadata_nbytes = (
-            len(pickle.dumps((dataclasses.replace(metadata, partitions=[]), header)))
-            if metadata_nbytes is None
-            else metadata_nbytes
-        )
-        self.nbytes = (
-            self.metadata_nbytes
-            + sys.getsizeof(columns)
-            + sum(
-                sys.getsizeof(field)
-                + sys.getsizeof(field.values)
-                + sum(value_nbytes(value) for value in field.values)
-                for field in self.fields.values()
-            )
-        )
 
-    def iter_chunks(self, schema, encoding_memory):
+
+class DirectVcfReader:
+    """Read chunk-aligned output owned by an original input region."""
+
+    def __init__(self, metadata, header, path, *, ploidy=None):
+        self.metadata = metadata
+        self.header = header
+        self.path = path
+        self.ploidy = ploidy
+
+    def chunk_memory(self, schema):
+        """Approximate transformed arrays and row containers, excluding string data."""
+        row_bytes = 0
+        for field in self.metadata.fields:
+            width = field.summary.max_number
+            if field.name == "GT" and field.category == "FORMAT":
+                width = schema.dimensions["ploidy"].size + 1
+            samples = self.metadata.num_samples if field.category == "FORMAT" else 1
+            itemsize = 16 if field.vcf_type == "String" else 8
+            row_bytes += 128 + max(1, width) * samples * itemsize
+        return schema.dimensions["variants"].chunk_size * row_bytes
+
+    def iter_chunks(self, partition_index, chunk_size):
+        partitions = self.metadata.partitions
+        if not partitions:
+            yield DirectVcfSource(self.metadata, self.header, self.path)
+            return
+        region_start = sum(p.num_records for p in partitions[:partition_index])
+        region_stop = region_start + partitions[partition_index].num_records
+        start = ((region_start + chunk_size - 1) // chunk_size) * chunk_size
+        stop = min(
+            ((region_stop + chunk_size - 1) // chunk_size) * chunk_size,
+            self.metadata.num_records,
+        )
+        if start >= region_stop:
+            stop = start
+        read_stop = max(region_stop, stop if start < region_stop else region_stop)
         transformers = {
-            name: VcfValueTransformer.factory(field.vcf_field, self.num_samples)
-            for name, field in self.fields.items()
+            field.full_name: VcfValueTransformer.factory(
+                field, self.metadata.num_samples
+            )
+            for field in self.metadata.fields
         }
-        validation = self.validation_plan(schema)
-        chunk_size = schema.dimensions["variants"].chunk_size
-        columns = {name: [] for name in self.fields}
-        buffered_bytes = self.metadata_nbytes
-        start = 0
-        count = 0
-        for partition in self.metadata.partitions:
+        columns = {name: [] for name in transformers}
+        position = region_start
+        for index in range(partition_index, len(partitions)):
+            partition = partitions[index]
             partition_count = 0
             with vcf_utils.VcfFile(partition.vcf_path) as file:
                 for variant in file.variants(partition.region):
-                    row = {
-                        name: None
-                        if value is None
-                        else transformers[name].transform(value)
-                        for name, value in variant_values(
-                            variant, self.metadata
-                        ).items()
-                    }
-                    self.validate_row(row, validation)
-                    buffered_bytes += sum(value_nbytes(v) + 16 for v in row.values())
-                    if (
-                        3 * buffered_bytes + encoding_memory
-                        > DIRECT_VCF_MEMORY_BUDGET // 2
-                    ):
+                    if partition_count >= partition.num_records:
                         raise ValueError(
-                            "VCF chunk exceeds the no-ICF memory budget; "
-                            "reduce variants_chunk_size or use ICF conversion"
+                            "VCF record count changed since shape discovery"
                         )
-                    for name, value in row.items():
-                        columns[name].append(value)
-                    count += 1
+                    if start <= position < stop:
+                        row = variant_values(variant, self.metadata)
+                        gt = row.get("FORMAT/GT")
+                        if (
+                            self.ploidy is not None
+                            and gt is not None
+                            and gt.shape[1] - 1 > self.ploidy
+                        ):
+                            raise ValueError(
+                                f"Genotype ploidy {gt.shape[1] - 1} "
+                                f"exceeds ploidy {self.ploidy}"
+                            )
+                        for name, value in row.items():
+                            columns[name].append(
+                                None
+                                if value is None
+                                else transformers[name].transform(value)
+                            )
                     partition_count += 1
-                    if count == chunk_size:
+                    position += 1
+                    if columns["POS"] and (
+                        position % chunk_size == 0 or position == stop
+                    ):
                         yield DirectVcfSource(
                             dataclasses.replace(self.metadata, partitions=[]),
-                            self.vcf_header,
+                            self.header,
                             self.path,
                             start=start,
                             columns=columns,
-                            metadata_nbytes=self.metadata_nbytes,
                         )
-                        start += count
-                        columns = {name: [] for name in self.fields}
-                        count = 0
-                        buffered_bytes = self.metadata_nbytes
+                        start = position
+                        columns = {name: [] for name in transformers}
+                    if position == read_stop and index != partition_index:
+                        # The next region's owner checks its complete record count.
+                        return
             if partition_count != partition.num_records:
                 raise ValueError("VCF record count changed since shape discovery")
-        if count or self.num_records == 0:
+            if position >= read_stop:
+                break
+        if self.metadata.num_records == 0 and partition_index == 0:
             yield DirectVcfSource(
                 dataclasses.replace(self.metadata, partitions=[]),
-                self.vcf_header,
+                self.header,
                 self.path,
-                start=start,
                 columns=columns,
-                metadata_nbytes=self.metadata_nbytes,
             )
 
-    def validation_plan(self, schema):
-        local = schema.field_map().get("call_LA")
-        ploidy = schema.dimensions.get("ploidy")
-        fields = []
-        for field in self.metadata.fields:
-            limits = None
-            if field.vcf_type == "Integer":
-                info = np.iinfo(field.smallest_dtype())
-                limits = (info.min, info.max)
-            fields.append(
-                DirectVcfFieldValidation(
-                    field.full_name,
-                    field.name == "GT",
-                    field.max_number,
-                    limits,
-                )
-            )
-        return DirectVcfValidation(
-            allele_count=schema.dimensions["alleles"].size,
-            ploidy=None if ploidy is None else ploidy.size,
-            local_allele_max=None if local is None else np.iinfo(local.dtype).max,
-            fields=tuple(fields),
-        )
 
-    def validate_row(self, row, validation):
-        if len(row["ALT"]) + 1 > validation.allele_count:
-            raise ValueError("Number of alleles exceeds discovered schema width")
-        gt = row.get("FORMAT/GT")
-        if gt is not None:
-            ploidy = validation.ploidy
-            if ploidy is None:
-                raise ValueError("Genotype field requires a ploidy dimension")
-            if gt.shape[1] - 1 > ploidy:
-                raise ValueError(
-                    f"Genotype ploidy {gt.shape[1] - 1} exceeds ploidy {ploidy}"
-                )
-            alleles = gt[:, :-1]
-            if np.any(alleles >= len(row["ALT"]) + 1) or np.any(alleles < -2):
-                raise ValueError("Genotype allele index is outside REF+ALT")
-            if validation.local_allele_max is not None and np.any(
-                alleles > validation.local_allele_max
-            ):
-                raise ValueError("Genotype allele index exceeds local allele dtype")
-        for field in validation.fields:
-            name = field.name
-            value = row[name]
-            if value is None:
-                continue
-            if not field.is_genotype and value.shape[-1] > field.max_number:
-                raise ValueError(f"{name} exceeds discovered field width")
-            if field.integer_limits is not None:
-                minimum, maximum = field.integer_limits
-                present = value[value >= constants.MIN_INT_VALUE]
-                if np.any(present < minimum) or np.any(present > maximum):
-                    raise ValueError(f"{name} exceeds discovered integer dtype")
-
-
-@lru_cache(maxsize=1)
-def direct_vcf_writer(path, zarr_format):
-    # Each process loads the output partition table once, not once per chunk.
+def encode_vcf_partition(reader, partition_index, path, zarr_format, metadata):
     writer = vcz.VcfZarrWriter(DirectVcfSource, path, zarr_format)
-    with open(writer.wip_path / "metadata.json") as f:
-        writer.metadata = vcz.VcfZarrWriterMetadata.fromdict(json.load(f))
-    return writer
-
-
-def encode_vcf_chunk(path, zarr_format, partition_index, source):
-    writer = direct_vcf_writer(path, zarr_format)
-    writer.source = source
+    writer.metadata = metadata
+    chunk_size = writer.schema.dimensions["variants"].chunk_size
+    chunks = reader.iter_chunks(partition_index, chunk_size)
     try:
-        writer.encode_partition(partition_index)
+        with contextlib.closing(chunks):
+            for chunk in chunks:
+                writer.source = chunk
+                writer.encode_partition(chunk.start // chunk_size)
+                writer.source = None
+                del chunk
     finally:
         writer.source = None
 
 
-def encode_direct_vcf(source, writer, *, worker_processes, show_progress):
-    encoding_memory = 3 * writer.get_max_encoding_memory()
+def encode_direct_vcf(
+    reader, writer, *, worker_processes, show_progress, max_memory=None
+):
+    max_memory = core.parse_max_memory(max_memory)
+    encoding_memory = (
+        reader.chunk_memory(writer.schema) + 3 * writer.get_max_encoding_memory()
+    )
+    max_workers = max_memory // encoding_memory
+    if max_workers <= 0:
+        raise ValueError(
+            "Insufficient memory to encode a partition: "
+            f"{core.display_size(encoding_memory)} > {core.display_size(max_memory)}"
+        )
+    if max_workers < worker_processes:
+        logger.warning(
+            f"Limiting number of workers to {max_workers} to keep within "
+            f"specified memory budget of {core.display_size(max_memory)}"
+        )
     progress = core.ProgressConfig(
         total=sum(
             math.prod(field.get_shape(writer.schema)) * np.dtype(field.dtype).itemsize
@@ -1615,37 +1562,16 @@ def encode_direct_vcf(source, writer, *, worker_processes, show_progress):
         title="Encode",
         show=show_progress,
     )
-    try:
-        with core.ParallelWorkManager(worker_processes, progress) as pwm:
-            admitted = 0
-            chunks = source.iter_chunks(writer.schema, encoding_memory)
-            with contextlib.closing(chunks):
-                for index, chunk in enumerate(chunks):
-                    charge = 3 * chunk.nbytes + encoding_memory
-                    if charge > DIRECT_VCF_MEMORY_BUDGET // 2:
-                        raise ValueError(
-                            "VCF chunk exceeds the no-ICF memory budget; "
-                            "reduce variants_chunk_size or use ICF conversion"
-                        )
-                    if pwm.futures and (
-                        admitted + charge > DIRECT_VCF_MEMORY_BUDGET // 2
-                        or len(pwm.futures) >= max(1, worker_processes)
-                    ):
-                        list(pwm.results_as_completed())
-                        pwm.futures.clear()
-                        admitted = 0
-                    pwm.submit(
-                        encode_vcf_chunk,
-                        str(writer.path),
-                        writer.zarr_format,
-                        index,
-                        chunk,
-                    )
-                    admitted += charge
-            list(pwm.results_as_completed())
-            pwm.futures.clear()
-    finally:
-        direct_vcf_writer.cache_clear()
+    with core.ParallelWorkManager(min(worker_processes, max_workers), progress) as pwm:
+        for index in range(max(1, len(reader.metadata.partitions))):
+            pwm.submit(
+                encode_vcf_partition,
+                reader,
+                index,
+                str(writer.path),
+                writer.zarr_format,
+                writer.metadata,
+            )
 
 
 @dataclasses.dataclass
@@ -2062,10 +1988,9 @@ def convert(
         With infer_shape, skip genotype discovery when this is supplied.
     infer_shape : bool
         Read the input twice without storing intermediate columns: discover
-        dimensions and dtypes, then convert bounded chunks. Discovery and
-        encoding use worker_processes; the second input pass is sequential.
-        Cannot be combined with icf_path. Oversized chunks raise ValueError;
-        reduce variants_chunk_size or use the default ICF conversion.
+        dimensions and dtypes, then read and encode one chunk at a time in each
+        worker. Input files must remain unchanged between passes.
+        Cannot be combined with icf_path.
 
     Returns
     -------
@@ -2088,6 +2013,7 @@ def convert(
             samples_chunk_size=samples_chunk_size,
             local_alleles=local_alleles,
             ploidy=ploidy,
+            genotypes_discovered=ploidy is None,
         )
         with vcz.open_zarr(vcz_path, mode=mode) as zr:
             writer = vcz.VcfZarrWriter(DirectVcfSource, zr.dir, zarr_format)
@@ -2102,7 +2028,7 @@ def convert(
                 ),
             )
             encode_direct_vcf(
-                source,
+                DirectVcfReader(metadata, header, str(vcfs[0]), ploidy=ploidy),
                 writer,
                 worker_processes=worker_processes,
                 show_progress=show_progress,
