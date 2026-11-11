@@ -89,6 +89,10 @@ DEFAULT_PLINK_CONVERT_ARGS = dict(
     show_progress=True,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
     zarr_format=None,
+    input_format="auto",
+    ploidy_mode="metadata",
+    genome_build=None,
+    dosages=True,
 )
 
 

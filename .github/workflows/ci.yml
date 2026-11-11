@@ -152,6 +152,14 @@ jobs:
           python -m bio2zarr vcf2zarr convert tests/data/vcf/sample.vcf.gz sample.vcz
           deactivate
 
+          uv venv env-pgen
+          uv pip install --python=env-pgen .
+          env-pgen/bin/python -c 'from bio2zarr.plink import PgenFormat; PgenFormat("unused")' > pgen.txt 2>&1 || echo $? > pgen_exit.txt
+          test "$(cat pgen_exit.txt)" = "1"
+          grep -q "This process requires the optional pgenlib module. Install it with: pip install bio2zarr\[plink2\]" pgen.txt
+          uv pip install --python=env-pgen '.[plink2]'
+          env-pgen/bin/python -c 'import pgenlib'
+
           uv venv env-bgen
           uv pip install --python=env-bgen .
           source env-bgen/bin/activate

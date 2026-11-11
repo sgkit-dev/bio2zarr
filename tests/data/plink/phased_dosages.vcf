@@ -1,0 +1,8 @@
+##fileformat=VCFv4.3
+##contig=<ID=1>
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=HDS,Number=.,Type=Float,Description="Alternate haplotype dosages">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s0	s1	s2
+1	1	v1	A	C	.	.	.	GT:HDS	0|1:0.125,0.875	0|0:0.125,0.125	./.:.,.
+1	2	v2	G	T	.	.	.	GT:HDS	./.:0.25,0.5	1|0:0.875,0.125	1|1:0.75,0.875
+1	3	v3	C	G	.	.	.	GT:HDS	0|0:0,0	0|1:0.25,0.75	1|1:1,1
