@@ -7,6 +7,11 @@
   with derived dosage. Support layouts 1/2, variable ploidy, Oxford `.sample`
   identifiers, dimension controls and configurable Zarr 2/3 output. (#417)
 
+*Bug fixes*
+
+- Fix conversion of VCFs with an INFO or FORMAT field that has the same name
+  as a fixed column, such as FORMAT/ID in GWAS-VCF files (#345).
+
 # 0.2.1 2026-06-04
 
 Feature release.

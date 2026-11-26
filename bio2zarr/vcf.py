@@ -531,7 +531,15 @@ class VcfValueTransformer:
             return IntegerValueTransformer(field, num_samples)
         if field.vcf_type == "Float":
             return FloatValueTransformer(field, num_samples)
-        if field.name in ["REF", "FILTERS", "ALT", "ID", "CHROM"]:
+        # INFO and FORMAT fields can have the same names as these fixed
+        # columns (e.g. FORMAT/ID in GWAS-VCF), so check the category too.
+        if field.category == "fixed" and field.name in [
+            "REF",
+            "FILTERS",
+            "ALT",
+            "ID",
+            "CHROM",
+        ]:
             return SplitStringValueTransformer(field, num_samples)
         return StringValueTransformer(field, num_samples)
 

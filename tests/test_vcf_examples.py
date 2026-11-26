@@ -644,6 +644,26 @@ class TestNumberGWithoutGenotypes:
         assert "ploidy" not in ds.sizes
 
 
+class TestFormatFieldNamedId:
+    # A FORMAT field may share its name with a fixed VCF column, as the
+    # per-study ID field in GWAS-VCF does. See issue #345.
+    data_path = "tests/data/vcf/format_id_field.vcf"
+
+    @pytest.fixture(scope="class")
+    def ds(self):
+        return load_dataset(vcf_mod.convert([self.data_path], worker_processes=0))
+
+    def test_fixed_id_column(self, ds):
+        nt.assert_array_equal(ds.variant_id.values, ["rs1", "rs2"])
+
+    def test_format_id_field(self, ds):
+        assert ds.call_ID.dims == ("variants", "samples")
+        nt.assert_array_equal(ds.call_ID.values, [["id_a", "id_b"], ["id_c", "."]])
+
+    def test_other_format_fields(self, ds):
+        nt.assert_array_almost_equal(ds.call_ES.values[:, 0, 0], [0.1, 0.3])
+
+
 class TestWithGtHeaderNoGenotypesWithPloidy:
     data_path = "tests/data/vcf/sample_no_genotypes_with_gt_header.vcf.gz"
 
