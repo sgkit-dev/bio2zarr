@@ -7,6 +7,39 @@ import zarr
 from bio2zarr import core
 
 
+class TestRemovePath:
+    def test_directory(self, tmp_path):
+        path = tmp_path / "out.vcz"
+        (path / "subdir").mkdir(parents=True)
+        (path / "subdir" / "data").write_text("data")
+        core.remove_path(path)
+        assert not path.exists()
+        assert list(tmp_path.iterdir()) == []
+
+    def test_file(self, tmp_path):
+        path = tmp_path / "out.vcz.zip"
+        path.write_text("data")
+        core.remove_path(path)
+        assert not path.exists()
+
+    def test_missing(self, tmp_path):
+        path = tmp_path / "out.vcz"
+        core.remove_path(path)
+        assert not path.exists()
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="Needs symlink privileges")
+    def test_symlink_to_directory(self, tmp_path):
+        target = tmp_path / "target"
+        target.mkdir()
+        (target / "data").write_text("data")
+        link = tmp_path / "link"
+        link.symlink_to(target)
+        core.remove_path(link)
+        assert not link.exists()
+        assert not link.is_symlink()
+        assert (target / "data").read_text() == "data"
+
+
 class TestMinIntDtype:
     @pytest.mark.parametrize(
         ("min_value", "max_value", "dtype"),

@@ -260,6 +260,7 @@ def convert(
     vcz_path=None,
     *,
     mode="r",
+    force=False,
     model_mapping=None,
     variants_chunk_size=None,
     samples_chunk_size=None,
@@ -288,6 +289,10 @@ def convert(
         Mode in which the returned :class:`zarr.Group` is opened.
         Use ``"r"`` (default) for read-only access or ``"r+"`` for
         read-write access.
+    force : bool
+        If True, delete any existing file or directory at the output path
+        before converting, as the ``--force`` option of the command line
+        interface does. Defaults to False.
     model_mapping : dict, optional
         A mapping returned by :meth:`tskit.TreeSequence.map_to_vcf_model`
         controlling how the tree sequence data model is mapped to VCF.
@@ -310,6 +315,8 @@ def convert(
     zarr.Group
         The root group of the Zarr store containing the converted data.
     """
+    if force and vcz_path is not None:
+        core.remove_path(vcz_path)
     # FIXME there's some tricky details here in how we're handling
     # parallelism that we'll need to tackle properly, and maybe
     # review the current structures a bit. Basically, it looks like

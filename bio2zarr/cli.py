@@ -199,13 +199,7 @@ def check_overwrite_dir(path, force):
                 f"Do you want to overwrite {path}? (use --force to skip this check)",
                 abort=True,
             )
-        # These trees can be mondo-big and on slow file systems, so it's entirely
-        # feasible that the delete would fail or be killed. This makes it less likely
-        # that partially deleted paths are mistaken for good paths.
-        tmp_delete_path = path.with_suffix(f"{path.suffix}.{os.getpid()}.DELETING")
-        logger.info(f"Deleting {path} (renamed to {tmp_delete_path} while in progress)")
-        os.rename(path, tmp_delete_path)
-        shutil.rmtree(tmp_delete_path)
+        core.remove_path(path)
 
 
 def check_partitions(num_partitions):
