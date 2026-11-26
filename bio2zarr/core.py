@@ -7,6 +7,9 @@ import json
 import logging
 import math
 import multiprocessing
+import os
+import pathlib
+import shutil
 import threading
 import time
 
@@ -36,6 +39,26 @@ def requires_optional_dependency(module_name, extras_name):
         return wrapper
 
     return decorator
+
+
+def remove_path(path):
+    """
+    Remove the file or directory at the specified path, if it exists.
+
+    Directory trees can be very large and on slow file systems the delete
+    could fail or be killed part way through, so they are renamed first.
+    This makes it less likely that a partially deleted tree is mistaken for
+    good data.
+    """
+    path = pathlib.Path(path)
+    if path.is_symlink() or path.is_file():
+        logger.info(f"Deleting {path}")
+        path.unlink()
+    elif path.is_dir():
+        tmp_delete_path = path.with_suffix(f"{path.suffix}.{os.getpid()}.DELETING")
+        logger.info(f"Deleting {path} (renamed to {tmp_delete_path} while in progress)")
+        os.rename(path, tmp_delete_path)
+        shutil.rmtree(tmp_delete_path)
 
 
 def display_number(x):

@@ -306,6 +306,7 @@ def convert(
     out=None,
     *,
     mode="r",
+    force=False,
     variants_chunk_size=None,
     samples_chunk_size=None,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
@@ -333,6 +334,10 @@ def convert(
         Mode in which the returned :class:`zarr.Group` is opened.
         Use ``"r"`` (default) for read-only access or ``"r+"`` for
         read-write access.
+    force : bool
+        If True, delete any existing file or directory at the output path
+        before converting, as the ``--force`` option of the command line
+        interface does. Defaults to False.
     variants_chunk_size : int, optional
         Number of variants per chunk. If None, a default is used.
     samples_chunk_size : int, optional
@@ -351,6 +356,8 @@ def convert(
     zarr.Group
         The root group of the Zarr store containing the converted data.
     """
+    if force and out is not None:
+        core.remove_path(out)
     plink_format = PlinkFormat(prefix)
     schema = plink_format.generate_schema(
         variants_chunk_size=variants_chunk_size,

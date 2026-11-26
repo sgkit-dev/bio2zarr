@@ -830,6 +830,7 @@ def convert(
     sample_file=None,
     sample_id_column=None,
     mode="r",
+    force=False,
     variants_chunk_size=None,
     samples_chunk_size=None,
     worker_processes=core.DEFAULT_WORKER_PROCESSES,
@@ -868,6 +869,10 @@ def convert(
     mode : str
         Returned group access mode, "r" (default) or "r+". Zip output is
         read-only and requires "r".
+    force : bool
+        If True, replace any existing file or directory at ``out``. The
+        existing output is only deleted once the new store is complete.
+        Defaults to False.
     variants_chunk_size, samples_chunk_size : int, optional
         Output chunk sizes. Defaults follow the other converters.
     worker_processes : int
@@ -972,7 +977,7 @@ def convert(
         if out is None:
             return vcz.encode(source, schema, **kwargs)
         out = pathlib.Path(out)
-        if out.exists():
+        if out.exists() and not force:
             raise ValueError("Zarr path already exists")
         # Numerical validation occurs during decoding. Publish only a complete
         # store, leaving the requested path absent on malformed input.
@@ -983,7 +988,9 @@ def convert(
             root = vcz.encode(source, schema, staged, **kwargs)
             root.store.close()
             if out.exists():
-                raise ValueError("Zarr path already exists")
+                if not force:
+                    raise ValueError("Zarr path already exists")
+                core.remove_path(out)
             os.rename(staged, out)
         store = zarr.storage.ZipStore(out, mode="r") if out.suffix == ".zip" else out
         return zarr.open(store, mode=mode)

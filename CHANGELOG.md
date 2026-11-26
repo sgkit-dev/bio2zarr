@@ -2,6 +2,10 @@
 
 *New features*
 
+- Add a ``force`` argument to the ``convert()`` functions in the Python API
+  (``vcf``, ``plink``, ``tskit`` and ``bgen``) to overwrite existing output,
+  like the ``--force`` CLI option (#415).
+
 - Add `bgen2zarr convert` and `bio2zarr.bgen.convert` using the `bgen-limix`
   optional backend, preserving genotype/haplotype probabilities and metadata
   with derived dosage. Support layouts 1/2, variable ploidy, Oxford `.sample`
