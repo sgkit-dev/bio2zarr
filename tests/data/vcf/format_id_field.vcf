@@ -1,8 +1,9 @@
 ##fileformat=VCFv4.2
 ##contig=<ID=1>
+##INFO=<ID=ALT,Number=.,Type=String,Description="INFO field with the name of a fixed column">
 ##FORMAT=<ID=ES,Number=A,Type=Float,Description="Effect size estimate relative to the alternative allele">
 ##FORMAT=<ID=SE,Number=A,Type=Float,Description="Standard error of effect size estimate">
 ##FORMAT=<ID=ID,Number=1,Type=String,Description="Study variant identifier">
 #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	study1	study2
-1	100	rs1	A	G	.	PASS	.	ES:SE:ID	0.1:0.01:id_a	-0.2:0.02:id_b
-1	200	rs2	C	T	.	PASS	.	ES:SE:ID	0.3:0.05:id_c	.:.:.
+1	100	rs1	A	G	.	PASS	ALT=x,y	ES:SE:ID	0.1:0.01:id_a	-0.2:0.02:id_b
+1	200	rs2	C	T	.	PASS	ALT=z	ES:SE:ID	0.3:0.05:id_c	.:.:.
