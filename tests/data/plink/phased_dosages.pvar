@@ -1,0 +1,5 @@
+##contig=<ID=1>
+#CHROM	POS	ID	REF	ALT
+1	1	v1	A	C
+1	2	v2	G	T
+1	3	v3	C	G

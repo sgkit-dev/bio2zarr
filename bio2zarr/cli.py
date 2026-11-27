@@ -602,6 +602,29 @@ vcf2zarr_main.add_command(dencode_finalise)
 @variants_chunk_size
 @samples_chunk_size
 @zarr_format
+@click.option(
+    "--input-format",
+    type=click.Choice(["auto", "bed", "pgen"]),
+    default="auto",
+    help="PLINK fileset format; auto rejects prefixes with both BED and PGEN.",
+)
+@click.option(
+    "--ploidy-mode",
+    type=click.Choice(["metadata", "diploid"]),
+    default="metadata",
+    help="PGEN: infer human chromosome ploidy or retain diploid encoding.",
+)
+@click.option(
+    "--genome-build",
+    type=click.Choice(["hg19", "hg38"]),
+    default=None,
+    help="PGEN: PAR boundaries for unsplit male X calls.",
+)
+@click.option(
+    "--dosages/--no-dosages",
+    default=True,
+    help="PGEN: export DS and HDS, including stored dosages (default: enabled).",
+)
 def convert_plink(
     in_path,
     zarr_path,
@@ -612,11 +635,16 @@ def convert_plink(
     variants_chunk_size,
     samples_chunk_size,
     zarr_format,
+    input_format,
+    ploidy_mode,
+    genome_build,
+    dosages,
 ):
     """
-    Convert plink fileset to VCF Zarr. Results are equivalent to
-    `plink1.9 --bfile prefix --keep-allele-order --recode vcf-iid --out tmp`
-    then running `vcf2zarr convert tmp.vcf zarr_path`
+    Convert PLINK 1 BED/BIM/FAM or PLINK 2 PGEN/PVAR/PSAM to VCF Zarr.
+
+    IN_PATH is the shared fileset prefix. PGEN exports hardcalls and dosages,
+    not phenotype/pedigree annotations; requires bio2zarr[plink2].
     """
     setup_logging(verbose)
     check_overwrite_dir(zarr_path, force)
@@ -628,6 +656,10 @@ def convert_plink(
         samples_chunk_size=samples_chunk_size,
         variants_chunk_size=variants_chunk_size,
         zarr_format=zarr_format,
+        input_format=input_format,
+        ploidy_mode=ploidy_mode,
+        genome_build=genome_build,
+        dosages=dosages,
     )
 
 

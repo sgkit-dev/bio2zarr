@@ -187,10 +187,14 @@ dependencies = [
 all = [
     { name = "bgen-limix" },
     { name = "cyvcf2" },
+    { name = "pgenlib" },
     { name = "tskit" },
 ]
 bgen = [
     { name = "bgen-limix" },
+]
+plink2 = [
+    { name = "pgenlib" },
 ]
 tskit = [
     { name = "tskit" },
@@ -211,6 +215,7 @@ dev = [
     { name = "hypothesis-vcf" },
     { name = "jupyter-book" },
     { name = "msprime" },
+    { name = "pgenlib", marker = "sys_platform != 'win32'" },
     { name = "prek" },
     { name = "pysam", marker = "sys_platform != 'win32'" },
     { name = "pytest" },
@@ -251,6 +256,7 @@ test = [
     { name = "dask", extra = ["array"] },
     { name = "hypothesis-vcf" },
     { name = "msprime" },
+    { name = "pgenlib", marker = "sys_platform != 'win32'" },
     { name = "pysam", marker = "sys_platform != 'win32'" },
     { name = "pytest" },
     { name = "pytest-coverage" },
@@ -272,13 +278,15 @@ requires-dist = [
     { name = "humanfriendly" },
     { name = "numpy", specifier = ">=2" },
     { name = "pandas" },
+    { name = "pgenlib", marker = "extra == 'all'", specifier = ">=0.95.1" },
+    { name = "pgenlib", marker = "extra == 'plink2'", specifier = ">=0.95.1" },
     { name = "tabulate" },
     { name = "tqdm" },
     { name = "tskit", marker = "extra == 'all'", specifier = ">=1" },
     { name = "tskit", marker = "extra == 'tskit'", specifier = ">=1" },
     { name = "zarr", specifier = ">=3.1" },
 ]
-provides-extras = ["tskit", "vcf", "bgen", "all"]
+provides-extras = ["tskit", "vcf", "plink2", "bgen", "all"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -292,6 +300,7 @@ dev = [
     { name = "hypothesis-vcf" },
     { name = "jupyter-book", specifier = "<2" },
     { name = "msprime" },
+    { name = "pgenlib", marker = "sys_platform != 'win32'", specifier = ">=0.95.1" },
     { name = "prek", specifier = "==0.3.3" },
     { name = "pysam", marker = "sys_platform != 'win32'" },
     { name = "pytest" },
@@ -332,6 +341,7 @@ test = [
     { name = "dask", extras = ["array"] },
     { name = "hypothesis-vcf" },
     { name = "msprime" },
+    { name = "pgenlib", marker = "sys_platform != 'win32'", specifier = ">=0.95.1" },
     { name = "pysam", marker = "sys_platform != 'win32'" },
     { name = "pytest" },
     { name = "pytest-coverage" },
@@ -1899,6 +1909,29 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9e/c3/059298687310d527a58bb01f3b1965787ee3b40dce76752eda8b44e9a2c5/pexpect-4.9.0-py2.py3-none-any.whl", hash = "sha256:7236d1e080e4936be2dc3e326cec0af72acf9212a7e1d060210e70a47e253523", size = 63772, upload-time = "2023-11-25T06:56:14.81Z" },
+]
+
+[[package]]
+name = "pgenlib"
+version = "0.95.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bd/e6/c1716e59574e2e7283c99a5fe1077d262da6e9b6b595b19c853ff3ca69e2/pgenlib-0.95.1.tar.gz", hash = "sha256:3807cbf34888a51bf5de60ad242d95258fc78619725c1410190e407c1c3aca20", size = 1167708, upload-time = "2026-10-02T13:15:18.681Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/82/70/5dce0eb3daa5c884ca34f810fc328c854e264aa07c407d33dad1a8a3ff56/pgenlib-0.95.1-cp311-cp311-macosx_10_9_universal2.whl", hash = "sha256:cbdc76df949662d216e26fe782b39fb55385c5241c6f06058775ddeebfbc7392", size = 2411650, upload-time = "2026-10-02T13:14:55.028Z" },
+    { url = "https://files.pythonhosted.org/packages/e3/cb/2b9f070707a9b2cc061ce94ff29566176bf8b53f7de873392b70af2b5105/pgenlib-0.95.1-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:05b971c527589f48af1f9442522898bee80ba6b994a132b84889c77fb1c17199", size = 5011338, upload-time = "2026-10-02T13:14:56.776Z" },
+    { url = "https://files.pythonhosted.org/packages/4b/8a/8f02ebffd320c10f1d2a82419c4d481eb23e329ad7a90d6fd023dc2f6aeb/pgenlib-0.95.1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:b0536d095b4e8bfcd35fdd9e8a86f6e959d5146aba0cf36b3a1b47c877aef264", size = 5224650, upload-time = "2026-10-02T13:14:59.199Z" },
+    { url = "https://files.pythonhosted.org/packages/54/08/ddcdf55e2aa1b795b0d7572699c20a3a536d801e3504e90de502ddbc9ac9/pgenlib-0.95.1-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:cc373a772006a283428b6616b7e1d57b5622e6a8e643d56c09a6ecdb7981b579", size = 2402382, upload-time = "2026-10-02T13:15:01.239Z" },
+    { url = "https://files.pythonhosted.org/packages/5b/5a/3305a86bb35e45d31ef55cd3aeac2190001cb8a3fccdb911254e7a71faa6/pgenlib-0.95.1-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:38c8817bf3c06e03b1e6c654f5e16636226a9b3b79cdb0a46e804208316f1c0c", size = 4969373, upload-time = "2026-10-02T13:15:03.025Z" },
+    { url = "https://files.pythonhosted.org/packages/b9/c8/0f536b55dea5b9b3f8b168560c6dce705d87ea53a5fc423298fc79417b7d/pgenlib-0.95.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:f3ae51db6ce60f790eeb3af053b1f97eec97092da2b69756710d813014f2396d", size = 5202488, upload-time = "2026-10-02T13:15:05.103Z" },
+    { url = "https://files.pythonhosted.org/packages/4a/0e/b3c0f150b27facdcfa510d2923ee0ad5d5589b2dc024bba0d0af3ee3a442/pgenlib-0.95.1-cp313-cp313-macosx_10_13_universal2.whl", hash = "sha256:89e97fa010c74317df897368404c2ba5a5a472719b226a3f7a85dbde2f8f5702", size = 2401992, upload-time = "2026-10-02T13:15:06.866Z" },
+    { url = "https://files.pythonhosted.org/packages/97/f1/95dd8d4bc955a40f16a168bf815415493268e7747f3098826f8fe0ee3666/pgenlib-0.95.1-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:01e2564a206830a601144a0022bdf2d9769939ff1ae4ae5e53b184af1ec6dfd5", size = 4947705, upload-time = "2026-10-02T13:15:08.555Z" },
+    { url = "https://files.pythonhosted.org/packages/55/8d/527c61ce50aadd0e435d685d9a9e6685093e7efa8dc16cefb77701cb47d0/pgenlib-0.95.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:05dc3c2bb00d933e63fd795bd94161f6a143254802d507dd876be8c067a807d1", size = 5196677, upload-time = "2026-10-02T13:15:10.48Z" },
+    { url = "https://files.pythonhosted.org/packages/dc/62/93132217494e8c211ed5679738e713292f20b7453e405514eb6b1448a243/pgenlib-0.95.1-cp314-cp314-macosx_10_15_universal2.whl", hash = "sha256:366c91dff6fa02c4d5ce52f62a1b198ca791167f8e81d0fc42b3246be7834b78", size = 2402921, upload-time = "2026-10-02T13:15:12.287Z" },
+    { url = "https://files.pythonhosted.org/packages/dd/90/84e42f20c05e44daef679a3719672f251f992189a84ccd11496af84eefd1/pgenlib-0.95.1-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:b56311f29879b2a8228df2f5e1ee35f351b8c819c4d12ccee5911a68bf67551f", size = 4967805, upload-time = "2026-10-02T13:15:14.021Z" },
+    { url = "https://files.pythonhosted.org/packages/bc/cb/6d5eab1675219d3e392002fb7968fbcef8ee6c90181d3b34c4bd8439136d/pgenlib-0.95.1-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:a736e888b4ffb66f89a28a55c356d7aca32238380ec71a6c9ebb249d5796d2f4", size = 5198283, upload-time = "2026-10-02T13:15:16.975Z" },
 ]
 
 [[package]]

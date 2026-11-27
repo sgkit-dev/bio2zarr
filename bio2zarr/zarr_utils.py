@@ -54,6 +54,10 @@ DEFAULT_COMPRESSOR_GENOTYPES_CONFIG = {
     "shuffle": numcodecs.Blosc.BITSHUFFLE,
     "blocksize": 0,
 }
+DEFAULT_COMPRESSOR_DOSAGES_CONFIG = {
+    **DEFAULT_COMPRESSOR_CONFIG,
+    "shuffle": numcodecs.Blosc.BITSHUFFLE,
+}
 
 _BLOSC_SHUFFLE_V3 = {
     numcodecs.Blosc.NOSHUFFLE: BloscShuffle.noshuffle,
