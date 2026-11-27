@@ -1694,9 +1694,10 @@ def convert(
         Use ``"r"`` (default) for read-only access or ``"r+"`` for
         read-write access.
     force : bool
-        If True, delete any existing file or directory at the output path
-        before converting, as the ``--force`` option of the command line
-        interface does. Defaults to False.
+        If True, replace any existing file or directory at ``vcz_path``. It
+        is removed after the VCFs have been exploded, just before the new
+        store is written. If ``icf_path`` is given, any existing ICF there is
+        also replaced. Defaults to False.
     variants_chunk_size : int, optional
         Number of variants per chunk. If None, a default is used.
     samples_chunk_size : int, optional
@@ -1721,11 +1722,11 @@ def convert(
     zarr.Group
         The root group of the Zarr store containing the converted data.
     """
-    if force and vcz_path is not None:
-        core.remove_path(vcz_path)
     if icf_path is None:
         cm = temp_icf_path(prefix="vcf2zarr")
     else:
+        if force:
+            core.remove_path(icf_path)
         cm = contextlib.nullcontext(icf_path)
 
     with cm as icf_path:
@@ -1746,6 +1747,7 @@ def convert(
             show_progress=show_progress,
             local_alleles=local_alleles,
             ploidy=ploidy,
+            force=force,
         )
 
 
@@ -1769,8 +1771,9 @@ def encode(
     show_progress=False,
     mode="r",
     zarr_format=None,
+    force=False,
 ):
-    with vcz.open_zarr(zarr_path, mode=mode) as zr:
+    with vcz.open_zarr(zarr_path, mode=mode, force=force) as zr:
         # Rough heuristic to split work up enough to keep utilisation high
         target_num_partitions = max(1, worker_processes * 4)
         encode_init(

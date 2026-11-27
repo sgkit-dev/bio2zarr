@@ -3,8 +3,8 @@
 *New features*
 
 - Add a ``force`` argument to the ``convert()`` functions in the Python API
-  (``vcf``, ``plink``, ``tskit`` and ``bgen``) to overwrite existing output,
-  like the ``--force`` CLI option (#415).
+  (``vcf``, ``plink``, ``tskit`` and ``bgen``) and to ``vcf.encode()`` to
+  overwrite existing output, like the ``--force`` CLI option (#415).
 
 - Add `bgen2zarr convert` and `bio2zarr.bgen.convert` using the `bgen-limix`
   optional backend, preserving genotype/haplotype probabilities and metadata
@@ -15,6 +15,17 @@
 
 - Fix conversion of VCFs with an INFO or FORMAT field that has the same name
   as a fixed column, such as FORMAT/ID in GWAS-VCF files (#345).
+
+- Fix ``--force`` when the output is an existing ``.vcz.zip`` file, which
+  failed with ``NotADirectoryError`` and left a ``.DELETING`` file behind
+  (#415).
+
+*Breaking changes*
+
+- The ``convert()`` functions and ``vcf.encode()`` now raise a ``ValueError``
+  if a ``.vcz.zip`` output already exists, as they already did for directory
+  output, instead of silently overwriting it. Use ``force=True`` to overwrite
+  (#415).
 
 # 0.2.1 2026-06-04
 
