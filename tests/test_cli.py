@@ -1223,6 +1223,23 @@ class TestZipOutput:
         root = zarr.open(zarr.storage.ZipStore(zip_path, mode="r"), mode="r")
         assert "variant_position" in root
 
+    def test_plink2zarr_convert_force_onto_existing_zip(self, tmp_path):
+        # Before core.remove_path() handled files, this failed with
+        # NotADirectoryError and left a .DELETING file behind.
+        plink_path = "tests/data/plink/example"
+        zip_path = tmp_path / "sample.vcz.zip"
+        zip_path.write_text("existing data")
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.plink2zarr_main,
+            ["convert", plink_path, str(zip_path), "--force"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        root = zarr.open(zarr.storage.ZipStore(zip_path, mode="r"), mode="r")
+        assert "variant_position" in root
+        assert list(tmp_path.glob("*.DELETING")) == []
+
     def test_tskit2zarr_convert_zip(self, tmp_path):
         ts_path = "tests/data/tskit/example.trees"
         zip_path = tmp_path / "sample.vcz.zip"

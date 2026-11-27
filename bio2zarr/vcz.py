@@ -574,7 +574,7 @@ class ZarrWriteResult:
 
 
 @contextlib.contextmanager
-def open_zarr(zarr_path, mode="r"):
+def open_zarr(zarr_path, mode="r", force=False):
     """Context manager that resolves zarr_path to a working directory path.
 
     Yields a ZarrWriteResult whose ``dir`` field is the directory to write to.
@@ -583,7 +583,16 @@ def open_zarr(zarr_path, mode="r"):
     - zarr_path is None: uses temp dir, root is a MemoryStore-backed group
     - zarr_path ends with .zip: strips suffix, root is a ZipStore-backed group
     - otherwise: uses path directly, root is a directory-backed group
+
+    If zarr_path already exists, raise a ValueError, unless force is True, in
+    which case the existing file or directory is removed.
     """
+    if zarr_path is not None:
+        path = pathlib.Path(zarr_path)
+        if path.exists() or path.is_symlink():
+            if not force:
+                raise ValueError("Zarr path already exists")
+            core.remove_path(path)
     if zarr_path is None:
         with tempfile.TemporaryDirectory(prefix="bio2zarr_") as tmp:
             result = ZarrWriteResult(dir=pathlib.Path(tmp) / "zarr")
@@ -611,6 +620,7 @@ def encode(
     show_progress=False,
     zarr_format=None,
     writer_class=None,
+    force=False,
 ):
     """Encode a source format object into a Zarr store.
 
@@ -640,6 +650,9 @@ def encode(
     writer_class : type, optional
         Writer implementation, default :class:`VcfZarrWriter`. Specialised
         writers can share the lifecycle while encoding fields together.
+    force : bool
+        If True, replace any existing file or directory at ``zarr_path``.
+        Otherwise an existing path raises a ValueError.
 
     Returns
     -------
@@ -647,7 +660,7 @@ def encode(
         The root group of the Zarr store containing the encoded data.
     """
     source_type = type(source_format)
-    with open_zarr(zarr_path, mode=mode) as zr:
+    with open_zarr(zarr_path, mode=mode, force=force) as zr:
         writer_class = VcfZarrWriter if writer_class is None else writer_class
         vzw = writer_class(source_type, zr.dir, zarr_format=zarr_format)
         # Rough heuristic to split work up enough to keep utilisation high
